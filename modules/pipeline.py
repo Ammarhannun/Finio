@@ -1,19 +1,31 @@
 import pandas as pd
 
-from config import DISCLAIMER
+from config import DISCLAIMER, FLOW_EXPENSE
 from modules.ai_coach import build_context
 from modules.analytics import analyze
 from modules.bank_parser import parse_bank_csv
 from modules.bill_detector import detect_bills
 from modules.budget_setter import suggest_budgets
 from modules.categoriser import categorise_data
-from modules.data_processor import process_transactions
+from modules.data_processor import add_flags, compute_metrics
 from modules.history import build_snapshot
 from modules.invest import invest_summary
+from modules.period import available_months, filter_window, resolve_periods
 from modules.personality import score_personality
 from modules.savings_forecaster import forecast_goal, recommend_goal
 
 DEFAULT_AGE = 22
+
+
+def _category_spend(df):
+    """Spend per category for expense-flow rows (used for the budget baseline)."""
+    if df.empty:
+        return {}
+    expenses = df[df["flow"] == FLOW_EXPENSE].copy()
+    if expenses.empty:
+        return {}
+    expenses["amount_abs"] = expenses["amount"].abs()
+    return expenses.groupby("category")["amount_abs"].sum().to_dict()
 
 
 def run_full_pipeline(
@@ -24,11 +36,27 @@ def run_full_pipeline(
     age=None,
     overrides=None,
     budget_targets=None,
+    period=None,
+    period_anchor=None,
+    period_start=None,
+    period_end=None,
 ):
-    df = parse_bank_csv(csv_path)
-    df, metrics = process_transactions(df, overrides=overrides)
-    df = categorise_data(df)
-    bills = detect_bills(df)
+    # Parse, flag and categorise the FULL history once. Bills (which need
+    # recurrence) and the budget baseline read from this; period-scoped numbers
+    # read from the filtered slice below.
+    full = parse_bank_csv(csv_path)
+    full = add_flags(full, overrides=overrides)
+    full = categorise_data(full)
+
+    periods = resolve_periods(
+        full, period=period, anchor=period_anchor,
+        start=period_start, end=period_end,
+    )
+    df = filter_window(full, *periods["current"])
+    prior_df = filter_window(full, *periods["prior"])
+
+    metrics = compute_metrics(df)
+    bills = detect_bills(full)
 
     # No goal supplied yet → recommend one from the user's actual numbers so the
     # dashboard has something sensible to show before they confirm/edit it.
@@ -42,7 +70,8 @@ def run_full_pipeline(
 
     forecast = forecast_goal(df, goal_amount, goal_date)
     analysis = analyze(df, metrics, bills)
-    budgets = suggest_budgets(df, metrics, targets=budget_targets)
+    baseline = _category_spend(prior_df) or None
+    budgets = suggest_budgets(df, metrics, targets=budget_targets, baseline=baseline)
     invest = invest_summary(df, metrics, forecast, goal_amount, age=age)
     personality = score_personality(df, metrics, analysis, bills)
     snapshot = build_snapshot(df, metrics, analysis, bills)
@@ -66,6 +95,13 @@ def run_full_pipeline(
         "transactions": transactions,
         "goal_recommendation": recommendation,
         "goal_used": {"amount": goal_amount, "target_date": goal_date, "age": age},
+        "period": {
+            "selected": periods["period"],
+            "label": periods["label"],
+            "start": periods["current"][0].strftime("%Y-%m-%d"),
+            "end": periods["current"][1].strftime("%Y-%m-%d"),
+            "available_months": available_months(full),
+        },
         "disclaimer": DISCLAIMER,
     }
 

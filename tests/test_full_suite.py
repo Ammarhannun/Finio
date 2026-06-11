@@ -562,6 +562,7 @@ def _():
         "transactions",
         "goal_recommendation",
         "goal_used",
+        "period",
         "disclaimer",
     }
     assert_eq(set(r.keys()), keys)

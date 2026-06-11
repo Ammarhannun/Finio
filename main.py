@@ -38,6 +38,9 @@ async def analyze_csv(
     goal_amount: Optional[float] = Form(None),
     goal_date: Optional[str] = Form(None),
     age: Optional[int] = Form(None),
+    period: Optional[str] = Form(None),
+    period_start: Optional[str] = Form(None),
+    period_end: Optional[str] = Form(None),
     user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     filename = (file.filename or "").lower()
@@ -57,6 +60,9 @@ async def analyze_csv(
             goal_amount=goal_amount,
             goal_date=goal_date,
             age=age,
+            period=period,
+            period_start=period_start,
+            period_end=period_end,
         )
 
         if user:
