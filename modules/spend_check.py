@@ -3,7 +3,7 @@ from config import DISCLAIMER
 SAFETY_BUFFER_DAYS = 7
 
 def check_purchase(df, metrics, purchase_amount, days_ahead=30):
-    current = metrics["total_income"] - metrics["total_spent"]
+    current = metrics["net_saved"]
     burn = metrics["daily_burn_rate"]
     safety_buffer = round(burn * SAFETY_BUFFER_DAYS, 2)
     projected = round(

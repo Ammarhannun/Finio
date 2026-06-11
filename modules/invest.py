@@ -1,5 +1,5 @@
 import pandas as pd
-from config import DISCLAIMER, ETF_OPTIONS
+from config import DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
 
 NEEDS_PCT = 50
 WANTS_PCT = 30
@@ -22,7 +22,10 @@ def split_income_503020(monthly_income):
 
 
 def compare_to_actual(df, metrics, split):
-    expenses = df[df["amount"] < 0].copy()
+    if "flow" in df.columns:
+        expenses = df[df["flow"] == FLOW_EXPENSE].copy()
+    else:
+        expenses = df[df["amount"] < 0].copy()
     expenses["amount_abs"] = expenses["amount"].abs()
 
     needs_spent = expenses.loc[
@@ -31,7 +34,7 @@ def compare_to_actual(df, metrics, split):
     wants_spent = expenses.loc[
         expenses["category"].isin(WANTS_CATEGORIES), "amount_abs"
     ].sum()
-    actual_saved = metrics["total_income"] - metrics["total_spent"]
+    actual_saved = metrics["net_saved"]
 
     return {
         "needs_spent": round(needs_spent, 2),
@@ -82,8 +85,9 @@ def first_1000_plan(current_saved):
 
 
 def invest_readiness(metrics, compare, forecast_result):
-    saved = metrics["total_income"] - metrics["total_spent"]
-    savings_rate = (saved / metrics["total_income"] * 100) if metrics["total_income"] else 0
+    saved = metrics["net_saved"]
+    # Single source of truth (may be None when income is negligible → treat as 0%).
+    savings_rate = metrics.get("savings_rate") or 0
 
     if saved < MIN_BUFFER_TO_INVEST:
         return {

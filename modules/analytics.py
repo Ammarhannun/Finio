@@ -1,11 +1,12 @@
 import pandas as pd
-from config import DISCLAIMER, TRANSFERS_LABEL
+from config import DISCLAIMER, FLOW_EXPENSE, TRANSFERS_LABEL
 
 def category_breakdown(df):
-    expenses = df[df["amount"] < 0].copy()
-    # Transfers are internal movements, not spend — keep them out of the breakdown.
-    if "is_transfer" in expenses.columns:
-        expenses = expenses[~expenses["is_transfer"]]
+    # Spend = expense-flow rows only; transfers/income never enter the breakdown.
+    if "flow" in df.columns:
+        expenses = df[df["flow"] == FLOW_EXPENSE].copy()
+    else:
+        expenses = df[df["amount"] < 0].copy()
     expenses = expenses[expenses["category"] != TRANSFERS_LABEL]
     expenses["amount_abs"] = expenses["amount"].abs()
     totals = expenses.groupby("category")["amount_abs"].sum()
@@ -22,7 +23,10 @@ def category_breakdown(df):
 
 def detect_patterns(df, metrics, bills):
     patterns = []
-    expenses = df[df["amount"] < 0].copy()
+    if "flow" in df.columns:
+        expenses = df[df["flow"] == FLOW_EXPENSE].copy()
+    else:
+        expenses = df[df["amount"] < 0].copy()
     expenses["amount_abs"] = expenses["amount"].abs()
     breakdown = category_breakdown(df)
 
@@ -44,9 +48,8 @@ def detect_patterns(df, metrics, bills):
                 "message": f"Weekend spend (${weekend:.2f}) beats weekdays (${weekday:.2f}).",
             })
 
-    savings = metrics["total_income"] - metrics["total_spent"]
-    if metrics["total_income"] > 0:
-        save_pct = round((savings / metrics["total_income"]) * 100, 1)
+    save_pct = metrics.get("savings_rate")
+    if save_pct is not None:
         if save_pct < 10:
             patterns.append({
                 "type": "low_savings",
