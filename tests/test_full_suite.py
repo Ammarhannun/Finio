@@ -395,7 +395,7 @@ def _():
 def _():
     from modules.invest import invest_readiness
 
-    metrics = {"total_income": 1000, "total_spent": 950}
+    metrics = {"total_income": 1000, "total_spent": 950, "net_saved": 50, "savings_rate": 5.0}
     compare = {"savings_gap": -100}
     forecast = {"on_track": True}
     r = invest_readiness(metrics, compare, forecast)
@@ -547,6 +547,8 @@ def _():
     metrics = {
         "total_income": 1000,
         "total_spent": 1500,
+        "net_saved": -500,
+        "savings_rate": None,
         "date_range": {"start": "2026-01-01", "end": "2026-01-31", "days": 30},
     }
     rec = recommend_goal(metrics)

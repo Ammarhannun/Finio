@@ -22,9 +22,10 @@ def run_full_pipeline(
     goal_amount=None,
     goal_date=None,
     age=None,
+    overrides=None,
 ):
     df = parse_bank_csv(csv_path)
-    df, metrics = process_transactions(df)
+    df, metrics = process_transactions(df, overrides=overrides)
     df = categorise_data(df)
     bills = detect_bills(df)
 
@@ -46,7 +47,7 @@ def run_full_pipeline(
     snapshot = build_snapshot(df, metrics, analysis, bills)
     context = build_context(metrics, analysis, bills, budgets, invest, personality)
 
-    tx = df[["date", "amount", "description", "category", "is_expense"]].copy()
+    tx = df[["date", "amount", "description", "category", "is_expense", "flow"]].copy()
     tx["date"] = tx["date"].dt.strftime("%Y-%m-%d")
     tx = tx.rename(columns={"description": "merchant"})
     transactions = tx.to_dict("records")
@@ -70,9 +71,19 @@ def run_full_pipeline(
 
 def _transactions_to_df(transactions):
     """Rebuild a minimal DataFrame from stored transaction rows."""
+    from config import FLOW_EXPENSE, FLOW_INCOME, FLOW_TRANSFER, TRANSFERS_LABEL
+
     df = pd.DataFrame(transactions)
     df["date"] = pd.to_datetime(df["date"])
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+
+    # Restore flow so recompute matches the original analysis. Older snapshots
+    # without a stored flow fall back to category/amount.
+    if "flow" not in df.columns:
+        df["flow"] = FLOW_EXPENSE
+        df.loc[df.get("category") == TRANSFERS_LABEL, "flow"] = FLOW_TRANSFER
+        df.loc[(df["flow"] != FLOW_TRANSFER) & (df["amount"] > 0), "flow"] = FLOW_INCOME
+    df["is_transfer"] = df["flow"] == FLOW_TRANSFER
     return df
 
 

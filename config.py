@@ -122,6 +122,16 @@ CATEGORY_RULES = [
 CURRENCY = "AUD"
 DISCLAIMER = "General information only, not financial advice"
 
+# Savings-rate guard: below this much real (non-transfer) income, a percentage
+# is meaningless (e.g. a statement funded entirely by transfers), so the single
+# source of truth reports savings_rate = None instead of a wild number.
+MIN_INCOME_FOR_RATE = 100.0
+
+# Flow types — the canonical classification every transaction carries.
+FLOW_INCOME = "income"
+FLOW_EXPENSE = "expense"
+FLOW_TRANSFER = "transfer"
+
 # ASX ETFs mentioned in the plan
 ETF_OPTIONS = ["VGS", "A200", "NDQ"]
 

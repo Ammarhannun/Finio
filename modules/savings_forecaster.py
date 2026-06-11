@@ -9,13 +9,11 @@ def recommend_goal(metrics, horizon_months=6):
     Picks a horizon a few months out and scales the target to roughly what the
     user already saves per month, so it feels achievable rather than arbitrary.
     """
-    income = metrics.get("total_income", 0) or 0
-    spent = metrics.get("total_spent", 0) or 0
     date_range = metrics.get("date_range", {}) or {}
     days = date_range.get("days") or 30
     end = date_range.get("end")
 
-    saved = income - spent
+    saved = metrics.get("net_saved", 0) or 0
     monthly_saved = (saved / days) * 30 if days else 0
 
     base = pd.Timestamp(end) if end else pd.Timestamp.today()
@@ -48,6 +46,10 @@ def recommend_goal(metrics, horizon_months=6):
 def forecast_goal(df, target_amount, target_date):
     target_date = pd.Timestamp(target_date)
     df = df.copy()
+    # Exclude transfers so current_saved equals the canonical net_saved
+    # (income - spend), matching the dashboard and every other page.
+    if "is_transfer" in df.columns:
+        df = df[~df["is_transfer"]]
     start_date = df["date"].min()
     last_date = df["date"].max()
     daily = df.groupby("date", as_index=False)["amount"].sum()

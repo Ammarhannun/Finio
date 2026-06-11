@@ -25,7 +25,7 @@ def get_client():
 
 
 def build_context(metrics, analysis, bills, budgets=None, invest=None, personality=None):
-    saved = round(metrics["total_income"] - metrics["total_spent"], 2)
+    saved = metrics["net_saved"]
     breakdown = analysis.get("category_breakdown", [])[:3]
     patterns = [p["message"] for p in analysis.get("patterns", [])]
 
