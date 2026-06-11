@@ -1,0 +1,20 @@
+# Finio — Python 3.9+
+# Backend
+fastapi>=0.115.0,<0.116
+uvicorn[standard]>=0.32.0,<0.33
+python-multipart>=0.0.12
+
+# Data + ML
+pandas>=2.2.0,<2.3
+numpy>=1.26.0,<2.0
+scikit-learn>=1.5.0,<1.6
+
+# PDF bank statement parsing (text-based PDFs)
+pdfplumber>=0.11.0,<0.12
+
+# AI + database
+openai>=1.55.0,<2.0
+supabase>=2.10.0,<3.0
+
+# Config
+python-dotenv>=1.0.0,<2.0

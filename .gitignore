@@ -1,0 +1,35 @@
+# Secrets — never commit
+.env
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data (optional — uncomment if you add real bank CSVs)
+# data/*.csv
+# !data/sample_transactions.csv
+data/snapshots/
+
+# Real bank statements — sensitive (real names/transfers), never commit
+data/real_statement.pdf
+*TransactionSummary*

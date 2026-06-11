@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <!-- Loading -->
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your data…</div>
+
+  <!-- Upload section (no analysis yet) -->
+  <div id="upload-section" style="display:none;">
+    <div class="page-header">
+      <h1>Welcome to Finio 👋</h1>
+      <p>Upload your bank statement (CSV or PDF) to get your personal money analysis</p>
+    </div>
+
+    <div class="card">
+      <div class="upload-zone">
+        <div class="upload-icon">📄</div>
+        <p>Upload a CSV or PDF bank statement from your banking app</p>
+      </div>
+
+      <form id="upload-form">
+        <div class="form-group">
+          <label for="csv-file">Bank statement (CSV or PDF)</label>
+          <input type="file" id="csv-file" accept=".csv,.pdf" required>
+        </div>
+        <p style="color:var(--muted);font-size:0.8125rem;margin:-0.25rem 0 1rem;">
+          We'll analyse your spending first, then help you set a savings goal.
+        </p>
+        <div id="upload-error" class="form-error"></div>
+        <button type="submit" class="btn btn-primary btn-full" id="upload-btn">
+          Analyse my spending →
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard data section -->
+  <div id="data-section" style="display:none;">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+      <div>
+        <h1>Dashboard</h1>
+        <p id="date-range" style="color:var(--muted);"></p>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        <span id="streak-badge" class="streak-badge" style="display:none;"></span>
+        <button id="reupload-btn" class="btn btn-outline" style="padding:0.45rem 1rem;font-size:0.8125rem;">
+          Upload new statement
+        </button>
+      </div>
+    </div>
+
+    <!-- Metric cards -->
+    <div class="cards-row">
+      <div class="card metric-card">
+        <div class="label">Income</div>
+        <div class="value" id="m-income">—</div>
+        <div class="sub">total received</div>
+      </div>
+      <div class="card metric-card">
+        <div class="label">Spent</div>
+        <div class="value" id="m-spent" style="color:var(--red)">—</div>
+        <div class="sub" id="m-daily">—</div>
+      </div>
+      <div class="card metric-card">
+        <div class="label">Saved</div>
+        <div class="value" id="m-saved" style="color:var(--green)">—</div>
+        <div class="sub" id="m-savings-rate">—</div>
+      </div>
+    </div>
+
+    <!-- Savings goal card -->
+    <div class="card" style="margin-bottom:1.5rem;" id="goal-card">
+      <div class="section-title">Your savings goal</div>
+      <p id="goal-rationale" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;"></p>
+
+      <div id="goal-progress" style="margin-bottom:1.25rem;"></div>
+
+      <form id="goal-form">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label for="goal-amount">Target amount ($AUD)</label>
+            <input type="number" id="goal-amount" min="100" step="100" required>
+          </div>
+          <div class="form-group">
+            <label for="goal-date">Target date</label>
+            <input type="date" id="goal-date" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="goal-age">Your age <span style="color:var(--muted);font-weight:400;">(for invest tips)</span></label>
+          <input type="number" id="goal-age" min="16" max="100" placeholder="24">
+        </div>
+        <div id="goal-error" class="form-error"></div>
+        <button type="submit" class="btn btn-primary" id="goal-btn">Save goal</button>
+      </form>
+    </div>
+
+    <!-- Budget bars -->
+    <div class="card" style="margin-bottom:1.5rem;" id="budgets-card">
+      <div class="section-title">Budget breakdown</div>
+      <div id="budget-bars"></div>
+    </div>
+
+    <!-- Personality card -->
+    <div class="card personality-card" style="margin-bottom:1.5rem;">
+      <div class="section-title">Your money personality</div>
+      <div id="personality-type" class="personality-type"></div>
+      <div id="personality-meta" style="color:var(--muted);font-size:0.875rem;margin:0.25rem 0 1rem;"></div>
+      <div class="section-title" style="margin-bottom:0.75rem;">Action plan</div>
+      <div id="action-plan"></div>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+
+  setupNav('dashboard');
+
+  const loadingEl = document.getElementById('loading');
+  const uploadSection = document.getElementById('upload-section');
+  const dataSection = document.getElementById('data-section');
+
+  function showLoading(msg = 'Loading your data…') {
+    loadingEl.innerHTML = `<div class="spinner"></div> ${msg}`;
+    loadingEl.style.display = 'flex';
+    uploadSection.style.display = 'none';
+    dataSection.style.display = 'none';
+  }
+
+  function showUpload() {
+    loadingEl.style.display = 'none';
+    uploadSection.style.display = 'block';
+    dataSection.style.display = 'none';
+  }
+
+  function renderDashboard(data) {
+    loadingEl.style.display = 'none';
+    uploadSection.style.display = 'none';
+    dataSection.style.display = 'block';
+
+    const { metrics, budgets, personality, streak } = data;
+
+    // Date range
+    if (metrics?.date_range) {
+      const dr = metrics.date_range;
+      document.getElementById('date-range').textContent =
+        `${dr.start} → ${dr.end}  ·  ${dr.days} days`;
+    }
+
+    // Streak badge
+    const streakBadge = document.getElementById('streak-badge');
+    if (streak?.current_streak > 0) {
+      streakBadge.textContent = `🔥 ${streak.current_streak}-week streak`;
+      streakBadge.style.display = 'inline-flex';
+    }
+
+    // Metrics
+    const income = metrics?.total_income || 0;
+    const spent = metrics?.total_spent || 0;
+    const saved = income - spent;
+    const savingsRate = income > 0 ? ((saved / income) * 100).toFixed(1) : 0;
+
+    document.getElementById('m-income').textContent = formatAUD(income);
+    document.getElementById('m-spent').textContent = formatAUD(spent);
+    document.getElementById('m-saved').textContent = formatAUD(saved);
+    document.getElementById('m-daily').textContent =
+      metrics?.daily_burn_rate ? `${formatAUD(metrics.daily_burn_rate)}/day` : '';
+    document.getElementById('m-savings-rate').textContent = `${savingsRate}% savings rate`;
+
+    // Budget bars
+    const budgetList = budgets?.budgets || [];
+    const barsEl = document.getElementById('budget-bars');
+    if (budgetList.length) {
+      barsEl.innerHTML = budgetList.map(b => {
+        const headroom = b.headroom_pct ?? 0;
+        const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
+        const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
+        return `
+          <div style="margin-bottom:1.1rem;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
+              <span style="font-weight:500;">${b.category}</span>
+              <span style="color:var(--muted);">${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div>
+            </div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">
+              ${headroom.toFixed(0)}% headroom left
+            </div>
+          </div>`;
+      }).join('');
+    } else {
+      barsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No budget data available</p>';
+    }
+
+    renderGoal(data);
+
+    // Personality
+    if (personality) {
+      document.getElementById('personality-type').textContent =
+        personality.personality_type || 'Unknown';
+      const sr = personality.savings_rate != null
+        ? `Savings rate: ${(personality.savings_rate * 100).toFixed(1)}%`
+        : '';
+      document.getElementById('personality-meta').textContent = sr;
+
+      const actions = personality.action_plan || [];
+      document.getElementById('action-plan').innerHTML = actions.length
+        ? actions.map(a =>
+            `<div class="action-plan-item"><span class="action-bullet">→</span><span>${a}</span></div>`
+          ).join('')
+        : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet — upload a statement to get personalised tips</p>';
+    }
+  }
+
+  // ── Savings goal ──
+  function renderGoal(data) {
+    const { goal, goal_recommendation: rec, forecast } = data;
+    const rationaleEl = document.getElementById('goal-rationale');
+    const progressEl = document.getElementById('goal-progress');
+
+    // Prefill the form from the saved goal, falling back to the AI recommendation
+    const amount = goal?.target_amount ?? rec?.amount ?? '';
+    const targetDate = (goal?.target_date ?? rec?.target_date ?? '').slice(0, 10);
+    document.getElementById('goal-amount').value = amount;
+    document.getElementById('goal-date').value = targetDate;
+
+    rationaleEl.textContent = rec?.rationale
+      ? `💡 Coach suggestion: ${rec.rationale}`
+      : 'Set a savings goal and your coach will track your progress.';
+
+    if (forecast && goal) {
+      const current = forecast.current_saved ?? 0;
+      const target = goal.target_amount || 1;
+      const pct = Math.min(100, Math.max(0, Math.round((current / target) * 100)));
+      const onTrack = forecast.on_track;
+      const statusColor = onTrack ? 'var(--green)' : 'var(--red)';
+      const statusText = onTrack ? 'On track 🎉' : 'Not on track yet';
+      progressEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
+          <span>${formatAUD(current)} saved of ${formatAUD(target)}</span>
+          <span style="color:${statusColor};font-weight:600;">${statusText}</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill ${onTrack ? 'green' : 'yellow'}" style="width:${pct}%"></div>
+        </div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem;">
+          Projected ${formatAUD(forecast.projected_total)} by ${(forecast.target_date || '').slice(0, 10)}
+          · ${forecast.days_remaining ?? 0} days left
+        </div>`;
+    } else {
+      progressEl.innerHTML = '';
+    }
+  }
+
+  document.getElementById('goal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('goal-btn');
+    const errEl = document.getElementById('goal-error');
+    errEl.style.display = 'none';
+
+    const amount = parseFloat(document.getElementById('goal-amount').value);
+    const targetDate = document.getElementById('goal-date').value;
+    const ageVal = document.getElementById('goal-age').value;
+
+    if (!amount || amount <= 0 || !targetDate) {
+      errEl.textContent = 'Enter a target amount and date';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const body = { amount, target_date: targetDate };
+    if (ageVal) body.age = parseInt(ageVal, 10);
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      await apiFetch('/goal', { method: 'POST', body: JSON.stringify(body) });
+      const data = await apiFetch('/dashboard');
+      renderDashboard(data);
+      showToast('Goal updated! 🎯');
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not save goal';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save goal';
+    }
+  });
+
+  // ── Upload form ──
+  document.getElementById('upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('upload-btn');
+    const errEl = document.getElementById('upload-error');
+    errEl.style.display = 'none';
+
+    const file = document.getElementById('csv-file').files[0];
+    if (!file) {
+      errEl.textContent = 'Please select a CSV or PDF file';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    btn.disabled = true;
+    btn.textContent = 'Analysing…';
+    showLoading('Analysing your spending… this may take a moment');
+
+    try {
+      await apiFetch('/analyze', { method: 'POST', body: fd });
+      const data = await apiFetch('/dashboard');
+      renderDashboard(data);
+      showToast('Analysis complete! 🎉');
+    } catch (err) {
+      showUpload();
+      errEl.textContent = err.message || 'Upload failed — please try again';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Analyse my spending →';
+    }
+  });
+
+  document.getElementById('reupload-btn').addEventListener('click', showUpload);
+
+  // ── Init ──
+  async function init() {
+    try {
+      await requireAuth();
+      showLoading();
+      const data = await apiFetch('/dashboard');
+      renderDashboard(data);
+    } catch (err) {
+      if (err.message === 'no_analysis' || err.status === 404) {
+        showUpload();
+      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        showUpload();
+        showToast(err.message);
+      }
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

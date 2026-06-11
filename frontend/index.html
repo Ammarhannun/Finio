@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — Login</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">Finio</div>
+    <p class="auth-tagline">Your AI money coach for young Australians 🇦🇺</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Log in</button>
+      <button class="auth-tab" data-tab="signup">Sign up</button>
+    </div>
+
+    <div id="auth-error" class="auth-error"></div>
+    <div id="auth-success" class="auth-success"></div>
+
+    <form id="auth-form">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password" minlength="6">
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" id="auth-btn">Log in</button>
+    </form>
+
+    <p class="disclaimer" style="margin-top:1.5rem;">General information only, not financial advice</p>
+  </div>
+</div>
+
+<script type="module">
+  import { supabase, getSession } from './api.js';
+
+  // Already signed in → skip to dashboard
+  getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
+
+  let mode = 'login';
+  const tabs = document.querySelectorAll('.auth-tab');
+  const btn = document.getElementById('auth-btn');
+  const errorEl = document.getElementById('auth-error');
+  const successEl = document.getElementById('auth-success');
+
+  function setMode(m) {
+    mode = m;
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === m));
+    btn.textContent = m === 'login' ? 'Log in' : 'Create account';
+    errorEl.style.display = 'none';
+    successEl.style.display = 'none';
+    document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  }
+
+  tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
+
+  document.getElementById('auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    errorEl.style.display = 'none';
+    successEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = mode === 'login' ? 'Logging in…' : 'Creating account…';
+
+    try {
+      if (mode === 'login') {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        window.location.href = 'dashboard.html';
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        successEl.textContent = 'Check your email to confirm your account, then log in here.';
+        successEl.style.display = 'block';
+        setMode('login');
+      }
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = mode === 'login' ? 'Log in' : 'Create account';
+    }
+  });
+</script>
+</body>
+</html>

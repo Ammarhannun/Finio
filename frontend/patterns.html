@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — Patterns</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading" class="loading"><div class="spinner"></div> Loading patterns…</div>
+
+  <div id="no-data" style="display:none;">
+    <div class="no-data">
+      <div class="icon">📊</div>
+      <h3>No data yet</h3>
+      <p>Upload a statement on the Dashboard to see your spending patterns</p>
+      <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="page-header">
+      <h1>Spending patterns</h1>
+      <p>What your spending habits are telling you</p>
+    </div>
+
+    <!-- Risk score -->
+    <div id="risk-card" class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:0.35rem;">Risk score</div>
+        <div id="risk-score" style="font-size:2.5rem;font-weight:800;letter-spacing:-0.03em;">—</div>
+      </div>
+      <div style="flex:1;">
+        <div id="risk-label" style="font-size:1.125rem;font-weight:600;margin-bottom:0.35rem;">—</div>
+        <div style="font-size:0.875rem;color:var(--muted);">Based on your recent transactions</div>
+      </div>
+    </div>
+
+    <!-- Pattern cards -->
+    <div class="section-title">Detected patterns</div>
+    <div id="patterns-list" style="margin-bottom:2rem;"></div>
+
+    <!-- Two-column: category chart + recurring bills -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem;">
+      <div class="card">
+        <div class="section-title">Category breakdown</div>
+        <div class="chart-container">
+          <canvas id="category-chart"></canvas>
+        </div>
+        <div id="category-legend" style="margin-top:1rem;"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">Recurring bills</div>
+        <div id="bills-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass } from './api.js';
+
+  setupNav('patterns');
+
+  const CHART_COLORS = [
+    '#7c6fff','#22c55e','#f59e0b','#ef4444','#06b6d4',
+    '#a855f7','#f97316','#84cc16','#ec4899','#14b8a6',
+  ];
+
+  function renderPatterns(data) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    const { analysis, bills } = data;
+
+    // Risk score
+    const riskScore = analysis?.risk_score;
+    const riskLabel = analysis?.risk_label || '—';
+    const riskEl = document.getElementById('risk-score');
+    riskEl.textContent = riskScore != null ? riskScore : '—';
+    if (riskScore != null) {
+      riskEl.style.color = riskScore >= 70 ? 'var(--red)' : riskScore >= 40 ? 'var(--yellow)' : 'var(--green)';
+    }
+    document.getElementById('risk-label').textContent = riskLabel;
+
+    // Patterns
+    const patterns = analysis?.patterns || [];
+    const patternsEl = document.getElementById('patterns-list');
+    if (patterns.length) {
+      patternsEl.innerHTML = patterns.map(p => {
+        const sc = severityClass(p.severity);
+        return `
+          <div class="pattern-card severity-${p.severity?.toLowerCase() || 'medium'}">
+            <div>
+              <div class="pattern-message">${p.message}</div>
+              <div class="pattern-type">${p.type || ''}</div>
+            </div>
+            <span class="badge badge-${sc}">${p.severity || 'info'}</span>
+          </div>`;
+      }).join('');
+    } else {
+      patternsEl.innerHTML = '<p style="color:var(--muted);font-size:0.9rem;">No patterns detected yet</p>';
+    }
+
+    // Category chart
+    const categories = analysis?.category_breakdown || [];
+    if (categories.length) {
+      const ctx = document.getElementById('category-chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: categories.map(c => c.category),
+          datasets: [{
+            data: categories.map(c => c.amount),
+            backgroundColor: CHART_COLORS.slice(0, categories.length),
+            borderColor: '#0f0f17',
+            borderWidth: 2,
+            hoverOffset: 8,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          cutout: '65%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const c = categories[ctx.dataIndex];
+                  return ` ${new Intl.NumberFormat('en-AU',{style:'currency',currency:'AUD'}).format(c.amount)} (${c.pct?.toFixed(1)}%)`;
+                },
+              },
+              backgroundColor: '#1a1a26',
+              borderColor: '#2a2a3e',
+              borderWidth: 1,
+              titleColor: '#e8e8f0',
+              bodyColor: '#8888a0',
+              padding: 10,
+            },
+          },
+        },
+      });
+
+      // Legend below chart
+      document.getElementById('category-legend').innerHTML = categories.slice(0, 6).map((c, i) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0;font-size:0.8125rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;">
+            <span style="width:10px;height:10px;border-radius:50%;background:${CHART_COLORS[i]};flex-shrink:0;display:inline-block;"></span>
+            <span style="color:var(--muted);">${c.category}</span>
+          </div>
+          <span style="font-weight:600;">${c.pct?.toFixed(1)}%</span>
+        </div>`).join('');
+    }
+
+    // Bills
+    const billsList = bills || [];
+    const billsEl = document.getElementById('bills-list');
+    if (billsList.length) {
+      billsEl.innerHTML = billsList.map(b => `
+        <div class="bill-row">
+          <div>
+            <div class="bill-merchant">${b.merchant}</div>
+            <div class="bill-meta">${b.frequency || ''} · ${b.count} transactions</div>
+          </div>
+          <div class="bill-amount">${formatAUD(b.amount)}</div>
+        </div>`).join('');
+    } else {
+      billsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;padding:0.5rem 0;">No recurring bills detected</p>';
+    }
+  }
+
+  async function init() {
+    try {
+      await requireAuth();
+      const data = await apiFetch('/dashboard');
+      renderPatterns(data);
+    } catch (err) {
+      document.getElementById('loading').style.display = 'none';
+      if (err.message === 'no_analysis' || err.status === 404) {
+        document.getElementById('no-data').style.display = 'block';
+      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        document.getElementById('no-data').style.display = 'block';
+        showToast(err.message);
+      }
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

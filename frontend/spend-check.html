@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — Spend Check</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-header">
+    <h1>Spend Check</h1>
+    <p>Should you buy it? Let your AI coach decide</p>
+  </div>
+
+  <div class="card" style="max-width:520px;margin:0 auto;">
+    <form id="check-form">
+      <div class="form-group">
+        <label for="merchant">What are you buying? (merchant / item)</label>
+        <input type="text" id="merchant" placeholder="e.g. JB Hi-Fi, Uber Eats, Rent" maxlength="120">
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="amount">Amount ($AUD)</label>
+          <input type="number" id="amount" placeholder="0.00" min="0.01" step="0.01" required>
+        </div>
+        <div class="form-group">
+          <label for="days-ahead">Days from now</label>
+          <input type="number" id="days-ahead" value="30" min="1" max="90">
+        </div>
+      </div>
+      <div id="check-error" class="form-error"></div>
+      <button type="submit" class="btn btn-primary btn-full" id="check-btn">
+        Check it →
+      </button>
+    </form>
+  </div>
+
+  <!-- Verdict -->
+  <div id="verdict-section" style="max-width:520px;margin:0 auto;"></div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+
+  setupNav('spend');
+
+  const VERDICTS = {
+    green: { icon: '✅', label: 'All good — go for it' },
+    yellow: { icon: '⚠️', label: 'Proceed with caution' },
+    red: { icon: '🚫', label: 'Not recommended right now' },
+  };
+
+  async function init() {
+    try {
+      await requireAuth();
+    } catch (_) {}
+  }
+
+  document.getElementById('check-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('check-btn');
+    const errEl = document.getElementById('check-error');
+    const verdictEl = document.getElementById('verdict-section');
+
+    errEl.style.display = 'none';
+    verdictEl.innerHTML = '';
+
+    const merchant = document.getElementById('merchant').value.trim();
+    const amount = parseFloat(document.getElementById('amount').value);
+    const daysAhead = parseInt(document.getElementById('days-ahead').value) || 30;
+
+    if (!amount || amount <= 0) {
+      errEl.textContent = 'Please enter a valid amount greater than $0';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+
+    // Show loading in verdict area
+    verdictEl.innerHTML = `<div class="loading"><div class="spinner"></div> Crunching your numbers…</div>`;
+
+    try {
+      const res = await apiFetch('/spend-check', {
+        method: 'POST',
+        body: JSON.stringify({ merchant, amount, days_ahead: daysAhead }),
+      });
+
+      const verdict = (res.verdict || 'yellow').toLowerCase();
+      const v = VERDICTS[verdict] || VERDICTS.yellow;
+
+      verdictEl.innerHTML = `
+        <div class="verdict-card ${verdict}">
+          <span class="verdict-icon">${v.icon}</span>
+          <div class="verdict-label">${v.label}</div>
+          <p class="verdict-message">${res.message || ''}</p>
+          <div class="verdict-meta">
+            ${res.projected_balance != null ? `
+              <div class="verdict-meta-item">
+                <div class="label">Projected balance</div>
+                <div class="val">${formatAUD(res.projected_balance)}</div>
+              </div>` : ''}
+            ${res.safety_buffer != null ? `
+              <div class="verdict-meta-item">
+                <div class="label">Safety buffer</div>
+                <div class="val">${formatAUD(res.safety_buffer)}</div>
+              </div>` : ''}
+            <div class="verdict-meta-item">
+              <div class="label">Purchase amount</div>
+              <div class="val">${formatAUD(amount)}</div>
+            </div>
+          </div>
+        </div>`;
+    } catch (err) {
+      verdictEl.innerHTML = '';
+      if (err.message === 'no_analysis' || err.status === 404) {
+        errEl.textContent = 'Upload a statement first — your coach needs your financial data to check this spend.';
+      } else {
+        errEl.textContent = err.message || 'Something went wrong — please try again';
+      }
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check it →';
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>

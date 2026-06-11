@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — AI Coach</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your coach…</div>
+
+  <div id="no-data" style="display:none;">
+    <div class="no-data">
+      <div class="icon">🤖</div>
+      <h3>No data yet</h3>
+      <p>Upload a statement on the Dashboard first so your coach knows your finances</p>
+      <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="page-header">
+      <h1>AI Coach</h1>
+      <p>Ask anything about your money — your coach knows your finances</p>
+    </div>
+
+    <!-- Quick questions -->
+    <div id="quick-questions" class="quick-questions"></div>
+
+    <!-- Chat window -->
+    <div class="chat-window" id="chat-window">
+      <div class="chat-msg assistant">
+        <div>Hey! 👋 I'm your Finio money coach. I've looked at your finances and I'm here to help. What would you like to know?</div>
+      </div>
+    </div>
+
+    <!-- Input row -->
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="Ask your coach anything…" maxlength="2000" autocomplete="off">
+      <button class="btn btn-primary" id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, showToast } from './api.js';
+
+  setupNav('coach');
+
+  const chatWindow = document.getElementById('chat-window');
+  const chatInput = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+  const quickQuestionsEl = document.getElementById('quick-questions');
+
+  let isSending = false;
+
+  function scrollToBottom() {
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }
+
+  function formatTs(ts) {
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+  }
+
+  function appendMessage(role, text, ts = null) {
+    const div = document.createElement('div');
+    div.className = `chat-msg ${role}`;
+    div.innerHTML = `<div>${text.replace(/\n/g, '<br>')}</div>${ts ? `<div class="ts">${formatTs(ts)}</div>` : ''}`;
+    chatWindow.appendChild(div);
+    scrollToBottom();
+    return div;
+  }
+
+  function showTyping() {
+    const div = document.createElement('div');
+    div.className = 'typing-indicator';
+    div.id = 'typing';
+    div.innerHTML = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
+    chatWindow.appendChild(div);
+    scrollToBottom();
+  }
+
+  function hideTyping() {
+    document.getElementById('typing')?.remove();
+  }
+
+  function renderQuickQuestions(questions) {
+    if (!questions?.length) return;
+    quickQuestionsEl.innerHTML = questions.map(q =>
+      `<button class="quick-btn">${q}</button>`
+    ).join('');
+    quickQuestionsEl.querySelectorAll('.quick-btn').forEach(btn => {
+      btn.addEventListener('click', () => sendMessage(btn.textContent));
+    });
+  }
+
+  async function sendMessage(text) {
+    const msg = (text || chatInput.value).trim();
+    if (!msg || isSending) return;
+
+    isSending = true;
+    chatInput.value = '';
+    sendBtn.disabled = true;
+    sendBtn.textContent = '…';
+
+    appendMessage('user', msg);
+    showTyping();
+
+    try {
+      const res = await apiFetch('/coach', {
+        method: 'POST',
+        body: JSON.stringify({ message: msg }),
+      });
+      hideTyping();
+      appendMessage('assistant', res.text || '—', new Date().toISOString());
+
+      if (res.quick_questions?.length) {
+        renderQuickQuestions(res.quick_questions);
+      }
+    } catch (err) {
+      hideTyping();
+      if (err.message === 'no_analysis' || err.status === 404) {
+        appendMessage('assistant', 'I don\'t have your financial data yet. Please upload a statement from the Dashboard first.');
+      } else {
+        appendMessage('assistant', `Sorry, something went wrong: ${err.message}`);
+      }
+    } finally {
+      isSending = false;
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Send';
+      chatInput.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', () => sendMessage());
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  async function init() {
+    try {
+      await requireAuth();
+
+      // Load history
+      let history = [];
+      try {
+        const res = await apiFetch('/coach/history');
+        history = res.history || [];
+      } catch (err) {
+        if (err.message === 'no_analysis' || err.status === 404) {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('no-data').style.display = 'block';
+          return;
+        }
+      }
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = 'block';
+
+      // Render history (skip if empty — keep greeting)
+      if (history.length > 0) {
+        // Clear the default greeting
+        chatWindow.innerHTML = '';
+        history.forEach(m => appendMessage(m.role, m.message, m.timestamp));
+      }
+
+      scrollToBottom();
+      chatInput.focus();
+
+      // Default quick questions
+      renderQuickQuestions([
+        'How can I save more money?',
+        'Where am I overspending?',
+        'Am I ready to invest?',
+        'What\'s my biggest financial risk?',
+      ]);
+    } catch (err) {
+      if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('no-data').style.display = 'block';
+        showToast(err.message);
+      }
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
