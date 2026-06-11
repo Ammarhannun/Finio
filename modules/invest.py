@@ -36,15 +36,39 @@ def compare_to_actual(df, metrics, split):
     ].sum()
     actual_saved = metrics["net_saved"]
 
+    needs_spent = round(needs_spent, 2)
+    wants_spent = round(wants_spent, 2)
+    actual_saved = round(actual_saved, 2)
+
+    # Readable rows the UI can render and colour directly: `good` is True when
+    # you're within target (spending under, or saving over) → green, else red.
+    rows = [
+        {
+            "label": "Needs (50%)", "actual": needs_spent, "target": split["needs"],
+            "difference": round(needs_spent - split["needs"], 2),
+            "good": bool(needs_spent <= split["needs"]),
+        },
+        {
+            "label": "Wants (30%)", "actual": wants_spent, "target": split["wants"],
+            "difference": round(wants_spent - split["wants"], 2),
+            "good": bool(wants_spent <= split["wants"]),
+        },
+        {
+            "label": "Savings (20%)", "actual": actual_saved, "target": split["savings"],
+            "difference": round(actual_saved - split["savings"], 2),
+            "good": bool(actual_saved >= split["savings"]),
+        },
+    ]
+
     return {
-        "needs_spent": round(needs_spent, 2),
-        "wants_spent": round(wants_spent, 2),
-        "actual_saved": round(actual_saved, 2),
+        "rows": rows,
+        "needs_spent": needs_spent,
+        "wants_spent": wants_spent,
+        "actual_saved": actual_saved,
         "needs_target": split["needs"],
         "wants_target": split["wants"],
         "savings_target": split["savings"],
-        "needs_over": round(needs_spent - split["needs"], 2),
-        "wants_over": round(wants_spent - split["wants"], 2),
+        # Kept for invest_readiness; positive savings_gap means below target.
         "savings_gap": round(split["savings"] - actual_saved, 2),
     }
 

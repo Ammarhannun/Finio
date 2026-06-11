@@ -23,6 +23,7 @@ def run_full_pipeline(
     goal_date=None,
     age=None,
     overrides=None,
+    budget_targets=None,
 ):
     df = parse_bank_csv(csv_path)
     df, metrics = process_transactions(df, overrides=overrides)
@@ -41,7 +42,7 @@ def run_full_pipeline(
 
     forecast = forecast_goal(df, goal_amount, goal_date)
     analysis = analyze(df, metrics, bills)
-    budgets = suggest_budgets(df, metrics)
+    budgets = suggest_budgets(df, metrics, targets=budget_targets)
     invest = invest_summary(df, metrics, forecast, goal_amount, age=age)
     personality = score_personality(df, metrics, analysis, bills)
     snapshot = build_snapshot(df, metrics, analysis, bills)
