@@ -132,6 +132,12 @@ FLOW_INCOME = "income"
 FLOW_EXPENSE = "expense"
 FLOW_TRANSFER = "transfer"
 
+# Time-period selector (period.py). The pipeline filters to one period at the
+# top so totals, burn rate, patterns, budgets and charts all describe the same
+# window. Default is the latest calendar month in the data.
+DEFAULT_PERIOD = "monthly"
+PERIODS_SUPPORTED = ["daily", "weekly", "monthly", "custom", "all"]
+
 # ASX ETFs mentioned in the plan
 ETF_OPTIONS = ["VGS", "A200", "NDQ"]
 
