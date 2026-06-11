@@ -180,7 +180,11 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
     history_rows = db.get_chat_history(client, user.user_id)
     history = [{"role": row["role"], "content": row["message"]} for row in history_rows]
 
-    response = coach_chat(body.message, context, history=history)
+    # Give the coach the user's real transactions so its tools can compute
+    # exact figures ("how much did I spend on coffee") instead of guessing.
+    transactions = db.get_transactions(client, user.user_id, data["month"])
+
+    response = coach_chat(body.message, context, history=history, transactions=transactions)
 
     db.append_chat(client, user.user_id, "user", body.message)
     db.append_chat(client, user.user_id, "assistant", response["text"])
