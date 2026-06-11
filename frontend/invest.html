@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio — Invest</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your invest plan…</div>
+
+  <div id="no-data" style="display:none;">
+    <div class="no-data">
+      <div class="icon">📈</div>
+      <h3>No data yet</h3>
+      <p>Upload a statement on the Dashboard to see your personalised invest plan</p>
+      <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="page-header">
+      <h1>Invest</h1>
+      <p>Your personalised investing roadmap</p>
+    </div>
+
+    <!-- Readiness banner -->
+    <div id="readiness-banner" class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;"></div>
+
+    <!-- 50/30/20 split -->
+    <div class="section-title">50/30/20 budget rule</div>
+    <div class="split-row" id="split-row" style="margin-bottom:1.5rem;"></div>
+
+    <!-- Savings goal progress -->
+    <div class="card" style="margin-bottom:1.5rem;" id="goal-card">
+      <div class="section-title">Savings goal</div>
+      <div id="goal-content"></div>
+    </div>
+
+    <!-- ETF recommendation -->
+    <div class="card" style="margin-bottom:1.5rem;" id="etf-card">
+      <div class="section-title">Recommended ETF</div>
+      <div id="etf-content"></div>
+    </div>
+
+    <!-- First $1000 -->
+    <div class="card" style="margin-bottom:1.5rem;" id="first1000-card">
+      <div class="section-title">First $1,000 plan</div>
+      <div id="first1000-content"></div>
+    </div>
+
+    <!-- Actual vs target -->
+    <div class="card" id="avt-card" style="margin-bottom:1.5rem;display:none;">
+      <div class="section-title">Actual vs target breakdown</div>
+      <div id="avt-content"></div>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+
+  setupNav('invest');
+
+  function renderInvest(data) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    const { invest, goal, metrics } = data;
+    if (!invest) return;
+
+    const { split_503020, actual_vs_target, readiness, first_1000, etf } = invest;
+
+    // Readiness banner
+    const readinessEl = document.getElementById('readiness-banner');
+    if (readiness) {
+      const canInvest = readiness.can_invest;
+      readinessEl.style.background = canInvest
+        ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)';
+      readinessEl.style.border = canInvest
+        ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(245,158,11,0.3)';
+      readinessEl.innerHTML = `
+        <span style="font-size:2rem;">${canInvest ? '🚀' : '⏳'}</span>
+        <div>
+          <div style="font-size:1.0625rem;font-weight:700;color:${canInvest ? 'var(--green)' : 'var(--yellow)'};">
+            ${canInvest ? "You're ready to invest!" : "Not quite ready yet"}
+          </div>
+          <div style="color:var(--muted);font-size:0.875rem;margin-top:0.2rem;">${readiness.reason || ''}</div>
+        </div>`;
+    }
+
+    // 50/30/20 split
+    const splitEl = document.getElementById('split-row');
+    if (split_503020) {
+      const splits = [
+        { label: 'Needs', pct: '50%', key: 'needs', color: 'var(--accent)' },
+        { label: 'Wants', pct: '30%', key: 'wants', color: 'var(--yellow)' },
+        { label: 'Savings', pct: '20%', key: 'savings', color: 'var(--green)' },
+      ];
+      splitEl.innerHTML = splits.map(s => `
+        <div class="split-item">
+          <div class="split-pct" style="color:${s.color};">${s.pct}</div>
+          <div class="split-name">${s.label}</div>
+          <div class="split-amount">${split_503020[s.key] != null ? formatAUD(split_503020[s.key]) : '—'}</div>
+        </div>`).join('');
+    } else {
+      splitEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No split data available</p>';
+    }
+
+    // Actual vs target
+    if (actual_vs_target && Object.keys(actual_vs_target).length) {
+      document.getElementById('avt-card').style.display = 'block';
+      const avtEl = document.getElementById('avt-content');
+      const entries = Object.entries(actual_vs_target);
+      avtEl.innerHTML = entries.map(([key, val]) => {
+        const actual = val?.actual ?? val;
+        const target = val?.target;
+        const isOver = typeof actual === 'number' && typeof target === 'number' && actual > target;
+        return `
+          <div class="info-row">
+            <span class="info-label" style="text-transform:capitalize;">${key}</span>
+            <span class="info-value" style="color:${isOver ? 'var(--red)' : 'var(--green)'};">
+              ${typeof actual === 'number' ? formatAUD(actual) : actual}
+              ${target != null ? `<span style="color:var(--muted);font-weight:400;"> / ${formatAUD(target)}</span>` : ''}
+            </span>
+          </div>`;
+      }).join('');
+    }
+
+    // Savings goal
+    const goalEl = document.getElementById('goal-content');
+    const goalData = goal || invest.goal;
+    if (goalData) {
+      const current = goalData.current_savings ?? goalData.saved ?? 0;
+      const target = goalData.target_amount ?? goalData.goal_amount ?? 0;
+      const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+      const colorClass = pct >= 80 ? 'green' : pct >= 40 ? '' : 'yellow';
+      goalEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.75rem;font-size:0.875rem;">
+          <span style="color:var(--muted);">Progress</span>
+          <span style="font-weight:600;">${formatAUD(current)} of ${formatAUD(target)}</span>
+        </div>
+        <div class="progress-bar" style="height:12px;margin-bottom:0.75rem;">
+          <div class="progress-fill ${colorClass}" style="width:${pct.toFixed(1)}%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted);">
+          <span>${pct.toFixed(1)}% complete</span>
+          ${goalData.target_date || goalData.goal_date ? `<span>Target: ${goalData.target_date || goalData.goal_date}</span>` : ''}
+        </div>
+        ${goalData.monthly_required != null ? `
+          <div style="margin-top:1rem;padding:0.75rem;background:var(--accent-dim);border-radius:8px;font-size:0.875rem;">
+            Save <strong>${formatAUD(goalData.monthly_required)}/month</strong> to hit your goal on time
+          </div>` : ''}`;
+    } else {
+      goalEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Set a savings goal on the Dashboard to track progress here</p>';
+    }
+
+    // ETF recommendation
+    const etfEl = document.getElementById('etf-content');
+    if (etf) {
+      const options = etf.options || [];
+      etfEl.innerHTML = `
+        <div class="etf-highlight" style="margin-bottom:1rem;">
+          <div class="etf-name">${etf.recommended || '—'}</div>
+          <div style="color:var(--muted);font-size:0.875rem;margin-top:0.35rem;">${etf.reason || ''}</div>
+        </div>
+        ${options.length > 1 ? `
+          <div class="section-title" style="font-size:0.8125rem;margin-bottom:0.5rem;">Alternatives</div>
+          ${options.filter(o => o !== etf.recommended).map(o => `
+            <div style="padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.9rem;color:var(--muted);">${o}</div>`).join('')}` : ''}`;
+    } else {
+      etfEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No ETF recommendation available yet</p>';
+    }
+
+    // First $1000
+    const f1El = document.getElementById('first1000-content');
+    if (first_1000) {
+      if (typeof first_1000 === 'string') {
+        f1El.innerHTML = `<p style="font-size:0.9375rem;line-height:1.7;">${first_1000}</p>`;
+      } else if (Array.isArray(first_1000)) {
+        f1El.innerHTML = first_1000.map((step, i) =>
+          `<div class="action-plan-item">
+            <span class="action-bullet" style="min-width:20px;">${i + 1}.</span>
+            <span>${step}</span>
+          </div>`
+        ).join('');
+      } else if (typeof first_1000 === 'object') {
+        f1El.innerHTML = Object.entries(first_1000).map(([k, v]) => `
+          <div class="info-row">
+            <span class="info-label" style="text-transform:capitalize;">${k.replace(/_/g,' ')}</span>
+            <span class="info-value">${typeof v === 'number' ? formatAUD(v) : v}</span>
+          </div>`).join('');
+      } else {
+        f1El.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No first $1,000 plan available</p>';
+      }
+    } else {
+      f1El.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Build your emergency fund first, then come back here</p>';
+    }
+  }
+
+  async function init() {
+    try {
+      await requireAuth();
+      const data = await apiFetch('/invest');
+      renderInvest(data);
+    } catch (err) {
+      document.getElementById('loading').style.display = 'none';
+      if (err.message === 'no_analysis' || err.status === 404) {
+        document.getElementById('no-data').style.display = 'block';
+      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        document.getElementById('no-data').style.display = 'block';
+        showToast(err.message);
+      }
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

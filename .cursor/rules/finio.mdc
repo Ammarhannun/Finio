@@ -1,0 +1,104 @@
+---
+description: Finio project context, learning mode, and build conventions
+alwaysApply: true
+---
+
+# Finio — AI personal finance (AU, 18–30)
+
+Full spec: [project-plan/FINIO_RULES.md](project-plan/FINIO_RULES.md)
+
+## Learning mode (required)
+
+Ammar is building this to learn. **Assist, do not take over.**
+
+- Explain what to do and why
+- Small snippets only (max 10–15 lines) when stuck
+- Review code and fix bugs when asked
+- Do **not** write full files or scaffold the whole project unless explicitly requested
+- If asked to "just do it", remind him to learn and guide step-by-step instead
+
+## Keep rules in sync (required)
+
+Whenever a build phase is completed, started, or scope changes:
+
+1. Update **this file** (`.cursor/rules/finio.mdc`) — `Current progress` + `Next step` below
+2. Update **[project-plan/FINIO_RULES.md](project-plan/FINIO_RULES.md)** — `Build phases` section to match
+
+Do this in the same turn as marking work done. Never leave the two files out of sync.
+
+## Current progress
+
+| Phase | Status |
+|-------|--------|
+| 1 Setup | DONE |
+| 2 Supabase + auth | DONE |
+| 3 `bank_parser.py`, `data_processor.py` | DONE |
+| 4 ML models | DONE |
+| 5 Core logic | DONE |
+| 6 AI layer (`ai_coach.py`, OpenAI) | DONE |
+| 7 API layer (`main.py`, `db.py`, auth) | DONE |
+| 8–9 | Not started |
+
+### Phase 5 modules
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `analytics.py` | DONE | `analyze` — patterns, risk score, category breakdown |
+| `spend_check.py` | DONE | `check_purchase` — green / yellow / red verdict |
+| `invest.py` | DONE | `invest_summary` — 50/30/20, readiness, ETF nudge |
+| `history.py` | DONE | `build_snapshot`, `update_streak` — pure functions; persisted via `db.py` |
+| `personality.py` | DONE | `score_personality` — rule-based type + action plan |
+| `budget_setter.py` | DONE | `suggest_budgets` — per-category limits |
+
+### Phase 6 modules
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| `ai_coach.py` | DONE | OpenAI `gpt-4o-mini` — `coach_chat`, explain helpers; fallbacks without `OPENAI_API_KEY` |
+
+## Next step
+
+Phase 8 — Frontend (5 pages: Dashboard, Patterns, Coach, Spend Check, Invest)
+
+## Phase 7 API routes
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/` | — | Health |
+| POST | `/analyze` | optional | CSV/PDF upload (file only) → full pipeline JSON + AI goal recommendation; persists if Bearer token |
+| GET | `/dashboard` | required | Latest snapshot + streak + budgets + goal recommendation from Supabase |
+| GET | `/invest` | required | Invest summary + forecast + goal |
+| POST | `/goal` | required | Set/update savings goal (amount, date, age) → recomputes forecast + invest |
+| POST | `/spend-check` | required | Green/yellow/red purchase verdict |
+| POST | `/coach` | required | AI chat with financial context |
+| GET | `/coach/history` | required | Chat history |
+
+Schema reference: `project-plan/supabase_schema.sql`
+
+## Completed pipeline (Phases 3–7)
+
+```text
+POST /analyze → run_full_pipeline (parse → process → categorise → bills → forecast → analyze → budgets → invest → personality → snapshot)
+  → optional db.persist_analysis (transactions, snapshots, streaks, goals, budgets)
+```
+
+Training data: `data/training_merchants.csv` (31 rows). Test data: `data/sample_transactions.csv`.
+
+## Stack
+
+Python, FastAPI, pandas, scikit-learn, Supabase, OpenAI API (optional fallbacks required), deploy Railway + Vercel.
+
+## Conventions
+
+- Always use `venv`; run modules as `python -m modules.<name>` from project root
+- Never commit `.env`
+- Bank-agnostic CSV **and text-based PDF** → normalized columns via `bank_parser.parse_bank_csv(path)` (PDFs handled by `modules/pdf_parser.py`)
+- 7 categories in `config.CATEGORIES` (Food & Dining, Groceries, Transport, Subscriptions, Shopping, Health, Other)
+- Income: `amount > 0` / `is_expense=False` — not ML-categorised
+- Test each module on `data/sample_transactions.csv` before moving on
+- Financial copy must include: "General information only, not financial advice"
+- AUD, AU bank CSVs, ASX ETFs (VGS, A200, NDQ)
+
+## Module layout
+
+Logic lives in `modules/`. Constants and paths in `config.py`. Plan/docs in `project-plan/`.

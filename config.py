@@ -1,0 +1,149 @@
+"""Finio constants — categories, keywords, colours, disclaimers."""
+
+from pathlib import Path
+
+# Paths
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_ROOT / "data"
+SAMPLE_CSV = DATA_DIR / "sample_transactions.csv"
+TRAINING_CSV = DATA_DIR / "training_merchants.csv"
+
+# Normalized transaction schema (after parsing any bank CSV)
+NORMALIZED_COLUMNS = ["date", "amount", "description", "balance"]
+
+# Common export headers — banks use different names; parser maps these → normalized
+# Matching is case-insensitive (see bank_parser._find_column)
+COMMON_DATE_HEADERS = ["Date", "Transaction Date", "Posted Date", "Date of Transaction"]
+COMMON_AMOUNT_HEADERS = ["Amount", "Value", "Transaction Amount"]
+COMMON_DEBIT_HEADERS = ["Debit", "Debit Amount", "Withdrawal", "Withdrawals", "Money Out"]
+COMMON_CREDIT_HEADERS = ["Credit", "Credit Amount", "Deposit", "Deposits", "Money In"]
+COMMON_DESCRIPTION_HEADERS = [
+    "Description", "Narrative", "Details", "Memo", "Transaction Details", "Reference"
+]
+COMMON_BALANCE_HEADERS = ["Balance", "Running Balance", "Account Balance"]
+COMMON_TYPE_HEADERS = ["Type", "Transaction Type", "Debit/Credit", "Dr/Cr"]
+
+# Date formats tried in order; AU is day-first. Falls back to pandas inference.
+DATE_FORMAT = "%d/%m/%Y"  # kept for backward compatibility
+DATE_FORMATS = [
+    "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y", "%m/%d/%Y",
+    "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%b %d %Y",  # PDF month-name dates
+]
+
+# ML categories (categoriser.py) — 7 general buckets
+CATEGORIES = [
+    "Food & Dining",   # restaurants, delivery, takeaway, cafes
+    "Groceries",       # supermarkets, convenience stores
+    "Transport",       # opal, uber trip, fuel, parking
+    "Subscriptions",   # streaming, gym, phone plans
+    "Shopping",        # retail, amazon, electronics, clothes
+    "Health",          # pharmacy, medical
+    "Other",           # rent, uncategorised
+]
+
+# "Transfers" is NOT a spend bucket. Money moved between your own accounts or to
+# people (P2P) is internal, not consumption — it is excluded from total_spent,
+# total_income, and the spending breakdown. Kept separate so it never inflates
+# the numbers or the "Other" pile.
+TRANSFERS_LABEL = "Transfers"
+TRANSFER_KEYWORDS = [
+    "TRANSFER TO", "TRANSFER FROM", "TFR TO", "TFR FROM",
+    "PAYID", "OSKO", "PAY ANYONE", "INTERNAL TRANSFER", "INTER-ACCOUNT",
+]
+
+# --- Merchant-name cleaning (categoriser input) ---------------------------
+# Card-network / payment-processor prefixes banks bolt onto the front.
+MERCHANT_PREFIXES = ["SQ ", "SQ*", "SP ", "SP*", "PAYPAL ", "PAYPAL*", "PP ", "TPV ", "EFTPOS "]
+# Corporate/legal suffix noise that buries the real trading name.
+MERCHANT_NOISE = [
+    " PTY LTD", " PTY LT", " PTY", " LTD", " LIMITED", " INC", " CO",
+    " HOLDINGS", " ENTERPRISE", " ENTERPRISES",
+]
+# Trailing country/state tokens CommBank appends (stripped when at the end).
+MERCHANT_TRAILING = ["AUS", "AU", "NSWAU", "NSW", "NS", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
+# Suburb / locality stop-words — location noise, never part of the merchant.
+SUBURB_STOPWORDS = {
+    "SYDNEY", "RYDE", "NORTH", "AUBURN", "GRANVILLE", "KINGSFORD", "MEADOWBANK",
+    "ROZELLE", "LIDCOMBE", "KELLYVILLE", "BONDI", "JUNCTION", "NEWTOWN", "SURRY",
+    "HILLS", "BROADWAY", "CBD", "PARRAMATTA", "CHATSWOOD", "BURWOOD", "STRATHFIELD",
+    "EASTWOOD", "EPPING", "MARSFIELD", "MACQUARIE", "HORNSBY", "CASTLE", "HILL",
+    "LANE", "COVE", "MANLY", "RANDWICK", "KENSINGTON", "MASCOT", "REDFERN",
+    "ULTIMO", "HAYMARKET", "GLEBE", "LEICHHARDT", "ASHFIELD", "BANKSTOWN",
+}
+
+# --- Keyword rules layer (PRIMARY categoriser) ----------------------------
+# Ordered list of (keywords, category). First keyword found in the cleaned
+# merchant name wins, so put specific entries before general ones
+# (e.g. "UBER EATS" before "UBER", "AMAZON PRIME" before "AMAZON").
+CATEGORY_RULES = [
+    ("Food & Dining", [
+        "UBER EATS", "UBEREATS", "DOORDASH", "DELIVEROO", "MENULOG", "EASI",
+        "MCDONALD", "KFC", "HUNGRY JACK", "NANDOS", "GUZMAN", "ZAMBRERO",
+        "SUBWAY", "DOMINO", "PIZZA", "BURGER", "SHAWARMA", "KEBAB", "CHICKEN",
+        "SUSHI", "RAMEN", "NOODLE", "THAI", "INDIAN", "PAKWAAN", "CURRY",
+        "GRILL", "BBQ", "CAFE", "COFFEE", "STARBUCKS", "GLORIA JEAN", "BAKERY",
+        "DONUT", "DESSERT", "GELATO", "RESTAURANT", "BISTRO", "DINER", "EATERY",
+        "KITCHEN", "FOOD", "CHIPOTLE", "BOOST JUICE", "CHATIME", "GONG CHA",
+    ]),
+    ("Groceries", [
+        "WOOLWORTHS", "WOOLIES", "COLES", "ALDI", "IGA", "COSTCO", "7-ELEVEN",
+        "7 ELEVEN", "SEVEN ELEVEN", "FOODWORKS", "HARRIS FARM", "SUPERMARKET",
+        "GROCER", "BUTCHER", "FRUIT", "SUPER", "MARKET", "DELI",
+    ]),
+    ("Transport", [
+        "UBER", "DIDI", "OLA", "OPAL", "TRANSPORT NSW", "TRANSPORTFORNSW",
+        "GO VIA", "LINKT", "E-TOLL", "ETOLL", "TOLL", "BP ", "SHELL", "CALTEX",
+        "AMPOL", "7-ELEVEN FUEL", "COLES EXPRESS", "FUEL", "PETROL", "PARKING",
+        "WILSON PARKING", "SECURE PARKING", "CARPARK", "TRAINLINK", "METRO",
+        "TAXI", "13CABS",
+    ]),
+    ("Subscriptions", [
+        "NETFLIX", "SPOTIFY", "DISNEY", "STAN", "BINGE", "PARAMOUNT", "PRIME VIDEO",
+        "AMAZON PRIME", "YOUTUBE PREMIUM", "APPLE.COM", "ITUNES", "GOOGLE STORAGE",
+        "ADOBE", "MICROSOFT", "DROPBOX", "AUDIBLE", "PATREON", "CHATGPT", "OPENAI",
+        "TELSTRA", "OPTUS", "VODAFONE", "AMAYSIM", "BELONG", "GYM", "FITNESS",
+        "ANYTIME FITNESS", "F45", "PLUS FITNESS", "GYMSHARK",
+    ]),
+    ("Shopping", [
+        "AMAZON", "EBAY", "KMART", "TARGET", "BIG W", "JB HI-FI", "JBHIFI",
+        "JB HIFI", "HARVEY NORMAN", "THE GOOD GUYS", "OFFICEWORKS", "BUNNINGS",
+        "IKEA", "MYER", "DAVID JONES", "UNIQLO", "COTTON ON", "H&M", "ZARA",
+        "MECCA", "SEPHORA", "REBEL", "SUPERCHEAP", "CHEMIST WAREHOUSE ONLINE",
+        "THE ICONIC", "ASOS", "TEMU", "SHEIN", "ALIEXPRESS",
+    ]),
+    ("Health", [
+        "PHARMACY", "CHEMIST", "PRICELINE", "TERRY WHITE", "MEDICARE", "MEDICAL",
+        "DENTAL", "DENTIST", "DOCTOR", "GP ", "CLINIC", "HOSPITAL", "PHYSIO",
+        "OPTICAL", "OPTOMETRIST", "PATHOLOGY", "RADIOLOGY", "HEALTH",
+    ]),
+]
+
+# Australian context
+CURRENCY = "AUD"
+DISCLAIMER = "General information only, not financial advice"
+
+# ASX ETFs mentioned in the plan
+ETF_OPTIONS = ["VGS", "A200", "NDQ"]
+
+# ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
+OPENAI_MODEL = "gpt-4o-mini"
+COACH_SYSTEM_PROMPT = (
+    "You are Finio, a friendly finance coach for young Australians aged 18-30. "
+    "Use only the financial context provided. Currency is AUD. "
+    "Give general information only — not personal financial advice. "
+    "Never instruct the user to buy or sell. "
+    "If can_invest is false, do not recommend ETFs; focus on saving and buffers."
+)
+
+# bill_detector.py — avoid P2P/transfers and everyday shopping
+BILL_SKIP_KEYWORDS = [
+    "TRANSFER", "PAYID", "OSKO", "BPAY", "PAY ANYONE",
+    "TO ", "FROM ", "FRIEND",
+]
+BILL_KEYWORDS = [
+    "RENT", "LANDLORD", "NETFLIX", "SPOTIFY", "GYM", "FITNESS",
+    "INSURANCE", "TELSTRA", "OPTUS", "ELECTRIC", "ENERGY",
+]
+# Same merchant 2+ times only counts if category is bill-like (not groceries/coffee)
+BILL_RECURRING_CATEGORIES = ["Subscriptions", "Transport", "Health"]
+BILL_SKIP_RECURRING_CATEGORIES = ["Food & Dining", "Groceries", "Shopping"]
