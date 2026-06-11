@@ -58,6 +58,11 @@ def build_context(metrics, analysis, bills, budgets=None, invest=None, personali
 
 
 def call_llm(system, messages, max_tokens=1024):
+    """Single, simple completion (used by the budget/plan/ETF explainers).
+
+    Returns the text, or None if there's no key or the call fails — and records
+    the failure reason in `last_llm_error` so a silent fallback is debuggable.
+    """
     client = get_client()
     if client is None:
         return None
@@ -68,66 +73,233 @@ def call_llm(system, messages, max_tokens=1024):
             messages=[{"role": "system", "content": system}] + messages,
         )
         return response.choices[0].message.content
-    except Exception:
+    except Exception as exc:  # surfaced via last_llm_error, not swallowed
+        global last_llm_error
+        last_llm_error = f"{type(exc).__name__}: {exc}"
         return None
 
 
-def fallback_coach_response(user_message, context):
+# ── Tool use ──────────────────────────────────────────────────────────────────
+# The coach can call these to compute on the user's real data instead of
+# guessing. Each takes the transaction rows / context and returns plain data.
+
+last_llm_error = None
+MAX_TOOL_ROUNDS = 4
+
+COACH_TOOLS = [
+    {"type": "function", "function": {
+        "name": "get_income",
+        "description": "Total income for the analysed period, in AUD.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "category_total",
+        "description": (
+            "Total spent on a category or keyword (e.g. 'Food & Dining', "
+            "'coffee', 'uber'). Matches the category name or the merchant text."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    }},
+    {"type": "function", "function": {
+        "name": "filter_transactions",
+        "description": (
+            "List the user's transactions matching a category or keyword, most "
+            "recent first. Use to answer 'what did I buy at X' style questions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "description": "max rows (default 10)"},
+            },
+            "required": ["query"],
+        },
+    }},
+    {"type": "function", "function": {
+        "name": "spend_check",
+        "description": (
+            "Check whether a planned purchase is affordable. Returns a "
+            "green/yellow/red verdict and projected balance."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "item": {"type": "string"},
+                "amount": {"type": "number"},
+                "days_ahead": {"type": "integer", "description": "horizon, default 30"},
+            },
+            "required": ["amount"],
+        },
+    }},
+]
+
+
+def _expense_rows(transactions):
+    # is_expense is True only for real expenses (not income/transfers) and is
+    # stored in the DB; flow is the in-memory equivalent. Accept either.
+    return [t for t in (transactions or [])
+            if t.get("is_expense") or t.get("flow") == "expense"]
+
+
+def _matches(row, query):
+    q = (query or "").lower()
+    return q in str(row.get("category", "")).lower() or q in str(row.get("merchant", "")).lower()
+
+
+def run_tool(name, args, transactions, context):
+    """Execute one coach tool call and return a JSON-serialisable result."""
+    if name == "get_income":
+        return {"income": context.get("income"), "currency": "AUD"}
+
+    if name == "category_total":
+        query = args.get("query", "")
+        rows = [r for r in _expense_rows(transactions) if _matches(r, query)]
+        total = round(sum(abs(float(r["amount"])) for r in rows), 2)
+        return {"query": query, "total": total, "count": len(rows), "currency": "AUD"}
+
+    if name == "filter_transactions":
+        query = args.get("query", "")
+        limit = int(args.get("limit") or 10)
+        rows = [r for r in _expense_rows(transactions) if _matches(r, query)]
+        rows = sorted(rows, key=lambda r: r.get("date", ""), reverse=True)[:limit]
+        return {"query": query, "transactions": [
+            {"date": r.get("date"), "merchant": r.get("merchant"),
+             "amount": round(abs(float(r["amount"])), 2), "category": r.get("category")}
+            for r in rows
+        ]}
+
+    if name == "spend_check":
+        from modules.spend_check import check_purchase
+        metrics = {
+            "net_saved": context.get("saved", 0),
+            "daily_burn_rate": context.get("daily_burn_rate", 0),
+            "total_income": context.get("income", 0),
+            "total_spent": context.get("spent", 0),
+        }
+        result = check_purchase(
+            None, metrics, float(args["amount"]), int(args.get("days_ahead") or 30)
+        )
+        result["item"] = args.get("item")
+        return result
+
+    return {"error": f"unknown tool {name}"}
+
+
+def fallback_coach_response(user_message, context, transactions=None):
+    """No-API answer that still addresses the question, using the tools' logic."""
     msg = user_message.lower()
 
-    if "spend" in msg or "spent" in msg:
-        text = (
-            f"You spent ${context['spent']:.2f} in this period "
-            f"(income ${context['income']:.2f}, saved ${context['saved']:.2f})."
-        )
-    elif "biggest" in msg or "category" in msg:
-        if context["top_categories"]:
+    # Try to answer a 'how much on X' question from the actual transactions.
+    if transactions and ("how much" in msg or "spend" in msg or "spent" in msg):
+        for token in sorted(set(msg.replace("?", " ").split()), key=len, reverse=True):
+            if len(token) < 3:
+                continue
+            res = run_tool("category_total", {"query": token}, transactions, context)
+            if res["count"] > 0:
+                return (f"You spent ${res['total']:.2f} on '{token}' "
+                        f"({res['count']} transactions) this period. {DISCLAIMER}")
+
+    if "biggest" in msg or "category" in msg:
+        if context.get("top_categories"):
             top = context["top_categories"][0]
-            text = (
-                f"Your biggest category is {top['category']} "
-                f"at {top['pct']}% (${top['amount']:.2f})."
-            )
+            text = f"Your biggest category is {top['category']} at {top['pct']}% (${top['amount']:.2f})."
         else:
             text = "No spending categories found in this upload."
+    elif "spend" in msg or "spent" in msg or "how much" in msg:
+        text = (f"You spent ${context['spent']:.2f} this period "
+                f"(income ${context['income']:.2f}, saved ${context['saved']:.2f}).")
     elif "track" in msg or "save" in msg or "goal" in msg:
-        text = (
-            f"You saved ${context['saved']:.2f} this period "
-            f"({context['savings_rate']}% of income)."
-            if context.get("savings_rate") is not None
-            else f"You saved ${context['saved']:.2f} this period."
-        )
+        rate = context.get("savings_rate")
+        text = (f"You saved ${context['saved']:.2f} this period"
+                + (f" ({rate}% of income)." if rate is not None else "."))
     elif "invest" in msg:
         if context.get("can_invest"):
             etf = context.get("etf_recommended") or "an ETF"
-            text = (
-                f"You may have savings headroom. Research {etf} and fees before investing. "
-                f"{context.get('invest_readiness_reason', '')}"
-            )
+            text = f"You may have savings headroom. Research {etf} and fees before investing."
         else:
-            text = context.get(
-                "invest_readiness_reason",
-                "Focus on building a cash buffer before investing.",
-            )
+            text = context.get("invest_readiness_reason",
+                               "Focus on building a cash buffer before investing.")
     else:
-        pattern_text = " ".join(context.get("patterns", [])[:2])
-        text = pattern_text or "Upload a CSV and ask about spending, saving, or budgets."
+        text = " ".join(context.get("patterns", [])[:2]) or \
+            "Ask me about your spending, a category (e.g. coffee), saving, or a purchase."
 
     return f"{text} {DISCLAIMER}"
 
 
-def coach_chat(user_message, context, history=None):
+def coach_chat(user_message, context, history=None, transactions=None):
+    """Answer the user's actual question, using tools to query their data.
+
+    Uses OpenAI with function-calling when a key is present; otherwise a
+    rule-based fallback that still answers from the transactions.
+    """
+    global last_llm_error
+    last_llm_error = None
     history = history or []
-    system = f"{COACH_SYSTEM_PROMPT}\n\nFinancial context:\n{json.dumps(context)}"
-    messages = list(history) + [{"role": "user", "content": user_message}]
+    client = get_client()
 
-    text = call_llm(system, messages)
-    source = "openai" if text else "fallback"
-    if text is None:
-        text = fallback_coach_response(user_message, context)
-    elif DISCLAIMER not in text:
-        text = f"{text} {DISCLAIMER}"
+    if client is None:
+        text = fallback_coach_response(user_message, context, transactions)
+        return {"text": text, "source": "fallback", "disclaimer": DISCLAIMER,
+                "quick_questions_used": False}
 
-    return {"text": text, "source": source, "disclaimer": DISCLAIMER}
+    sample = (transactions or [])[:15]
+    system = (
+        f"{COACH_SYSTEM_PROMPT}\n\n"
+        "You have tools to query the user's real transactions — USE them to get "
+        "exact figures rather than estimating. Answer the user's actual question "
+        "directly and concisely.\n\n"
+        f"Financial summary:\n{json.dumps(context)}\n\n"
+        f"Sample of recent transactions:\n{json.dumps(sample)}"
+    )
+    messages = [{"role": "system", "content": system}] + list(history) + [
+        {"role": "user", "content": user_message}
+    ]
+
+    try:
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=messages,
+                tools=COACH_TOOLS,
+                tool_choice="auto",
+            )
+            msg = response.choices[0].message
+            if not msg.tool_calls:
+                text = msg.content or ""
+                if DISCLAIMER not in text:
+                    text = f"{text} {DISCLAIMER}"
+                return {"text": text, "source": "openai", "disclaimer": DISCLAIMER}
+
+            messages.append({
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in msg.tool_calls
+                ],
+            })
+            for tc in msg.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                result = run_tool(tc.function.name, args, transactions, context)
+                messages.append({
+                    "role": "tool", "tool_call_id": tc.id,
+                    "content": json.dumps(result, default=str),
+                })
+    except Exception as exc:
+        last_llm_error = f"{type(exc).__name__}: {exc}"
+
+    # Tool budget exhausted or call failed → still answer the question.
+    text = fallback_coach_response(user_message, context, transactions)
+    return {"text": text, "source": "fallback", "disclaimer": DISCLAIMER,
+            "llm_error": last_llm_error}
 
 
 def explain_budgets(budgets_result, context):
