@@ -267,20 +267,64 @@ def _():
 # ── bill_detector ────────────────────────────────────────────────────────────
 
 
-@test("bill_detector: finds recurring bills on sample")
+@test("bill_detector: keeps regular stable bills, drops variable and one-off")
 def _():
-    from modules.pipeline import run_full_pipeline
+    import pandas as pd
 
-    bills = run_full_pipeline(SAMPLE_CSV)["bills"]
-    assert_eq(len(bills), 4)
+    from modules.bill_detector import detect_bills
+
+    rows = []
+    # Real bill: 4 monthly Netflix charges, identical amount.
+    for m in range(4):
+        rows.append({
+            "date": pd.Timestamp("2026-01-15") + pd.DateOffset(months=m),
+            "amount": -19.99, "description": "NETFLIX.COM AU",
+            "merchant_clean": "NETFLIX.COM", "flow": "expense",
+            "category": "Subscriptions",
+        })
+    # Not a bill: same restaurant monthly but wildly variable amounts (high CV).
+    for m, amt in enumerate([12, 80, 35, 120]):
+        rows.append({
+            "date": pd.Timestamp("2026-01-03") + pd.DateOffset(months=m),
+            "amount": -amt, "description": "SOME RESTAURANT",
+            "merchant_clean": "SOME RESTAURANT", "flow": "expense",
+            "category": "Food & Dining",
+        })
+    # Not a bill: a single one-off purchase.
+    rows.append({
+        "date": pd.Timestamp("2026-02-02"), "amount": -500,
+        "description": "JB HI-FI", "merchant_clean": "JB HI-FI",
+        "flow": "expense", "category": "Shopping",
+    })
+
+    bills = detect_bills(pd.DataFrame(rows))
     merchants = {b["merchant"] for b in bills}
-    assert_in("NETFLIX.COM AU", merchants)
-    assert_in("RENT PAYMENT LANDLORD PTY", merchants)
+    assert_in("NETFLIX.COM", merchants)
+    assert_true("SOME RESTAURANT" not in merchants)
+    assert_true("JB HI-FI" not in merchants)
+    netflix = next(b for b in bills if b["merchant"] == "NETFLIX.COM")
+    assert_eq(netflix["frequency"], "monthly")
+    assert_eq(netflix["count"], 4)
 
 
-@test("bill_detector: skips transfer keywords")
+@test("bill_detector: tolerates a skipped billing period")
 def _():
-    from modules.bill_detector import _is_transfer
+    import pandas as pd
+
+    from modules.bill_detector import _classify_interval
+
+    # Fortnightly with one missed charge (42-day gap == 3 fortnights).
+    dates = pd.to_datetime([
+        "2026-01-01", "2026-01-15", "2026-01-29", "2026-03-12", "2026-03-26",
+    ])
+    label, regular = _classify_interval(dates)
+    assert_eq(label, "fortnightly")
+    assert_true(regular)
+
+
+@test("data_processor: flags transfer keywords")
+def _():
+    from modules.data_processor import _is_transfer
 
     assert_true(_is_transfer("PAYID TRANSFER TO FRIEND"))
     assert_true(not _is_transfer("WOOLWORTHS 1234"))

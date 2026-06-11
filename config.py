@@ -145,15 +145,18 @@ COACH_SYSTEM_PROMPT = (
     "If can_invest is false, do not recommend ETFs; focus on saving and buffers."
 )
 
-# bill_detector.py — avoid P2P/transfers and everyday shopping
-BILL_SKIP_KEYWORDS = [
-    "TRANSFER", "PAYID", "OSKO", "BPAY", "PAY ANYONE",
-    "TO ", "FROM ", "FRIEND",
-]
-BILL_KEYWORDS = [
-    "RENT", "LANDLORD", "NETFLIX", "SPOTIFY", "GYM", "FITNESS",
-    "INSURANCE", "TELSTRA", "OPTUS", "ELECTRIC", "ENERGY",
-]
-# Same merchant 2+ times only counts if category is bill-like (not groceries/coffee)
-BILL_RECURRING_CATEGORIES = ["Subscriptions", "Transport", "Health"]
-BILL_SKIP_RECURRING_CATEGORIES = ["Food & Dining", "Groceries", "Shopping"]
+# bill_detector.py — a real recurring bill must pass ALL three tests below.
+# 1. Occurs often enough to be a pattern, not a one-off.
+BILL_MIN_OCCURRENCES = 3
+# 2. Amount is stable: coefficient of variation (std/mean) under this. Keeps out
+#    variable spend like restaurants/groceries that recur at the same merchant.
+BILL_AMOUNT_CV_MAX = 0.25
+# 3. Timing is regular: gaps cluster near a known billing period. We match the
+#    median gap to the nearest period within BILL_PERIOD_TOLERANCE (relative),
+#    and require the gaps themselves to be consistent (std/median under cap).
+BILL_PERIODS = {"weekly": 7, "fortnightly": 14, "monthly": 30, "quarterly": 91}
+BILL_PERIOD_TOLERANCE = 0.35
+# Real bills jitter and occasionally skip/retry, so a gap of ~2x or ~3x the
+# period is still "on schedule". We accept a merchant when most gaps fall near
+# an integer multiple of the period (within BILL_PERIOD_TOLERANCE).
+BILL_REGULARITY_MIN_FRACTION = 0.7
