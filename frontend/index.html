@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finio — Login</title>
+  <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<button id="theme-toggle" class="icon-btn theme-toggle-fixed" aria-label="Toggle light or dark mode" title="Toggle theme">☀️</button>
 <div class="auth-page">
   <div class="auth-card">
     <div class="auth-logo">Finio</div>
@@ -37,7 +39,9 @@
 </div>
 
 <script type="module">
-  import { supabase, getSession } from './api.js';
+  import { supabase, getSession, initThemeToggle } from './api.js';
+
+  initThemeToggle();
 
   // Already signed in → skip to dashboard
   getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
