@@ -46,6 +46,15 @@
           <label for="csv-file">Bank statement (CSV or PDF)</label>
           <input type="file" id="csv-file" accept=".csv,.pdf" required>
         </div>
+        <div class="form-group">
+          <label for="period-select">Time period</label>
+          <select id="period-select">
+            <option value="monthly" selected>Latest month</option>
+            <option value="weekly">Latest week</option>
+            <option value="daily">Latest day</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
         <p style="color:var(--muted);font-size:0.8125rem;margin:-0.25rem 0 1rem;">
           We'll analyse your spending first, then help you set a savings goal.
         </p>
@@ -331,6 +340,7 @@
 
     const fd = new FormData();
     fd.append('file', file);
+    fd.append('period', document.getElementById('period-select')?.value || 'monthly');
 
     btn.disabled = true;
     btn.textContent = 'Analysing…';
