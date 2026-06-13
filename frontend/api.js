@@ -54,7 +54,30 @@ export async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+// ── Theme (light / dark) ──
+export function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('finio-theme', theme); } catch (e) { /* ignore */ }
+  const btn = document.getElementById('theme-toggle');
+  // Show the icon for the mode you'd switch TO.
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+}
+
+export function initThemeToggle() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(current);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+    });
+  }
+}
+
 export function setupNav(activePage) {
+  initThemeToggle();
+
   document.querySelectorAll('.nav-links a').forEach(a => {
     if (a.dataset.page === activePage) a.classList.add('active');
   });

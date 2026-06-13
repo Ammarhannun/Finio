@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finio — Patterns</title>
+  <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
@@ -18,6 +19,7 @@
     <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☀️</button>
     <button id="nav-logout">Logout</button>
     <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
       <span></span><span></span><span></span>
@@ -90,6 +92,8 @@
     '#a855f7','#f97316','#84cc16','#ec4899','#14b8a6',
   ];
 
+  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
   function renderPatterns(data) {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
@@ -136,7 +140,7 @@
           datasets: [{
             data: categories.map(c => c.amount),
             backgroundColor: CHART_COLORS.slice(0, categories.length),
-            borderColor: '#0f0f17',
+            borderColor: cssVar('--bg-card-solid'),
             borderWidth: 2,
             hoverOffset: 8,
           }],
@@ -154,11 +158,11 @@
                   return ` ${new Intl.NumberFormat('en-AU',{style:'currency',currency:'AUD'}).format(c.amount)} (${c.pct?.toFixed(1)}%)`;
                 },
               },
-              backgroundColor: '#1a1a26',
-              borderColor: '#2a2a3e',
+              backgroundColor: cssVar('--bg-elev'),
+              borderColor: cssVar('--border-strong'),
               borderWidth: 1,
-              titleColor: '#e8e8f0',
-              bodyColor: '#8888a0',
+              titleColor: cssVar('--text'),
+              bodyColor: cssVar('--muted'),
               padding: 10,
             },
           },
