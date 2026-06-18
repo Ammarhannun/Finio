@@ -18,7 +18,7 @@
     <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
-    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☀️</button>
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
     <button id="nav-logout">Logout</button>
     <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
       <span></span><span></span><span></span>
@@ -31,7 +31,7 @@
 
   <div id="no-data" style="display:none;">
     <div class="no-data">
-      <div class="icon">📈</div>
+      <div class="icon">↗</div>
       <h3>No data yet</h3>
       <p>Upload a statement on the Dashboard to see your personalised invest plan</p>
       <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
@@ -141,7 +141,7 @@
       readinessEl.style.border = canInvest
         ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(245,158,11,0.3)';
       readinessEl.innerHTML = `
-        <span style="font-size:2rem;">${canInvest ? '🚀' : '⏳'}</span>
+        <span style="font-size:2rem;">${canInvest ? '✓' : '◷'}</span>
         <div>
           <div style="font-size:1.0625rem;font-weight:700;color:${canInvest ? 'var(--green)' : 'var(--yellow)'};">
             ${canInvest ? "You're ready to invest!" : "Not quite ready yet"}

@@ -18,7 +18,7 @@
     <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
-    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☀️</button>
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
     <button id="nav-logout">Logout</button>
     <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
       <span></span><span></span><span></span>
@@ -73,9 +73,9 @@
   let spendPeriod = { period: 'monthly', month: null };
 
   const VERDICTS = {
-    green: { icon: '✅', label: 'All good, go for it' },
-    yellow: { icon: '⚠️', label: 'Proceed with caution' },
-    red: { icon: '🚫', label: 'Not recommended right now' },
+    green: { icon: '✓', label: 'All good, go for it' },
+    yellow: { icon: '!', label: 'Proceed with caution' },
+    red: { icon: '✕', label: 'Not recommended right now' },
   };
 
   async function init() {
