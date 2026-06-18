@@ -46,6 +46,20 @@ def get_user_id(access_token):
     return get_user(access_token).id
 
 
+def _tx_rows(user_id, transactions):
+    return [
+        {
+            "user_id": user_id,
+            "date": tx["date"],
+            "amount": tx["amount"],
+            "merchant": tx["merchant"],
+            "category": tx.get("category"),
+            "is_expense": tx["is_expense"],
+        }
+        for tx in transactions
+    ]
+
+
 def replace_transactions(client, user_id, transactions, month):
     """Replace all transactions for this user in the given month (YYYY-MM)."""
     start, end = _month_bounds(month)
@@ -55,20 +69,28 @@ def replace_transactions(client, user_id, transactions, month):
 
     if not transactions:
         return
+    client.table("transactions").insert(_tx_rows(user_id, transactions)).execute()
 
-    rows = []
-    for tx in transactions:
-        rows.append(
-            {
-                "user_id": user_id,
-                "date": tx["date"],
-                "amount": tx["amount"],
-                "merchant": tx["merchant"],
-                "category": tx.get("category"),
-                "is_expense": tx["is_expense"],
-            }
-        )
-    client.table("transactions").insert(rows).execute()
+
+def replace_all_transactions(client, user_id, transactions):
+    """Replace the user's ENTIRE stored history (used so the dashboard can
+    re-slice into any period later without a re-upload)."""
+    client.table("transactions").delete().eq("user_id", user_id).execute()
+    if not transactions:
+        return
+    client.table("transactions").insert(_tx_rows(user_id, transactions)).execute()
+
+
+def get_all_transactions(client, user_id):
+    """Every stored transaction for the user, oldest first."""
+    result = (
+        client.table("transactions")
+        .select("date, amount, merchant, category, is_expense")
+        .eq("user_id", user_id)
+        .order("date")
+        .execute()
+    )
+    return result.data or []
 
 
 def save_snapshot(client, user_id, month, summary_json):
@@ -277,7 +299,11 @@ def persist_analysis(
     month = result["snapshot"]["month"]
     month_date = f"{month}-01" if len(month) == 7 else month
 
-    replace_transactions(client, user_id, result["transactions"], month)
+    # Store the FULL history so the dashboard can re-slice to any period later.
+    # Fall back to the current slice for older results without all_transactions.
+    replace_all_transactions(
+        client, user_id, result.get("all_transactions", result["transactions"])
+    )
 
     summary_json = {
         **result["snapshot"],
@@ -311,6 +337,42 @@ def persist_analysis(
     upsert_budgets(client, user_id, month_date, result["budgets"]["budgets"])
 
     return streak
+
+
+def get_overrides(client, user_id):
+    """The user's saved flow overrides (e.g. 'treat PAYID JOHN as income').
+
+    Stored inside the snapshot JSON so no extra table is needed."""
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("overrides", [])
+    return []
+
+
+def save_overrides(client, user_id, overrides, resliced):
+    """Persist the overrides and refresh the stored snapshot numbers so every
+    page reflects the reclassification on the next load."""
+    row = get_latest_snapshot(client, user_id)
+    if not row:
+        return
+    summary = row.get("summary_json") or {}
+    summary["overrides"] = overrides
+    for key in (
+        "metrics", "analysis", "bills", "forecast", "budgets",
+        "invest", "personality", "context", "goal_recommendation",
+    ):
+        if key in resliced:
+            summary[key] = resliced[key]
+
+    month = row["month"]
+    month_date = f"{month}-01" if len(str(month)) == 7 else month
+    save_snapshot(client, user_id, month_date, summary)
+    upsert_goal(
+        client, user_id,
+        summary.get("forecast", {}).get("target_amount"),
+        summary.get("forecast", {}).get("target_date"),
+        summary.get("forecast", {}).get("current_saved"),
+    )
 
 
 def append_chat(client, user_id, role, message):

@@ -26,7 +26,7 @@ def _build_action_plan(personality_type, analysis, metrics):
         ],
         "Subscriber": [
             "List all recurring bills and cancel one you rarely use.",
-            "Compare subscription total to your income — aim under 10%.",
+            "Compare subscription total to your income, aim under 10%.",
             top_msg,
         ],
         "Balanced": [
