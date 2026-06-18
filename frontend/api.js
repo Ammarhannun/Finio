@@ -112,6 +112,64 @@ export function formatAUD(amount) {
   }).format(amount);
 }
 
+// ── Dates: always shown as "June 2026" for easy reading ──
+const MONTHS = ['January','February','March','April','May','June',
+  'July','August','September','October','November','December'];
+
+export function formatMonthYear(value) {
+  if (!value) return '';
+  const s = String(value);
+  // Accept "2026-06" or "2026-06-18" or a full ISO date.
+  const m = s.match(/^(\d{4})-(\d{2})/);
+  if (m) return `${MONTHS[parseInt(m[2], 10) - 1]} ${m[1]}`;
+  const d = new Date(s);
+  if (!isNaN(d)) return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return s;
+}
+
+// Human label for a date range, in Month Year only.
+export function dateRangeLabel(dr) {
+  if (!dr?.start) return '';
+  const start = formatMonthYear(dr.start);
+  const end = formatMonthYear(dr.end);
+  return start === end ? start : `${start} to ${end}`;
+}
+
+// ── Shared period selector ──
+// The same window control on every page so the whole platform moves together.
+const BASE_PERIODS = [
+  { value: 'monthly', label: 'Latest month' },
+  { value: 'weekly', label: 'Latest week' },
+  { value: 'daily', label: 'Latest day' },
+  { value: 'all', label: 'All time' },
+];
+
+// Turn a selector value into the query string the API expects.
+export function periodQuery(value) {
+  if (value && value.startsWith('month:')) {
+    return `period=monthly&month=${encodeURIComponent(value.slice(6))}`;
+  }
+  return `period=${encodeURIComponent(value || 'monthly')}`;
+}
+
+// Mount a period <select> into `container`. `onChange(value)` fires on change.
+export function mountPeriodBar(container, months, onChange, current = 'monthly') {
+  if (!container) return;
+  const monthOpts = (months || []).slice().reverse()
+    .map(m => `<option value="month:${m}">${formatMonthYear(m)}</option>`).join('');
+  container.innerHTML = `
+    <div class="period-bar">
+      <span class="period-tag">Period</span>
+      <select aria-label="Time period">
+        ${BASE_PERIODS.map(p =>
+          `<option value="${p.value}"${p.value === current ? ' selected' : ''}>${p.label}</option>`
+        ).join('')}
+        ${monthOpts ? `<optgroup label="Specific month">${monthOpts}</optgroup>` : ''}
+      </select>
+    </div>`;
+  container.querySelector('select').addEventListener('change', (e) => onChange(e.target.value));
+}
+
 export function showToast(msg) {
   const toast = document.getElementById('toast');
   if (!toast) return;

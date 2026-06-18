@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio — Spend Check</title>
+  <title>Finio · Spend Check</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <nav>
-  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
@@ -27,9 +27,12 @@
 </nav>
 
 <main>
-  <div class="page-header">
-    <h1>Spend Check</h1>
-    <p>Should you buy it? Let your AI coach decide</p>
+  <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+    <div>
+      <h1>Spend Check</h1>
+      <p>Should you buy it? Let your AI coach decide</p>
+    </div>
+    <div id="period-mount"></div>
   </div>
 
   <div class="card" style="max-width:520px;margin:0 auto;">
@@ -63,12 +66,14 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar } from './api.js';
 
   setupNav('spend');
 
+  let spendPeriod = { period: 'monthly', month: null };
+
   const VERDICTS = {
-    green: { icon: '✅', label: 'All good — go for it' },
+    green: { icon: '✅', label: 'All good, go for it' },
     yellow: { icon: '⚠️', label: 'Proceed with caution' },
     red: { icon: '🚫', label: 'Not recommended right now' },
   };
@@ -76,6 +81,13 @@
   async function init() {
     try {
       await requireAuth();
+      const dash = await apiFetch('/dashboard');
+      mountPeriodBar(document.getElementById('period-mount'),
+        dash.available_months || [], (value) => {
+          spendPeriod = value.startsWith('month:')
+            ? { period: 'monthly', month: value.slice(6) }
+            : { period: value, month: null };
+        }, 'monthly');
     } catch (_) {}
   }
 
@@ -107,7 +119,7 @@
     try {
       const res = await apiFetch('/spend-check', {
         method: 'POST',
-        body: JSON.stringify({ merchant, amount, days_ahead: daysAhead }),
+        body: JSON.stringify({ merchant, amount, days_ahead: daysAhead, ...spendPeriod }),
       });
 
       const verdict = (res.verdict || 'yellow').toLowerCase();
@@ -138,9 +150,9 @@
     } catch (err) {
       verdictEl.innerHTML = '';
       if (err.message === 'no_analysis' || err.status === 404) {
-        errEl.textContent = 'Upload a statement first — your coach needs your financial data to check this spend.';
+        errEl.textContent = 'Upload a statement first so your coach has your financial data to check this spend.';
       } else {
-        errEl.textContent = err.message || 'Something went wrong — please try again';
+        errEl.textContent = err.message || 'Something went wrong, please try again';
       }
       errEl.style.display = 'block';
     } finally {

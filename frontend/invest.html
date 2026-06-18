@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio — Invest</title>
+  <title>Finio · Invest</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <nav>
-  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
@@ -39,9 +39,12 @@
   </div>
 
   <div id="content" style="display:none;">
-    <div class="page-header">
-      <h1>Invest</h1>
-      <p>Your personalised investing roadmap</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+      <div>
+        <h1>Invest</h1>
+        <p>Your personalised investing roadmap</p>
+      </div>
+      <div id="period-mount"></div>
     </div>
 
     <!-- Readiness banner -->
@@ -63,6 +66,16 @@
       <div id="etf-content"></div>
     </div>
 
+    <!-- Where your money could go (full menu incl. crypto) -->
+    <div class="card" style="margin-bottom:1.5rem;" id="options-card">
+      <div class="section-title">Where your money could go</div>
+      <p style="color:var(--muted);font-size:0.875rem;margin-bottom:0.5rem;">
+        A quick tour of your options, safest first. This is general information,
+        never a recommendation to buy anything.
+      </p>
+      <div id="options-content"></div>
+    </div>
+
     <!-- First $1000 -->
     <div class="card" style="margin-bottom:1.5rem;" id="first1000-card">
       <div class="section-title">First $1,000 plan</div>
@@ -81,9 +94,18 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
+           formatMonthYear, mountPeriodBar, periodQuery } from './api.js';
 
   setupNav('invest');
+
+  let currentPeriod = 'monthly';
+  const RISK_CLASS = (risk) => {
+    const r = (risk || '').toLowerCase();
+    if (r.includes('high')) return 'risk-high';
+    if (r.includes('low') && !r.includes('medium')) return 'risk-low';
+    return 'risk-medium';
+  };
 
   function renderInvest(data) {
     document.getElementById('loading').style.display = 'none';
@@ -92,7 +114,23 @@
     const { invest, goal, metrics } = data;
     if (!invest) return;
 
-    const { split_503020, actual_vs_target, readiness, first_1000, etf } = invest;
+    const { split_503020, actual_vs_target, readiness, first_1000, etf, options } = invest;
+
+    // Where your money could go — the full menu, crypto included
+    const optionsEl = document.getElementById('options-content');
+    if (options?.length) {
+      optionsEl.innerHTML = options.map(o => `
+        <div class="option-card">
+          <span class="option-type">${o.type}</span>
+          <div class="option-body">
+            <div class="option-name">${o.name}${o.options?.length ? ` <span style="color:var(--muted);font-weight:400;">(${o.options.join(', ')})</span>` : ''}</div>
+            <div class="option-note">${o.note}</div>
+            <span class="risk-pill ${RISK_CLASS(o.risk)}">${o.risk} risk</span>
+          </div>
+        </div>`).join('');
+    } else {
+      optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No options to show yet</p>';
+    }
 
     // Readiness banner
     const readinessEl = document.getElementById('readiness-banner');
@@ -130,31 +168,25 @@
       splitEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No split data available</p>';
     }
 
-    // Actual vs target
-    if (actual_vs_target && Object.keys(actual_vs_target).length) {
+    // Actual vs target (use the UI-ready rows from the backend)
+    const avtRows = actual_vs_target?.rows || [];
+    if (avtRows.length) {
       document.getElementById('avt-card').style.display = 'block';
-      const avtEl = document.getElementById('avt-content');
-      const entries = Object.entries(actual_vs_target);
-      avtEl.innerHTML = entries.map(([key, val]) => {
-        const actual = val?.actual ?? val;
-        const target = val?.target;
-        const isOver = typeof actual === 'number' && typeof target === 'number' && actual > target;
-        return `
-          <div class="info-row">
-            <span class="info-label" style="text-transform:capitalize;">${key}</span>
-            <span class="info-value" style="color:${isOver ? 'var(--red)' : 'var(--green)'};">
-              ${typeof actual === 'number' ? formatAUD(actual) : actual}
-              ${target != null ? `<span style="color:var(--muted);font-weight:400;"> / ${formatAUD(target)}</span>` : ''}
-            </span>
-          </div>`;
-      }).join('');
+      document.getElementById('avt-content').innerHTML = avtRows.map(r => `
+        <div class="info-row">
+          <span class="info-label">${r.label}</span>
+          <span class="info-value" style="color:${r.good ? 'var(--green)' : 'var(--red)'};">
+            ${formatAUD(r.actual)}
+            <span style="color:var(--muted);font-weight:400;"> / ${formatAUD(r.target)}</span>
+          </span>
+        </div>`).join('');
     }
 
     // Savings goal
     const goalEl = document.getElementById('goal-content');
     const goalData = goal || invest.goal;
     if (goalData) {
-      const current = goalData.current_savings ?? goalData.saved ?? 0;
+      const current = goalData.current_saved ?? goalData.current_savings ?? goalData.saved ?? 0;
       const target = goalData.target_amount ?? goalData.goal_amount ?? 0;
       const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
       const colorClass = pct >= 80 ? 'green' : pct >= 40 ? '' : 'yellow';
@@ -168,7 +200,7 @@
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted);">
           <span>${pct.toFixed(1)}% complete</span>
-          ${goalData.target_date || goalData.goal_date ? `<span>Target: ${goalData.target_date || goalData.goal_date}</span>` : ''}
+          ${goalData.target_date || goalData.goal_date ? `<span>Target: ${formatMonthYear(goalData.target_date || goalData.goal_date)}</span>` : ''}
         </div>
         ${goalData.monthly_required != null ? `
           <div style="margin-top:1rem;padding:0.75rem;background:var(--accent-dim);border-radius:8px;font-size:0.875rem;">
@@ -221,11 +253,22 @@
     }
   }
 
+  async function loadPeriod(value) {
+    currentPeriod = value;
+    try {
+      renderInvest(await apiFetch('/invest?' + periodQuery(value)));
+    } catch (err) {
+      showToast(err.message || 'Could not load that period');
+    }
+  }
+
   async function init() {
     try {
       await requireAuth();
       const data = await apiFetch('/invest');
       renderInvest(data);
+      mountPeriodBar(document.getElementById('period-mount'),
+        data.available_months || [], loadPeriod, currentPeriod);
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       if (err.message === 'no_analysis' || err.status === 404) {
