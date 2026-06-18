@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio — Dashboard</title>
+  <title>Finio · Dashboard</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <nav>
-  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
@@ -48,17 +48,9 @@
           <label for="csv-file">Bank statement (CSV or PDF)</label>
           <input type="file" id="csv-file" accept=".csv,.pdf" required>
         </div>
-        <div class="form-group">
-          <label for="period-select">Time period</label>
-          <select id="period-select">
-            <option value="monthly" selected>Latest month</option>
-            <option value="weekly">Latest week</option>
-            <option value="daily">Latest day</option>
-            <option value="all">All time</option>
-          </select>
-        </div>
         <p style="color:var(--muted);font-size:0.8125rem;margin:-0.25rem 0 1rem;">
-          We'll analyse your spending first, then help you set a savings goal.
+          Upload your whole statement. You can switch between monthly, weekly and
+          daily views on the dashboard afterwards.
         </p>
         <div id="upload-error" class="form-error"></div>
         <button type="submit" class="btn btn-primary btn-full" id="upload-btn">
@@ -77,6 +69,13 @@
       </div>
       <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
         <span id="streak-badge" class="streak-badge" style="display:none;"></span>
+        <select id="dash-period" aria-label="Time period" style="padding:0.45rem 0.75rem;font-size:0.8125rem;">
+          <option value="monthly">Latest month</option>
+          <option value="weekly">Latest week</option>
+          <option value="daily">Latest day</option>
+          <option value="all">All time</option>
+          <optgroup id="month-options" label="Specific month"></optgroup>
+        </select>
         <button id="reupload-btn" class="btn btn-outline" style="padding:0.45rem 1rem;font-size:0.8125rem;">
           Upload new statement
         </button>
@@ -135,6 +134,35 @@
       <div id="budget-bars"></div>
     </div>
 
+    <!-- Accuracy: reclassify income / recurring bills -->
+    <div class="card" style="margin-bottom:1.5rem;" id="overrides-card">
+      <div class="section-title">Fix your income and bills</div>
+      <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
+        If Finio mislabelled something, tell it here. Type any part of a merchant
+        or description (like a friend's name or your salary payer) and choose what
+        it really is. Every number on the platform updates to match.
+      </p>
+      <form id="override-form">
+        <div class="form-grid-2">
+          <div class="form-group" style="margin-bottom:0.75rem;">
+            <label for="override-match">Transactions containing</label>
+            <input type="text" id="override-match" placeholder="e.g. ACME PAYROLL, PAYID LAITH" maxlength="200">
+          </div>
+          <div class="form-group" style="margin-bottom:0.75rem;">
+            <label for="override-flow">Count them as</label>
+            <select id="override-flow">
+              <option value="income">Income</option>
+              <option value="expense">Spending</option>
+              <option value="transfer">Transfer (ignore)</option>
+            </select>
+          </div>
+        </div>
+        <div id="override-error" class="form-error"></div>
+        <button type="submit" class="btn btn-outline" id="override-btn" style="padding:0.5rem 1.1rem;font-size:0.8125rem;">Apply rule</button>
+      </form>
+      <div id="override-list" style="margin-top:1rem;"></div>
+    </div>
+
     <!-- Personality card -->
     <div class="card personality-card" style="margin-bottom:1.5rem;">
       <div class="section-title">Your money personality</div>
@@ -150,7 +178,8 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
+           formatMonthYear, dateRangeLabel } from './api.js';
 
   setupNav('dashboard');
 
@@ -178,11 +207,9 @@
 
     const { metrics, budgets, personality, streak } = data;
 
-    // Date range
+    // Date range, shown as Month Year for easy reading
     if (metrics?.date_range) {
-      const dr = metrics.date_range;
-      document.getElementById('date-range').textContent =
-        `${dr.start} → ${dr.end}  ·  ${dr.days} days`;
+      document.getElementById('date-range').textContent = dateRangeLabel(metrics.date_range);
     }
 
     // Streak badge
@@ -232,13 +259,14 @@
     }
 
     renderGoal(data);
+    populatePeriods(data);
 
     // Personality
     if (personality) {
       document.getElementById('personality-type').textContent =
         personality.personality_type || 'Unknown';
       const sr = personality.savings_rate != null
-        ? `Savings rate: ${(personality.savings_rate * 100).toFixed(1)}%`
+        ? `Savings rate: ${personality.savings_rate.toFixed(1)}%`
         : '';
       document.getElementById('personality-meta').textContent = sr;
 
@@ -250,6 +278,33 @@
         : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet — upload a statement to get personalised tips</p>';
     }
   }
+
+  // ── Time-period selector ──
+  let monthsPopulated = false;
+  function populatePeriods(data) {
+    const grp = document.getElementById('month-options');
+    const months = data.available_months || [];
+    if (monthsPopulated || !months.length) return;
+    // newest month first
+    grp.innerHTML = months.slice().reverse()
+      .map(m => `<option value="month:${m}">${formatMonthYear(m)}</option>`).join('');
+    monthsPopulated = true;
+  }
+
+  document.getElementById('dash-period').addEventListener('change', async (e) => {
+    const v = e.target.value;
+    const qs = v.startsWith('month:')
+      ? `?period=monthly&month=${encodeURIComponent(v.slice(6))}`
+      : `?period=${encodeURIComponent(v)}`;
+    showLoading('Loading ' + (e.target.selectedOptions[0]?.text || 'period') + '…');
+    try {
+      const data = await apiFetch('/dashboard' + qs);
+      renderDashboard(data);
+    } catch (err) {
+      showToast(err.message || 'Could not load that period');
+      renderDashboard(await apiFetch('/dashboard'));
+    }
+  });
 
   // ── Savings goal ──
   function renderGoal(data) {
@@ -283,8 +338,8 @@
           <div class="progress-fill ${onTrack ? 'green' : 'yellow'}" style="width:${pct}%"></div>
         </div>
         <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem;">
-          Projected ${formatAUD(forecast.projected_total)} by ${(forecast.target_date || '').slice(0, 10)}
-          · ${forecast.days_remaining ?? 0} days left
+          Projected ${formatAUD(forecast.projected_total)} by ${formatMonthYear(forecast.target_date)}
+          ${forecast.months_remaining != null ? `· ${forecast.months_remaining} months to go` : ''}
         </div>`;
     } else {
       progressEl.innerHTML = '';
@@ -326,6 +381,70 @@
     }
   });
 
+  // ── Reclassify income / bills (overrides) ──
+  const FLOW_LABEL = { income: 'Income', expense: 'Spending', transfer: 'Transfer' };
+  let overrideRules = [];
+
+  function renderOverrides() {
+    const el = document.getElementById('override-list');
+    if (!overrideRules.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:0.8125rem;">No custom rules yet.</p>';
+      return;
+    }
+    el.innerHTML = overrideRules.map((r, i) => `
+      <div class="override-row">
+        <span><span class="override-match">${r.match}</span>
+          <span class="override-flow">counts as ${FLOW_LABEL[r.flow] || r.flow}</span></span>
+        <button class="link-btn" data-i="${i}" style="color:var(--red);">Remove</button>
+      </div>`).join('');
+    el.querySelectorAll('button[data-i]').forEach(b => {
+      b.addEventListener('click', () => {
+        overrideRules.splice(parseInt(b.dataset.i, 10), 1);
+        saveOverrides();
+      });
+    });
+  }
+
+  async function loadOverrides() {
+    try {
+      const res = await apiFetch('/overrides');
+      overrideRules = res.overrides || [];
+      renderOverrides();
+    } catch (_) { /* no snapshot yet */ }
+  }
+
+  async function saveOverrides() {
+    await apiFetch('/overrides', {
+      method: 'POST',
+      body: JSON.stringify({ rules: overrideRules }),
+    });
+    renderOverrides();
+    renderDashboard(await apiFetch('/dashboard'));
+    showToast('Updated your numbers');
+  }
+
+  document.getElementById('override-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('override-error');
+    errEl.style.display = 'none';
+    const match = document.getElementById('override-match').value.trim();
+    const flow = document.getElementById('override-flow').value;
+    if (!match) {
+      errEl.textContent = 'Type some text to match first';
+      errEl.style.display = 'block';
+      return;
+    }
+    overrideRules = overrideRules.filter(r => r.match.toLowerCase() !== match.toLowerCase());
+    overrideRules.push({ match, flow });
+    document.getElementById('override-match').value = '';
+    try {
+      await saveOverrides();
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not apply that rule';
+      errEl.style.display = 'block';
+    }
+  });
+
   // ── Upload form ──
   document.getElementById('upload-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -342,7 +461,7 @@
 
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('period', document.getElementById('period-select')?.value || 'monthly');
+    fd.append('period', 'monthly');
 
     btn.disabled = true;
     btn.textContent = 'Analysing…';
@@ -372,6 +491,7 @@
       showLoading();
       const data = await apiFetch('/dashboard');
       renderDashboard(data);
+      loadOverrides();
     } catch (err) {
       if (err.message === 'no_analysis' || err.status === 404) {
         showUpload();

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio — AI Coach</title>
+  <title>Finio · AI Coach</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <nav>
-  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
@@ -39,9 +39,12 @@
   </div>
 
   <div id="content" style="display:none;">
-    <div class="page-header">
-      <h1>AI Coach</h1>
-      <p>Ask anything about your money — your coach knows your finances</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+      <div>
+        <h1>AI Coach</h1>
+        <p>Chat about anything. Your coach knows your finances and answers freely.</p>
+      </div>
+      <div id="period-mount"></div>
     </div>
 
     <!-- Quick questions -->
@@ -50,7 +53,7 @@
     <!-- Chat window -->
     <div class="chat-window" id="chat-window">
       <div class="chat-msg assistant">
-        <div>Hey! 👋 I'm your Finio money coach. I've looked at your finances and I'm here to help. What would you like to know?</div>
+        <div>Hey! 👋 I'm your Finio money buddy. Ask me anything, about your spending, saving, a big purchase, or just money in general. What's on your mind?</div>
       </div>
     </div>
 
@@ -66,9 +69,12 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, showToast } from './api.js';
+  import { apiFetch, requireAuth, setupNav, showToast, mountPeriodBar } from './api.js';
 
   setupNav('coach');
+
+  // Period the coach should reason about (mirrors the rest of the platform).
+  let coachPeriod = { period: 'monthly', month: null };
 
   const chatWindow = document.getElementById('chat-window');
   const chatInput = document.getElementById('chat-input');
@@ -135,7 +141,7 @@
     try {
       const res = await apiFetch('/coach', {
         method: 'POST',
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, ...coachPeriod }),
       });
       hideTyping();
       appendMessage('assistant', res.text || '—', new Date().toISOString());
@@ -185,6 +191,17 @@
 
       document.getElementById('loading').style.display = 'none';
       document.getElementById('content').style.display = 'block';
+
+      // Mount the shared period selector so the coach matches what you're viewing.
+      try {
+        const dash = await apiFetch('/dashboard');
+        mountPeriodBar(document.getElementById('period-mount'),
+          dash.available_months || [], (value) => {
+            coachPeriod = value.startsWith('month:')
+              ? { period: 'monthly', month: value.slice(6) }
+              : { period: value, month: null };
+          }, 'monthly');
+      } catch (_) { /* no data yet */ }
 
       // Render history (skip if empty — keep greeting)
       if (history.length > 0) {

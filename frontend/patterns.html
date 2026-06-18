@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio — Patterns</title>
+  <title>Finio · Patterns</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <nav>
-  <a class="nav-logo" href="dashboard.html">Finio</a>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
@@ -40,9 +40,12 @@
   </div>
 
   <div id="content" style="display:none;">
-    <div class="page-header">
-      <h1>Spending patterns</h1>
-      <p>What your spending habits are telling you</p>
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+      <div>
+        <h1>Spending patterns</h1>
+        <p>What your spending habits are telling you</p>
+      </div>
+      <div id="period-mount"></div>
     </div>
 
     <!-- Risk score -->
@@ -83,9 +86,12 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass,
+           mountPeriodBar, periodQuery } from './api.js';
 
   setupNav('patterns');
+
+  let currentPeriod = 'monthly';
 
   const CHART_COLORS = [
     '#7c6fff','#22c55e','#f59e0b','#ef4444','#06b6d4',
@@ -93,6 +99,7 @@
   ];
 
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  let chartInstance = null;
 
   function renderPatterns(data) {
     document.getElementById('loading').style.display = 'none';
@@ -133,7 +140,8 @@
     const categories = analysis?.category_breakdown || [];
     if (categories.length) {
       const ctx = document.getElementById('category-chart').getContext('2d');
-      new Chart(ctx, {
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: categories.map(c => c.category),
@@ -180,20 +188,57 @@
         </div>`).join('');
     }
 
-    // Bills
-    const billsList = bills || [];
-    const billsEl = document.getElementById('bills-list');
-    if (billsList.length) {
-      billsEl.innerHTML = billsList.map(b => `
-        <div class="bill-row">
-          <div>
-            <div class="bill-merchant">${b.merchant}</div>
-            <div class="bill-meta">${b.frequency || ''} · ${b.count} transactions</div>
+    // Recurring bills — only genuinely repeating charges, with the repetition
+    // shown clearly. Long lists collapse behind a "show more" so it stays tidy.
+    renderBills(bills || []);
+  }
+
+  const BILL_PREVIEW = 5;
+  function billRow(b) {
+    const times = b.count != null ? `repeats ${b.count} times` : '';
+    return `
+      <div class="bill-row">
+        <div>
+          <div class="bill-merchant">${b.merchant}</div>
+          <div class="bill-meta">
+            ${b.frequency ? `<span class="bill-freq">${b.frequency}</span>` : ''}${times}
           </div>
-          <div class="bill-amount">${formatAUD(b.amount)}</div>
-        </div>`).join('');
-    } else {
+        </div>
+        <div class="bill-amount">${formatAUD(b.amount)}</div>
+      </div>`;
+  }
+
+  function renderBills(bills) {
+    const billsEl = document.getElementById('bills-list');
+    if (!bills.length) {
       billsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;padding:0.5rem 0;">No recurring bills detected</p>';
+      return;
+    }
+    const head = bills.slice(0, BILL_PREVIEW).map(billRow).join('');
+    const rest = bills.slice(BILL_PREVIEW);
+    billsEl.innerHTML = head +
+      (rest.length
+        ? `<div id="bills-rest" style="display:none;">${rest.map(billRow).join('')}</div>
+           <button class="link-btn" id="bills-more">Show ${rest.length} more</button>`
+        : '');
+    const moreBtn = document.getElementById('bills-more');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', () => {
+        const restEl = document.getElementById('bills-rest');
+        const open = restEl.style.display === 'block';
+        restEl.style.display = open ? 'none' : 'block';
+        moreBtn.textContent = open ? `Show ${rest.length} more` : 'Show less';
+      });
+    }
+  }
+
+  async function loadPeriod(value) {
+    currentPeriod = value;
+    try {
+      const data = await apiFetch('/dashboard?' + periodQuery(value));
+      renderPatterns(data);
+    } catch (err) {
+      showToast(err.message || 'Could not load that period');
     }
   }
 
@@ -202,6 +247,8 @@
       await requireAuth();
       const data = await apiFetch('/dashboard');
       renderPatterns(data);
+      mountPeriodBar(document.getElementById('period-mount'),
+        data.available_months || [], loadPeriod, currentPeriod);
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       if (err.message === 'no_analysis' || err.status === 404) {
