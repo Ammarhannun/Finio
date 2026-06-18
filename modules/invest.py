@@ -1,5 +1,5 @@
 import pandas as pd
-from config import DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
+from config import CRYPTO_OPTIONS, DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
 
 NEEDS_PCT = 50
 WANTS_PCT = 30
@@ -90,7 +90,7 @@ def first_1000_plan(current_saved):
     remaining = max(target - current_saved, 0)
     if remaining == 0:
         steps = [
-            "You've hit your first $1,000 — keep building your emergency buffer.",
+            "You've hit your first $1,000. Keep building your emergency buffer.",
             "Only consider investing money you won't need for bills or emergencies.",
             "Research fees and risk before choosing an ETF.",
         ]
@@ -123,15 +123,15 @@ def invest_readiness(metrics, compare, forecast_result):
         return {
             "can_invest": False,
             "reason": (
-                f"You're saving less than {MIN_SAVINGS_RATE_PCT}% of income — "
-                "focus on spending and bills first."
+                f"You're saving less than {MIN_SAVINGS_RATE_PCT}% of income. "
+                "Focus on spending and bills first."
             ),
             "priority": "stabilise_spending",
         }
     if compare["savings_gap"] > 0:
         return {
             "can_invest": False,
-            "reason": "You're below the 20% savings target for this period — prioritise saving.",
+            "reason": "You're below the 20% savings target for this period. Prioritise saving.",
             "priority": "close_savings_gap",
         }
     if not forecast_result.get("on_track", False):
@@ -142,7 +142,7 @@ def invest_readiness(metrics, compare, forecast_result):
         }
     return {
         "can_invest": True,
-        "reason": "You have savings headroom — investing may be an option after research.",
+        "reason": "You have savings headroom. Investing may be an option after research.",
         "priority": "consider_etfs",
     }
 
@@ -150,19 +150,60 @@ def invest_readiness(metrics, compare, forecast_result):
 def etf_nudge(age=None):
     if age is not None and age < 25:
         pick = "NDQ"
-        reason = "Younger horizon — growth-focused (higher risk)."
+        reason = "Younger horizon with a growth tilt (higher risk)."
     elif age is not None and age >= 40:
         pick = "A200"
         reason = "Broader AU market, lower cost."
     else:
         pick = "VGS"
-        reason = "Diversified global exposure — common starter for Aussies."
+        reason = "Diversified global exposure, a common starter for Aussies."
     return {
         "recommended": pick,
         "options": ETF_OPTIONS,
         "reason": reason,
         "note": "Research fees and risk before investing.",
     }
+
+
+def investment_menu(can_invest, age=None):
+    """A plain language menu of where money can go, safest first.
+
+    Goes beyond ETFs so the user sees the full picture: cash, index funds,
+    crypto and super, each with its risk band. Crypto is listed for awareness
+    only, with a heavy caveat, never as a recommendation. The whole menu is
+    information only and unlocks once the buffer and savings are in place.
+    """
+    etf = etf_nudge(age)
+    return [
+        {
+            "type": "Cash",
+            "name": "High interest savings account",
+            "risk": "Very low",
+            "options": [],
+            "note": "The right home for your emergency buffer and anything you need within a year.",
+        },
+        {
+            "type": "ETFs",
+            "name": "Low cost index funds",
+            "risk": "Medium",
+            "options": ETF_OPTIONS,
+            "note": etf["reason"],
+        },
+        {
+            "type": "Super",
+            "name": "Extra super contributions",
+            "risk": "Low to medium",
+            "options": [],
+            "note": "Tax friendly for the long run, but your money is locked away until retirement.",
+        },
+        {
+            "type": "Crypto",
+            "name": "Bitcoin or Ethereum",
+            "risk": "Very high",
+            "options": CRYPTO_OPTIONS,
+            "note": "Extremely volatile and can fall fast. Only ever money you could lose, and only after your buffer and goals are sorted.",
+        },
+    ]
 
 
 def invest_summary(df, metrics, forecast_result, target_amount, age=None):
@@ -188,6 +229,7 @@ def invest_summary(df, metrics, forecast_result, target_amount, age=None):
         "goal": goal_progress(forecast_result, target_amount),
         "first_1000": first_1000_plan(forecast_result["current_saved"]),
         "etf": etf,
+        "options": investment_menu(readiness["can_invest"], age),
         "disclaimer": DISCLAIMER,
     }
 

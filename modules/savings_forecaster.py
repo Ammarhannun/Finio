@@ -1,5 +1,4 @@
 import pandas as pd
-from sklearn.linear_model import LinearRegression
 from config import DISCLAIMER
 
 
@@ -22,8 +21,8 @@ def recommend_goal(metrics, horizon_months=6):
     if monthly_saved <= 0:
         amount = 1000
         rationale = (
-            "You spent more than you earned this period, so let's start small — "
-            "a $1,000 starter buffer is a solid first goal."
+            "You spent more than you earned this period, so let's start small. "
+            "A $1,000 starter buffer is a solid first goal."
         )
     else:
         raw = monthly_saved * horizon_months
@@ -43,39 +42,69 @@ def recommend_goal(metrics, horizon_months=6):
     }
 
 
+def _empty_forecast(target_amount, target_date):
+    return {
+        "on_track": False,
+        "current_saved": 0.0,
+        "projected_total": 0.0,
+        "monthly_rate": 0.0,
+        "target_amount": target_amount,
+        "target_date": pd.Timestamp(target_date).strftime("%Y-%m-%d"),
+        "net_savings_rate": 0.0,
+        "months_remaining": 0,
+        "days_remaining": 0,
+        "disclaimer": DISCLAIMER,
+    }
+
+
 def forecast_goal(df, target_amount, target_date):
+    """Project savings to the goal date from a realistic monthly trend.
+
+    Instead of fitting a line through just the first and last day (which swings
+    wildly on a short or partial window), we average the user's NET savings per
+    calendar month across their whole history. One big payday or a single lean
+    month no longer distorts the trajectory, so the on track verdict feels real.
+
+    Pass the FULL history here (not a single period slice) so current_saved is
+    the true running total toward the goal.
+    """
     target_date = pd.Timestamp(target_date)
     df = df.copy()
     # Exclude transfers so current_saved equals the canonical net_saved
     # (income - spend), matching the dashboard and every other page.
     if "is_transfer" in df.columns:
         df = df[~df["is_transfer"]]
-    start_date = df["date"].min()
+    if df.empty:
+        return _empty_forecast(target_amount, target_date)
+
+    df["date"] = pd.to_datetime(df["date"])
     last_date = df["date"].max()
-    daily = df.groupby("date", as_index=False)["amount"].sum()
-    date_range = pd.date_range(start_date, last_date, freq="D")
-    daily = daily.set_index("date").reindex(date_range, fill_value=0).reset_index()
-    daily.columns = ["date", "amount"]
-    daily["days_since_start"] = (daily["date"] - start_date).dt.days
+    current_saved = float(df["amount"].sum())
 
-    current_saved = float(daily["amount"].sum())
-    last_day = int(daily["days_since_start"].iloc[-1])
-    target_day = (target_date - start_date).days
+    # Average net per calendar month = the robust monthly savings rate.
+    monthly = df.set_index("date")["amount"].resample("MS").sum()
+    monthly_rate = float(monthly.mean()) if len(monthly) else 0.0
 
-    model = LinearRegression()
-    model.fit([[0], [last_day]], [0, current_saved])
-    net_savings_rate = float(model.coef_[0])
-    projected_total = current_saved + net_savings_rate * (target_day - last_day)
-    days_remaining = (target_date - last_date).days
+    # Whole calendar months from the last data point to the target month.
+    months_remaining = max(
+        (target_date.year - last_date.year) * 12
+        + (target_date.month - last_date.month),
+        0,
+    )
+    projected_total = current_saved + monthly_rate * months_remaining
+    days_remaining = max((target_date - last_date).days, 0)
     on_track = projected_total >= target_amount
     return {
-        "on_track": on_track,
+        "on_track": bool(on_track),
         "current_saved": round(current_saved, 2),
         "projected_total": round(projected_total, 2),
+        "monthly_rate": round(monthly_rate, 2),
         "target_amount": target_amount,
         "target_date": target_date.strftime("%Y-%m-%d"),
-        "net_savings_rate": round(net_savings_rate, 2),
-        "days_remaining": max(days_remaining, 0),
+        # Kept for any caller still reading a daily rate.
+        "net_savings_rate": round(monthly_rate / 30.44, 2),
+        "months_remaining": months_remaining,
+        "days_remaining": days_remaining,
         "disclaimer": DISCLAIMER,
     }
 

@@ -12,13 +12,13 @@ def check_purchase(df, metrics, purchase_amount, days_ahead=30):
     )
     if projected >= safety_buffer:
         verdict = "green"
-        message = "You can afford this — projected balance stays above your safety buffer."
+        message = "You can afford this. Projected balance stays above your safety buffer."
     elif projected >= 0:
         verdict = "yellow"
-        message = "Tight — you'd be above zero but below your safety buffer."
+        message = "Tight. You would be above zero but below your safety buffer."
     else:
         verdict = "red"
-        message = "Risky — projected balance goes negative after this purchase."
+        message = "Risky. Projected balance goes negative after this purchase."
     return {
         "verdict": verdict,
         "purchase_amount": purchase_amount,

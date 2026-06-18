@@ -563,14 +563,69 @@ def _():
         "goal_recommendation",
         "goal_used",
         "period",
+        "all_transactions",
         "disclaimer",
     }
     assert_eq(set(r.keys()), keys)
     assert_eq(len(r["transactions"]), 20)
+    assert_eq(len(r["all_transactions"]), 20)
     assert_in("merchant", r["transactions"][0])
     assert_eq(r["forecast"]["target_amount"], 8000)
     assert_eq(r["invest"]["etf"]["recommended"], "VGS")  # age 30
     assert_eq(r["goal_used"]["amount"], 8000)
+
+
+@test("pipeline: analyze_stored re-slices full history by period")
+def _():
+    from modules.pipeline import analyze_stored, run_full_pipeline
+
+    r = run_full_pipeline(SAMPLE_CSV)
+    full = r["all_transactions"]
+    monthly = analyze_stored(full, period="monthly")
+    all_time = analyze_stored(full, period="all")
+    daily = analyze_stored(full, period="daily")
+
+    assert_eq(monthly["period"]["selected"], "monthly")
+    assert_eq(all_time["period"]["selected"], "all")
+    # A single day can't have more spend than the whole history.
+    assert daily["metrics"]["total_spent"] <= all_time["metrics"]["total_spent"]
+
+
+@test("pipeline: overrides reclassify transactions and move the numbers")
+def _():
+    from modules.pipeline import analyze_stored, run_full_pipeline
+
+    full = run_full_pipeline(SAMPLE_CSV)["all_transactions"]
+    # Reclassifying an income merchant as an expense must lower income (income
+    # rows are positive), proving the user's override flows through every metric.
+    merchant = next(t["merchant"] for t in full if t["flow"] == "income")
+    base = analyze_stored(full, period="all")
+    changed = analyze_stored(
+        full, period="all", overrides=[{"match": merchant, "flow": "expense"}]
+    )
+    assert changed["metrics"]["total_income"] < base["metrics"]["total_income"]
+
+
+@test("invest: menu lists crypto and more than just ETFs")
+def _():
+    from modules.invest import investment_menu
+
+    types = {row["type"] for row in investment_menu(can_invest=True, age=25)}
+    assert_in("Crypto", types)
+    assert_in("ETFs", types)
+    assert len(types) >= 3
+
+
+@test("savings_forecaster: forecast exposes a monthly trend")
+def _():
+    from modules.pipeline import run_full_pipeline
+
+    f = run_full_pipeline(SAMPLE_CSV, goal_amount=5000, goal_date="2026-12-31")[
+        "forecast"
+    ]
+    assert_in("monthly_rate", f)
+    assert_in("months_remaining", f)
+    assert f["months_remaining"] >= 0
 
 
 @test("pipeline: recommends a goal when none given")

@@ -141,14 +141,23 @@ PERIODS_SUPPORTED = ["daily", "weekly", "monthly", "custom", "all"]
 # ASX ETFs mentioned in the plan
 ETF_OPTIONS = ["VGS", "A200", "NDQ"]
 
+# Beyond ETFs: the invest page shows a fuller menu so users see the trade offs
+# between cash, shares, crypto and super rather than only index funds. Crypto is
+# included for completeness with a heavy risk caveat, never as a recommendation.
+CRYPTO_OPTIONS = ["BTC", "ETH"]
+
 # ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
 OPENAI_MODEL = "gpt-4o-mini"
 COACH_SYSTEM_PROMPT = (
-    "You are Finio, a friendly finance coach for young Australians aged 18-30. "
-    "Use only the financial context provided. Currency is AUD. "
-    "Give general information only — not personal financial advice. "
-    "Never instruct the user to buy or sell. "
-    "If can_invest is false, do not recommend ETFs; focus on saving and buffers."
+    "You are Finio, a warm, upbeat money companion for young Australians aged 18 to 30. "
+    "Chat naturally and answer whatever the user asks, including everyday questions, "
+    "not just preset finance ones. When a question touches their money, ground your "
+    "answer in the financial context and use your tools to pull exact figures rather "
+    "than guessing. Currency is AUD. Keep replies friendly and concise. "
+    "Give general information only, never personal financial advice, and never tell "
+    "the user to buy or sell a specific investment. "
+    "If can_invest is false, steer toward saving and building a buffer instead of investing. "
+    "Never use hyphens in your replies."
 )
 
 # bill_detector.py — a real recurring bill must pass ALL three tests below.
