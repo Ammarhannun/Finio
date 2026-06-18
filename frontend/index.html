@@ -12,7 +12,7 @@
 <header class="landing-nav">
   <a class="nav-logo" href="index.html"><span class="brand">fini<span class="coin"></span></span></a>
   <div class="actions">
-    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☀️</button>
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
     <a href="login.html" class="btn btn-outline" style="padding:0.5rem 1.1rem;font-size:0.875rem;">Log in</a>
     <a href="login.html?signup=1" class="btn btn-primary" style="padding:0.5rem 1.1rem;font-size:0.875rem;">Get started</a>
   </div>
@@ -20,7 +20,7 @@
 
 <section class="hero">
   <div>
-    <span class="hero-eyebrow">🇦🇺 For young Australians</span>
+    <span class="hero-eyebrow">Built for Australians 18 to 30</span>
     <h1>Your money,<br>on one little <span class="ink">receipt</span>.</h1>
     <p class="lede">
       Upload a bank statement and Finio reads it like a till receipt: where your
@@ -36,12 +36,21 @@
   </div>
 
   <div class="hero-art">
-    <div class="coin-rain" id="coin-rain" aria-hidden="true"></div>
-    <div class="coin-3d" aria-hidden="true">
-      <div class="face front"><span>$</span></div>
-      <div class="face back"><span>$</span></div>
+    <div class="receipt" aria-hidden="true">
+      <div class="r-head" style="--i:0">FINI<span class="coin"></span></div>
+      <div class="r-sub" style="--i:1">SPENDING SUMMARY</div>
+      <div class="r-rule" style="--i:2"></div>
+      <div class="r-line" style="--i:3"><span>Groceries</span><span>$182.40</span></div>
+      <div class="r-line" style="--i:4"><span>Coffee x12</span><span>$58.00</span></div>
+      <div class="r-line" style="--i:5"><span>Transport</span><span>$96.30</span></div>
+      <div class="r-line" style="--i:6"><span>Subscriptions</span><span>$44.97</span></div>
+      <div class="r-line" style="--i:7"><span>Dining out</span><span>$120.10</span></div>
+      <div class="r-rule" style="--i:8"></div>
+      <div class="r-total" style="--i:9"><span>SAVED</span><span>$612.83</span></div>
+      <div class="r-barcode" style="--i:10"></div>
+      <div class="r-thanks" style="--i:11">THANK YOU FOR SAVING</div>
+      <div class="receipt-scan"></div>
     </div>
-    <div class="coin-shadow" aria-hidden="true"></div>
   </div>
 </section>
 
@@ -50,32 +59,32 @@
   <p class="sub reveal">One upload, six honest answers.</p>
   <div class="feature-grid">
     <div class="feature-slip reveal">
-      <span class="emoji">🧾</span>
+      <span class="emoji">≡</span>
       <h3>Clear spending</h3>
       <p>Transfers stripped out, merchants cleaned up, every dollar sorted into a category you actually recognise.</p>
     </div>
     <div class="feature-slip reveal">
-      <span class="emoji">🔁</span>
+      <span class="emoji">↻</span>
       <h3>Recurring bills</h3>
       <p>Finio spots the charges that keep repeating and shows how often and how much, so nothing sneaks up on you.</p>
     </div>
     <div class="feature-slip reveal">
-      <span class="emoji">🎯</span>
+      <span class="emoji">◎</span>
       <h3>Savings goals</h3>
       <p>Set a target and see a realistic projection of when you will hit it, based on how you actually save.</p>
     </div>
     <div class="feature-slip reveal">
-      <span class="emoji">💬</span>
+      <span class="emoji">❝</span>
       <h3>AI money coach</h3>
       <p>Chat freely about your finances. It knows your numbers and answers in plain English, no jargon.</p>
     </div>
     <div class="feature-slip reveal">
-      <span class="emoji">🚦</span>
+      <span class="emoji">◉</span>
       <h3>Spend check</h3>
       <p>Thinking of a purchase? Get a green, yellow or red verdict before you tap your card.</p>
     </div>
     <div class="feature-slip reveal">
-      <span class="emoji">📈</span>
+      <span class="emoji">↗</span>
       <h3>Invest, simply</h3>
       <p>A plain tour of your options from cash to ETFs to crypto, with the risks spelled out. Information, never pressure.</p>
     </div>
@@ -94,21 +103,6 @@
 
   // Already signed in? Jump straight to the dashboard.
   getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
-
-  // Sprinkle coins drifting up behind the hero coin.
-  const rain = document.getElementById('coin-rain');
-  if (rain && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    for (let i = 0; i < 14; i++) {
-      const c = document.createElement('span');
-      c.className = 'mini-coin';
-      const size = 14 + Math.random() * 20;
-      c.style.left = `${Math.random() * 100}%`;
-      c.style.width = c.style.height = `${size}px`;
-      c.style.animationDuration = `${5 + Math.random() * 5}s`;
-      c.style.animationDelay = `${-Math.random() * 8}s`;
-      rain.appendChild(c);
-    }
-  }
 
   // Reveal feature slips as they scroll into view.
   const io = new IntersectionObserver((entries) => {

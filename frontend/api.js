@@ -59,8 +59,8 @@ export function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   try { localStorage.setItem('finio-theme', theme); } catch (e) { /* ignore */ }
   const btn = document.getElementById('theme-toggle');
-  // Show the icon for the mode you'd switch TO.
-  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  // Show the symbol for the mode you'd switch TO (monochrome dingbats, no emoji).
+  if (btn) btn.textContent = theme === 'light' ? '☾' : '☼';
 }
 
 export function initThemeToggle() {
