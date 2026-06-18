@@ -13,7 +13,7 @@ export async function getSession() {
 export async function requireAuth() {
   const session = await getSession();
   if (!session) {
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';
     throw new Error('Not authenticated');
   }
   return session;
@@ -36,7 +36,7 @@ export async function apiFetch(path, options = {}) {
 
   if (res.status === 401) {
     await supabase.auth.signOut();
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';
     throw new Error('session_expired');
   }
 
@@ -86,7 +86,7 @@ export function setupNav(activePage) {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await supabase.auth.signOut();
-      window.location.href = 'index.html';
+      window.location.href = 'login.html';
     });
   }
 
