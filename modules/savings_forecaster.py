@@ -2,33 +2,102 @@ import pandas as pd
 from config import DISCLAIMER
 
 
-def recommend_goal(metrics, horizon_months=6):
+def forecast_spending(df, metrics):
+    """Project next month's spend and, if a real balance is known, when the user
+    might run short. Uses the recent monthly spend trend (resample by month) so
+    it reflects current habits, not the whole-history average.
+    """
+    out = {
+        "projected_next_month": 0.0,
+        "avg_monthly_spend": 0.0,
+        "trend": None,            # "up" | "down" | None
+        "runway_days": None,
+        "run_short_date": None,
+        "disclaimer": DISCLAIMER,
+    }
+    if df is None or df.empty:
+        return out
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    exp = df[df["flow"] == "expense"] if "flow" in df.columns else df[df["amount"] < 0]
+    if exp.empty:
+        return out
+
+    monthly = exp.set_index("date")["amount"].abs().resample("MS").sum()
+    if not len(monthly):
+        return out
+    avg = float(monthly.mean())
+    recent = float(monthly.tail(3).mean())        # last 3 months ≈ current habits
+    out["avg_monthly_spend"] = round(avg, 2)
+    out["projected_next_month"] = round(recent, 2)
+    if len(monthly) >= 2:
+        prior = float(monthly.iloc[:-1].mean())
+        out["trend"] = "up" if monthly.iloc[-1] > prior else "down"
+
+    # Runway: how long the real balance lasts at the current daily burn.
+    balance = (metrics or {}).get("latest_balance")
+    burn = (metrics or {}).get("daily_burn_rate") or 0
+    if balance is not None and burn > 0:
+        runway = int(balance / burn)
+        out["runway_days"] = runway
+        last_date = exp["date"].max()
+        out["run_short_date"] = (last_date + pd.Timedelta(days=runway)).strftime("%Y-%m-%d")
+    return out
+
+
+def monthly_net_average(df):
+    """Average NET savings per calendar month (income minus spend, transfers
+    excluded). Resampling by month means one big payday or a single lean month
+    no longer skews the figure, so it's a realistic 'what you save per month'.
+    """
+    df = df.copy()
+    if "is_transfer" in df.columns:
+        df = df[~df["is_transfer"]]
+    if df.empty:
+        return 0.0
+    df["date"] = pd.to_datetime(df["date"])
+    monthly = df.set_index("date")["amount"].resample("MS").sum()
+    return float(monthly.mean()) if len(monthly) else 0.0
+
+
+def recommend_goal(metrics, horizon_months=6, monthly_saved=None):
     """Suggest a savings goal (amount + date) from the user's actual numbers.
 
-    Picks a horizon a few months out and scales the target to roughly what the
-    user already saves per month, so it feels achievable rather than arbitrary.
+    Scales the target to what the user really saves per month so it feels
+    achievable rather than arbitrary. Prefer the robust monthly figure
+    (`monthly_saved`, averaged across calendar months by the caller); fall back
+    to the current slice's net_saved when it isn't supplied.
+
+    If they're not saving yet, recommend a starter emergency buffer sized to
+    roughly one month of their spending (with a sensible floor) instead of an
+    arbitrary number, so the goal still means something.
     """
     date_range = metrics.get("date_range", {}) or {}
     days = date_range.get("days") or 30
     end = date_range.get("end")
 
-    saved = metrics.get("net_saved", 0) or 0
-    monthly_saved = (saved / days) * 30 if days else 0
+    if monthly_saved is None:
+        saved = metrics.get("net_saved", 0) or 0
+        monthly_saved = (saved / days) * 30 if days else 0
 
     base = pd.Timestamp(end) if end else pd.Timestamp.today()
     target_date = (base + pd.DateOffset(months=horizon_months)).strftime("%Y-%m-%d")
 
+    def _round100(x):
+        return int(round(x / 100.0)) * 100
+
     if monthly_saved <= 0:
-        amount = 1000
+        # One month of spending makes a meaningful first buffer; floor at $500.
+        monthly_spend = (metrics.get("total_spent", 0) or 0) / days * 30 if days else 0
+        amount = max(_round100(monthly_spend), 500)
         rationale = (
-            "You spent more than you earned this period, so let's start small. "
-            "A $1,000 starter buffer is a solid first goal."
+            "You spent more than you earned this period, so start with a safety "
+            f"buffer. About ${amount:,} covers roughly a month of your spending."
         )
     else:
-        raw = monthly_saved * horizon_months
-        amount = max(int(round(raw / 100.0)) * 100, 500)
+        amount = max(_round100(monthly_saved * horizon_months), 500)
         rationale = (
-            f"You're saving about ${monthly_saved:,.0f}/month. At that pace, "
+            f"You save about ${monthly_saved:,.0f} a month. At that pace, "
             f"${amount:,} in {horizon_months} months is realistic."
         )
 
@@ -82,8 +151,7 @@ def forecast_goal(df, target_amount, target_date):
     current_saved = float(df["amount"].sum())
 
     # Average net per calendar month = the robust monthly savings rate.
-    monthly = df.set_index("date")["amount"].resample("MS").sum()
-    monthly_rate = float(monthly.mean()) if len(monthly) else 0.0
+    monthly_rate = monthly_net_average(df)
 
     # Whole calendar months from the last data point to the target month.
     months_remaining = max(

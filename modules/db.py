@@ -43,6 +43,26 @@ def get_user(access_token):
 
 
 def get_user_id(access_token):
+    """The user's id from their access token.
+
+    When SUPABASE_JWT_SECRET is set we verify the JWT signature LOCALLY (HS256)
+    — no network round-trip on every request. Falls back to the network
+    auth.get_user check if the secret is absent or the token isn't HS256, so
+    it's safe to leave unset. Data access is still guarded by Postgres RLS
+    (the token is passed to PostgREST), so this only optimises identity lookup.
+    """
+    secret = os.getenv("SUPABASE_JWT_SECRET")
+    if secret:
+        try:
+            import jwt
+
+            payload = jwt.decode(
+                access_token, secret, algorithms=["HS256"], audience="authenticated"
+            )
+            if payload.get("sub"):
+                return payload["sub"]
+        except Exception:
+            pass  # fall back to the authoritative network check
     return get_user(access_token).id
 
 
@@ -163,6 +183,18 @@ def upsert_user_profile(client, user_id, email=None, age=None, income_bracket=No
         client.table("users").upsert(payload, on_conflict="id").execute()
 
 
+def get_user_profile(client, user_id):
+    """The user's stored profile row (email, age, income bracket)."""
+    result = (
+        client.table("users")
+        .select("email, age, income_bracket")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
 def get_latest_snapshot(client, user_id):
     result = (
         client.table("snapshots")
@@ -258,7 +290,9 @@ def load_dashboard(client, user_id):
         "metrics": summary.get("metrics"),
         "analysis": summary.get("analysis"),
         "bills": summary.get("bills", []),
+        "anomalies": summary.get("anomalies", []),
         "forecast": summary.get("forecast"),
+        "spend_forecast": summary.get("spend_forecast"),
         "budgets": summary.get("budgets"),
         "budget_limits": budget_rows,
         "invest": summary.get("invest"),
@@ -287,6 +321,8 @@ def persist_analysis(
     goal_date,
     age=None,
     income_bracket=None,
+    overrides=None,
+    custom_categories=None,
 ):
     user = get_user(access_token)
     user_id = user.id
@@ -311,12 +347,19 @@ def persist_analysis(
         "metrics": result["metrics"],
         "analysis": result["analysis"],
         "bills": result["bills"],
+        "anomalies": result.get("anomalies", []),
         "forecast": result["forecast"],
+        "spend_forecast": result.get("spend_forecast"),
         "budgets": result["budgets"],
         "invest": result["invest"],
         "personality": result["personality"],
         "goal_recommendation": result.get("goal_recommendation"),
     }
+    # Carry the user's corrections forward so they persist across re-uploads.
+    if overrides is not None:
+        summary_json["overrides"] = overrides
+    if custom_categories is not None:
+        summary_json["custom_categories"] = custom_categories
     save_snapshot(client, user_id, month_date, summary_json)
 
     existing = get_streak(client, user_id)
@@ -349,7 +392,29 @@ def get_overrides(client, user_id):
     return []
 
 
-def save_overrides(client, user_id, overrides, resliced):
+def get_custom_categories(client, user_id):
+    """The user's own categories, stored in the snapshot JSON (no extra table)."""
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("custom_categories", [])
+    return []
+
+
+def save_custom_categories(client, user_id, custom_categories):
+    """Persist the user's custom categories into the snapshot JSON. No-ops if
+    there's no snapshot yet (categories are created from the dashboard, which
+    only exists after an upload)."""
+    row = get_latest_snapshot(client, user_id)
+    if not row:
+        return
+    summary = row.get("summary_json") or {}
+    summary["custom_categories"] = custom_categories
+    month = row["month"]
+    month_date = f"{month}-01" if len(str(month)) == 7 else month
+    save_snapshot(client, user_id, month_date, summary)
+
+
+def save_overrides(client, user_id, overrides, resliced, custom_categories=None):
     """Persist the overrides and refresh the stored snapshot numbers so every
     page reflects the reclassification on the next load."""
     row = get_latest_snapshot(client, user_id)
@@ -357,9 +422,11 @@ def save_overrides(client, user_id, overrides, resliced):
         return
     summary = row.get("summary_json") or {}
     summary["overrides"] = overrides
+    if custom_categories is not None:
+        summary["custom_categories"] = custom_categories
     for key in (
-        "metrics", "analysis", "bills", "forecast", "budgets",
-        "invest", "personality", "context", "goal_recommendation",
+        "metrics", "analysis", "bills", "anomalies", "forecast", "spend_forecast",
+        "budgets", "invest", "personality", "context", "goal_recommendation",
     ):
         if key in resliced:
             summary[key] = resliced[key]

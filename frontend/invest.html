@@ -95,7 +95,7 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
-           formatMonthYear, mountPeriodBar, periodQuery } from './api.js';
+           formatMonthYear, mountPeriodBar, periodQuery, getStoredPeriod } from './api.js';
 
   setupNav('invest');
 
@@ -265,10 +265,10 @@
   async function init() {
     try {
       await requireAuth();
-      const data = await apiFetch('/invest');
+      const data = await apiFetch('/invest?' + periodQuery(getStoredPeriod()));
       renderInvest(data);
       mountPeriodBar(document.getElementById('period-mount'),
-        data.available_months || [], loadPeriod, currentPeriod);
+        data.available_months || [], loadPeriod, getStoredPeriod());
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       if (err.message === 'no_analysis' || err.status === 404) {

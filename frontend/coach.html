@@ -69,12 +69,13 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, showToast, mountPeriodBar } from './api.js';
+  import { apiFetch, requireAuth, setupNav, showToast, mountPeriodBar,
+           getStoredPeriod, storedPeriodParts, escapeHtml } from './api.js';
 
   setupNav('coach');
 
   // Period the coach should reason about (mirrors the rest of the platform).
-  let coachPeriod = { period: 'monthly', month: null };
+  let coachPeriod = storedPeriodParts();
 
   const chatWindow = document.getElementById('chat-window');
   const chatInput = document.getElementById('chat-input');
@@ -97,7 +98,7 @@
   function appendMessage(role, text, ts = null) {
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
-    div.innerHTML = `<div>${text.replace(/\n/g, '<br>')}</div>${ts ? `<div class="ts">${formatTs(ts)}</div>` : ''}`;
+    div.innerHTML = `<div>${escapeHtml(text).replace(/\n/g, '<br>')}</div>${ts ? `<div class="ts">${formatTs(ts)}</div>` : ''}`;
     chatWindow.appendChild(div);
     scrollToBottom();
     return div;
@@ -119,7 +120,7 @@
   function renderQuickQuestions(questions) {
     if (!questions?.length) return;
     quickQuestionsEl.innerHTML = questions.map(q =>
-      `<button class="quick-btn">${q}</button>`
+      `<button class="quick-btn">${escapeHtml(q)}</button>`
     ).join('');
     quickQuestionsEl.querySelectorAll('.quick-btn').forEach(btn => {
       btn.addEventListener('click', () => sendMessage(btn.textContent));
@@ -200,7 +201,7 @@
             coachPeriod = value.startsWith('month:')
               ? { period: 'monthly', month: value.slice(6) }
               : { period: value, month: null };
-          }, 'monthly');
+          }, getStoredPeriod());
       } catch (_) { /* no data yet */ }
 
       // Render history (skip if empty — keep greeting)

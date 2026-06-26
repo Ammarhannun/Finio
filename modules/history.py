@@ -43,7 +43,13 @@ def update_streak(last_upload, today=None, current_streak=0, best_streak=0):
         today = date.fromisoformat(today)
 
     days_gap = (today - last_upload).days
-    current = current_streak + 1 if days_gap <= STREAK_WINDOW_DAYS else 1
+    if days_gap == 0:
+        # Same-day re-upload: don't inflate the streak, just keep it.
+        current = current_streak or 1
+    elif days_gap <= STREAK_WINDOW_DAYS:
+        current = current_streak + 1
+    else:
+        current = 1
 
     return {
         "current_streak": current,

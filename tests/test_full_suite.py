@@ -381,35 +381,55 @@ def _():
 # ── spend_check ──────────────────────────────────────────────────────────────
 
 
+# Deterministic metrics so verdicts don't depend on sample-data balance.
+# burn=10/day → safety_buffer = 70; horizon 30 days → 300 burn over the window.
+def _spend_metrics(net_saved=1000, latest_balance=None):
+    return {
+        "net_saved": net_saved,
+        "latest_balance": latest_balance,
+        "daily_burn_rate": 10,
+    }
+
+
 @test("spend_check: green for small purchase")
 def _():
-    from modules.pipeline import run_full_pipeline
     from modules.spend_check import check_purchase
 
-    r = run_full_pipeline(SAMPLE_CSV)
-    result = check_purchase(None, r["metrics"], 10, days_ahead=30)
+    # current 1000 - 10 - 300 = 690 >= buffer 70 → green
+    result = check_purchase(None, _spend_metrics(), 10, days_ahead=30)
     assert_eq(result["verdict"], "green")
     assert_in("disclaimer", result)
 
 
 @test("spend_check: red for huge purchase")
 def _():
-    from modules.pipeline import run_full_pipeline
     from modules.spend_check import check_purchase
 
-    r = run_full_pipeline(SAMPLE_CSV)
-    result = check_purchase(None, r["metrics"], 5000, days_ahead=30)
+    # current 1000 - 5000 - 300 < 0 → red
+    result = check_purchase(None, _spend_metrics(), 5000, days_ahead=30)
     assert_eq(result["verdict"], "red")
 
 
 @test("spend_check: yellow for medium purchase")
 def _():
-    from modules.pipeline import run_full_pipeline
     from modules.spend_check import check_purchase
 
-    r = run_full_pipeline(SAMPLE_CSV)
-    result = check_purchase(None, r["metrics"], 900, days_ahead=30)
+    # current 1000 - 680 - 300 = 20: above 0 but below buffer 70 → yellow
+    result = check_purchase(None, _spend_metrics(), 680, days_ahead=30)
     assert_eq(result["verdict"], "yellow")
+
+
+@test("spend_check: prefers real balance over net_saved when present")
+def _():
+    from modules.spend_check import check_purchase
+
+    # net_saved is negative (overspent period) but the real balance is healthy;
+    # the verdict should use the balance, not net_saved.
+    m = _spend_metrics(net_saved=-200, latest_balance=2000)
+    result = check_purchase(None, m, 100, days_ahead=30)
+    assert_eq(result["verdict"], "green")
+    assert_true(result["uses_balance"])
+    assert_eq(result["current_net"], 2000)
 
 
 # ── invest ───────────────────────────────────────────────────────────────────
@@ -553,7 +573,9 @@ def _():
         "metrics",
         "analysis",
         "bills",
+        "anomalies",
         "forecast",
+        "spend_forecast",
         "budgets",
         "invest",
         "personality",
@@ -606,6 +628,172 @@ def _():
     assert changed["metrics"]["total_income"] < base["metrics"]["total_income"]
 
 
+@test("pipeline: category override by match retags spending")
+def _():
+    from modules.pipeline import analyze_stored, run_full_pipeline
+
+    full = run_full_pipeline(SAMPLE_CSV)["all_transactions"]
+    # Pick a real expense merchant and force it into a category it isn't in.
+    expense = next(t for t in full if t["flow"] == "expense")
+    target = "Health" if expense["category"] != "Health" else "Transport"
+    changed = analyze_stored(
+        full, period="all",
+        overrides=[{"match": expense["merchant"], "category": target}],
+    )
+    moved = [t for t in changed["transactions"] if t["merchant"] == expense["merchant"]]
+    assert_true(moved and all(t["category"] == target for t in moved))
+
+
+@test("pipeline: tx_key override retags exactly one transaction")
+def _():
+    from modules.pipeline import analyze_stored, run_full_pipeline
+
+    full = run_full_pipeline(SAMPLE_CSV)["all_transactions"]
+    base = analyze_stored(full, period="all")["transactions"]
+    # Every record carries a stable key the frontend can pin a single edit to.
+    assert_true(all("key" in t for t in base))
+    victim = next(t for t in base if t["flow"] == "expense")
+    target = "Health" if victim["category"] != "Health" else "Transport"
+
+    changed = analyze_stored(
+        full, period="all",
+        overrides=[{"tx_key": victim["key"], "category": target}],
+    )
+    before = {t["key"]: t["category"] for t in base}
+    after = {t["key"]: t["category"] for t in changed["transactions"]}
+    assert_eq(after[victim["key"]], target)
+    # Exactly one transaction moved — a single-row edit touches nothing else.
+    moved_keys = [k for k in after if after[k] != before.get(k)]
+    assert_eq(moved_keys, [victim["key"]])
+
+
+@test("data_processor: duplicate transactions get distinct tx_keys")
+def _():
+    import pandas as pd
+
+    from modules.data_processor import key_series
+
+    df = pd.DataFrame([
+        {"date": "2026-03-01", "description": "COFFEE CO", "amount": -4.0},
+        {"date": "2026-03-01", "description": "COFFEE CO", "amount": -4.0},  # identical
+        {"date": "2026-03-02", "description": "COFFEE CO", "amount": -4.0},
+    ])
+    keys = key_series(df)
+    # All three distinct despite two identical rows — editing one won't hit both.
+    assert_eq(len(set(keys)), 3)
+
+
+@test("categoriser: model is trained once and cached")
+def _():
+    from modules.categoriser import get_model
+
+    assert_true(get_model() is get_model())  # same instance → not retrained
+
+
+@test("categoriser: active learning applies user corrections to new merchants")
+def _():
+    import pandas as pd
+
+    from modules.categoriser import categorise_data, examples_from_overrides
+
+    # tx_key-only rules don't become examples; a text+category rule does.
+    overrides = [
+        {"tx_key": "abc123", "category": "Health"},
+        {"match": "ZZQWIDGET", "category": "Transport"},
+    ]
+    ex = examples_from_overrides(overrides)
+    assert_eq(ex, [("ZZQWIDGET", "Transport")])
+
+    # A brand-new merchant containing the learned token gets the user's category
+    # via the augmented model (no rule matches this nonsense token).
+    df = pd.DataFrame([{
+        "date": pd.Timestamp("2026-03-01"), "amount": -25.0,
+        "description": "ZZQWIDGET CO", "merchant_clean": "ZZQWIDGET CO",
+        "is_transfer": False,
+    }])
+    out = categorise_data(df, user_examples=ex)
+    assert_eq(out.iloc[0]["category"], "Transport")
+
+
+@test("savings_forecaster: spend forecast projects next month and runway")
+def _():
+    import pandas as pd
+
+    from modules.savings_forecaster import forecast_spending
+
+    rows = []
+    for m in range(3):
+        for d in range(4):
+            rows.append({
+                "date": pd.Timestamp("2026-01-01") + pd.DateOffset(months=m, days=d * 5),
+                "amount": -100.0, "flow": "expense",
+            })
+    out = forecast_spending(pd.DataFrame(rows), {"latest_balance": 1000, "daily_burn_rate": 20})
+    assert_true(out["projected_next_month"] > 0)
+    assert_eq(out["runway_days"], 50)   # 1000 / 20
+
+
+@test("anomaly: flags an outlier charge for its category")
+def _():
+    import pandas as pd
+
+    from modules.anomaly import detect_anomalies
+
+    rows = [{
+        "date": pd.Timestamp("2026-03-01") + pd.Timedelta(days=i),
+        "amount": -10.0, "flow": "expense",
+        "category": "Food & Dining", "merchant_clean": "CAFE",
+    } for i in range(8)]
+    rows.append({
+        "date": pd.Timestamp("2026-03-20"), "amount": -200.0, "flow": "expense",
+        "category": "Food & Dining", "merchant_clean": "FANCY RESTAURANT",
+    })
+    out = detect_anomalies(pd.DataFrame(rows))
+    assert_true(out and out[0]["merchant"] == "FANCY RESTAURANT")
+    assert_eq(out[0]["amount"], 200.0)
+
+
+@test("history: same-day re-upload does not inflate the streak")
+def _():
+    from modules.history import update_streak
+
+    same = update_streak("2026-03-10", today="2026-03-10", current_streak=3, best_streak=5)
+    assert_eq(same["current_streak"], 3)      # unchanged same day
+    nxt = update_streak("2026-03-10", today="2026-03-11", current_streak=3, best_streak=5)
+    assert_eq(nxt["current_streak"], 4)       # next day continues
+    gap = update_streak("2026-03-10", today="2026-04-10", current_streak=3, best_streak=5)
+    assert_eq(gap["current_streak"], 1)       # long gap resets
+
+
+@test("rag: retrieves the relevant knowledge-base snippet")
+def _():
+    from modules.rag import search
+
+    hits = search("what is an ETF and diversification")
+    assert_true(hits and hits[0]["id"] == "etf")
+
+
+@test("ai_coach: fallback answers a concept question from the knowledge base")
+def _():
+    from modules.ai_coach import fallback_coach_response
+
+    out = fallback_coach_response("explain superannuation to me", {"patterns": []})
+    assert_in("super", out.lower())
+
+
+@test("ai_coach: generate_insight returns text with the disclaimer")
+def _():
+    from modules.ai_coach import generate_insight
+
+    ctx = {
+        "spent": 1200, "saved": 300, "savings_rate": 20.0,
+        "top_categories": [{"category": "Food & Dining", "amount": 500, "pct": 40}],
+    }
+    out = generate_insight(ctx)
+    assert_true(out["text"])
+    assert_in("not financial advice", out["text"].lower())
+
+
 @test("invest: menu lists crypto and more than just ETFs")
 def _():
     from modules.invest import investment_menu
@@ -652,7 +840,11 @@ def _():
         "date_range": {"start": "2026-01-01", "end": "2026-01-31", "days": 30},
     }
     rec = recommend_goal(metrics)
-    assert_eq(rec["amount"], 1000)  # starter buffer when spending > income
+    # Overspending → a starter safety buffer sized to ~one month of spending
+    # ($1,500/mo here), never below the $500 floor.
+    assert_eq(rec["amount"], 1500)
+    assert_true(rec["amount"] >= 500)
+    assert_in("buffer", rec["rationale"])
 
 
 # ── db (unit, no network) ────────────────────────────────────────────────────

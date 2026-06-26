@@ -87,7 +87,7 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass,
-           mountPeriodBar, periodQuery } from './api.js';
+           mountPeriodBar, periodQuery, getStoredPeriod, escapeHtml } from './api.js';
 
   setupNav('patterns');
 
@@ -126,8 +126,8 @@
         return `
           <div class="pattern-card severity-${p.severity?.toLowerCase() || 'medium'}">
             <div>
-              <div class="pattern-message">${p.message}</div>
-              <div class="pattern-type">${p.type || ''}</div>
+              <div class="pattern-message">${escapeHtml(p.message)}</div>
+              <div class="pattern-type">${escapeHtml(p.type || '')}</div>
             </div>
             <span class="badge badge-${sc}">${p.severity || 'info'}</span>
           </div>`;
@@ -182,7 +182,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0;font-size:0.8125rem;">
           <div style="display:flex;align-items:center;gap:0.5rem;">
             <span style="width:10px;height:10px;border-radius:50%;background:${CHART_COLORS[i]};flex-shrink:0;display:inline-block;"></span>
-            <span style="color:var(--muted);">${c.category}</span>
+            <span style="color:var(--muted);">${escapeHtml(c.category)}</span>
           </div>
           <span style="font-weight:600;">${c.pct?.toFixed(1)}%</span>
         </div>`).join('');
@@ -199,9 +199,9 @@
     return `
       <div class="bill-row">
         <div>
-          <div class="bill-merchant">${b.merchant}</div>
+          <div class="bill-merchant">${escapeHtml(b.merchant)}</div>
           <div class="bill-meta">
-            ${b.frequency ? `<span class="bill-freq">${b.frequency}</span>` : ''}${times}
+            ${b.frequency ? `<span class="bill-freq">${escapeHtml(b.frequency)}</span>` : ''}${times}
           </div>
         </div>
         <div class="bill-amount">${formatAUD(b.amount)}</div>
@@ -245,10 +245,10 @@
   async function init() {
     try {
       await requireAuth();
-      const data = await apiFetch('/dashboard');
+      const data = await apiFetch('/dashboard?' + periodQuery(getStoredPeriod()));
       renderPatterns(data);
       mountPeriodBar(document.getElementById('period-mount'),
-        data.available_months || [], loadPeriod, currentPeriod);
+        data.available_months || [], loadPeriod, getStoredPeriod());
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       if (err.message === 'no_analysis' || err.status === 404) {

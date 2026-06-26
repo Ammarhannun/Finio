@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio · Profile</title>
+  <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">finio</span></a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your profile…</div>
+
+  <div id="profile-section" style="display:none;">
+    <div class="page-header">
+      <h1>Profile</h1>
+      <p style="color:var(--muted);">Your details and account settings.</p>
+    </div>
+
+    <div class="profile-grid">
+      <!-- Account details -->
+      <div class="card">
+        <div class="section-title">Your details</div>
+        <form id="profile-form">
+          <div class="form-group">
+            <label for="p-email">Email</label>
+            <input type="email" id="p-email" disabled>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="p-age">Age <span style="color:var(--muted);font-weight:400;">(for invest tips)</span></label>
+              <input type="number" id="p-age" min="16" max="100" placeholder="24">
+            </div>
+            <div class="form-group">
+              <label for="p-income">Your situation</label>
+              <select id="p-income">
+                <option value="">Prefer not to say</option>
+                <option value="student">Student</option>
+                <option value="part_time">Working part time</option>
+                <option value="full_time">Working full time</option>
+                <option value="not_earning">Not earning right now</option>
+              </select>
+            </div>
+          </div>
+          <div id="profile-error" class="form-error"></div>
+          <button type="submit" class="btn btn-primary" id="profile-btn">Save details</button>
+        </form>
+      </div>
+
+      <!-- Streak -->
+      <div class="card">
+        <div class="section-title">Your streak</div>
+        <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
+          Upload a statement regularly to keep your streak alive.
+        </p>
+        <div class="streak-stats">
+          <div class="streak-stat">
+            <div class="figure" id="s-current">0</div>
+            <div class="streak-label">Current streak</div>
+          </div>
+          <div class="streak-stat">
+            <div class="figure" id="s-best">0</div>
+            <div class="streak-label">Best streak</div>
+          </div>
+        </div>
+        <p id="s-last" style="color:var(--muted);font-size:0.8125rem;margin-top:1rem;"></p>
+      </div>
+
+      <!-- Appearance -->
+      <div class="card">
+        <div class="section-title">Appearance</div>
+        <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
+          Switch between the light and dark receipt themes.
+        </p>
+        <button id="theme-toggle-2" class="btn btn-outline">Toggle light / dark</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, showToast,
+           formatMonthYear, applyTheme } from './api.js';
+
+  setupNav('profile');
+
+  const loadingEl = document.getElementById('loading');
+  const section = document.getElementById('profile-section');
+
+  // Second theme button on the page mirrors the nav toggle.
+  document.getElementById('theme-toggle-2').addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+  });
+
+  function render(p) {
+    loadingEl.style.display = 'none';
+    section.style.display = 'block';
+
+    document.getElementById('p-email').value = p.email || '';
+    document.getElementById('p-age').value = p.age ?? '';
+    document.getElementById('p-income').value = p.income_bracket || '';
+
+    const streak = p.streak || {};
+    document.getElementById('s-current').textContent = streak.current_streak ?? 0;
+    document.getElementById('s-best').textContent = streak.best_streak ?? 0;
+    document.getElementById('s-last').textContent = streak.last_upload
+      ? `Last upload: ${formatMonthYear(streak.last_upload)}`
+      : 'No uploads yet.';
+  }
+
+  document.getElementById('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('profile-btn');
+    const errEl = document.getElementById('profile-error');
+    errEl.style.display = 'none';
+
+    const ageVal = document.getElementById('p-age').value;
+    const body = { income_bracket: document.getElementById('p-income').value || null };
+    if (ageVal) body.age = parseInt(ageVal, 10);
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      const p = await apiFetch('/profile', { method: 'POST', body: JSON.stringify(body) });
+      render(p);
+      showToast('Profile saved');
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not save your profile';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save details';
+    }
+  });
+
+  async function init() {
+    try {
+      await requireAuth();
+      const p = await apiFetch('/profile');
+      render(p);
+    } catch (err) {
+      if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        loadingEl.style.display = 'none';
+        section.style.display = 'block';
+        showToast(err.message);
+      }
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
