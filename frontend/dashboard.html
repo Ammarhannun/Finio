@@ -62,24 +62,36 @@
 
   <!-- Dashboard data section -->
   <div id="data-section" style="display:none;">
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+    <div class="dash-head">
       <div>
         <h1>Dashboard</h1>
-        <p id="date-range" style="color:var(--muted);"></p>
+        <p id="date-range" class="dash-sub"></p>
       </div>
-      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <span id="streak-badge" class="streak-badge" style="display:none;"></span>
-        <select id="dash-period" aria-label="Time period" style="padding:0.45rem 0.75rem;font-size:0.8125rem;">
-          <option value="monthly">Latest month</option>
-          <option value="weekly">Latest week</option>
-          <option value="daily">Latest day</option>
-          <option value="all">All time</option>
-          <optgroup id="month-options" label="Specific month"></optgroup>
-        </select>
-        <button id="reupload-btn" class="btn btn-outline" style="padding:0.45rem 1rem;font-size:0.8125rem;">
-          Upload new statement
-        </button>
+      <div class="dash-controls">
+        <div class="period-control" id="period-control">
+          <div class="segmented" id="period-segments">
+            <button type="button" data-period="monthly">Month</button>
+            <button type="button" data-period="weekly">Week</button>
+            <button type="button" data-period="daily">Day</button>
+            <button type="button" data-period="all">All</button>
+          </div>
+          <select id="month-select" class="month-select" aria-label="Specific month">
+            <option value="">Jump to month…</option>
+          </select>
+        </div>
+        <button id="reanalyze-btn" class="btn btn-outline btn-sm" title="Recompute from your saved data, no re-upload needed">Re-analyse</button>
+        <button id="reupload-btn" class="btn btn-outline btn-sm">Upload new statement</button>
       </div>
+    </div>
+
+    <!-- Hero summary -->
+    <p id="hero-summary" class="hero-summary"></p>
+    <p id="spend-outlook" class="spend-outlook" style="display:none;"></p>
+
+    <!-- AI insight (LLM when a key is set, template otherwise) -->
+    <div id="insight-card" class="insight-card" style="display:none;">
+      <span class="insight-icon">✦</span>
+      <p id="insight-text"></p>
     </div>
 
     <!-- Metric cards -->
@@ -96,80 +108,114 @@
       </div>
       <div class="card metric-card">
         <div class="label">Saved</div>
-        <div class="value" id="m-saved" style="color:var(--green)">—</div>
-        <div class="sub" id="m-savings-rate">—</div>
+        <div class="value" id="m-saved">—</div>
+        <div class="sub" id="m-saved-caption">Income − Spending</div>
       </div>
     </div>
 
-    <!-- Savings goal card -->
-    <div class="card" style="margin-bottom:1.5rem;" id="goal-card">
-      <div class="section-title">Your savings goal</div>
-      <p id="goal-rationale" style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;"></p>
-
-      <div id="goal-progress" style="margin-bottom:1.25rem;"></div>
-
-      <form id="goal-form">
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label for="goal-amount">Target amount ($AUD)</label>
-            <input type="number" id="goal-amount" min="100" step="100" required>
-          </div>
-          <div class="form-group">
-            <label for="goal-date">Target date</label>
-            <input type="date" id="goal-date" required>
-          </div>
+    <!-- Two-column row: goal + personality (left), budgets (right) -->
+    <div class="dash-two-col">
+      <div class="dash-col">
+      <!-- Savings goal card -->
+      <div class="card" id="goal-card">
+        <div class="card-head">
+          <div class="section-title">Your savings goal</div>
+          <button type="button" id="goal-edit-toggle" class="link-btn">Edit</button>
         </div>
-        <div class="form-group">
-          <label for="goal-age">Your age <span style="color:var(--muted);font-weight:400;">(for invest tips)</span></label>
-          <input type="number" id="goal-age" min="16" max="100" placeholder="24">
+
+        <div id="goal-recommend">
+          <div class="goal-amount" id="goal-amount-display">—</div>
+          <p id="goal-rationale" class="goal-rationale"></p>
         </div>
-        <div id="goal-error" class="form-error"></div>
-        <button type="submit" class="btn btn-primary" id="goal-btn">Save goal</button>
-      </form>
+
+        <div id="goal-progress" class="goal-progress"></div>
+
+        <form id="goal-form" style="display:none;margin-top:1rem;">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="goal-amount">Target amount ($AUD)</label>
+              <input type="number" id="goal-amount" min="100" step="100" required>
+            </div>
+            <div class="form-group">
+              <label for="goal-date">Target date</label>
+              <input type="date" id="goal-date" required>
+            </div>
+          </div>
+          <div id="goal-error" class="form-error"></div>
+          <div class="goal-form-actions">
+            <button type="submit" class="btn btn-primary btn-sm" id="goal-btn">Save goal</button>
+            <button type="button" class="btn btn-outline btn-sm" id="goal-cancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Personality card (in the left column to balance the tall budget card) -->
+      <div class="card personality-card" id="personality-card">
+        <div class="section-title">Your money personality</div>
+        <div id="personality-type" class="personality-type"></div>
+        <div id="personality-meta" style="color:var(--muted);font-size:0.875rem;margin:0.25rem 0 1rem;"></div>
+        <div class="section-title" style="margin-bottom:0.75rem;">Action plan</div>
+        <div id="action-plan"></div>
+      </div>
+
+      <!-- Unusual transactions (anomaly detection) — hidden when none -->
+      <div class="card" id="anomaly-card" style="display:none;">
+        <div class="section-title">Unusual transactions</div>
+        <p class="tx-help">Charges that look high next to your usual spending in that category.</p>
+        <div id="anomaly-list"></div>
+      </div>
+      </div><!-- /dash-col left -->
+
+      <div class="dash-col">
+      <!-- Budget bars -->
+      <div class="card" id="budgets-card">
+        <div class="section-title">Budget breakdown</div>
+        <div id="budget-bars"></div>
+      </div>
+      </div><!-- /dash-col right -->
     </div>
 
-    <!-- Budget bars -->
-    <div class="card" style="margin-bottom:1.5rem;" id="budgets-card">
-      <div class="section-title">Budget breakdown</div>
-      <div id="budget-bars"></div>
-    </div>
-
-    <!-- Accuracy: reclassify income / recurring bills -->
-    <div class="card" style="margin-bottom:1.5rem;" id="overrides-card">
-      <div class="section-title">Fix your income and bills</div>
-      <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
-        If Finio mislabelled something, tell it here. Type any part of a merchant
-        or description (like a friend's name or your salary payer) and choose what
-        it really is. Every number on the platform updates to match.
-      </p>
-      <form id="override-form">
-        <div class="form-grid-2">
-          <div class="form-group" style="margin-bottom:0.75rem;">
-            <label for="override-match">Transactions containing</label>
-            <input type="text" id="override-match" placeholder="e.g. ACME PAYROLL, PAYID LAITH" maxlength="200">
-          </div>
-          <div class="form-group" style="margin-bottom:0.75rem;">
-            <label for="override-flow">Count them as</label>
-            <select id="override-flow">
-              <option value="income">Income</option>
-              <option value="expense">Spending</option>
-              <option value="transfer">Transfer (ignore)</option>
-            </select>
-          </div>
+    <!-- Transaction editor: see + fix what counted as what -->
+    <div class="card" id="tx-card">
+      <div class="card-head">
+        <div>
+          <div class="section-title">What counted as what</div>
+          <p class="tx-help">
+            This is every transaction and how Finio classified it. Change a flow or
+            category to correct it, or tick a few rows to change them together.
+            Every number updates to match.
+          </p>
         </div>
-        <div id="override-error" class="form-error"></div>
-        <button type="submit" class="btn btn-outline" id="override-btn" style="padding:0.5rem 1.1rem;font-size:0.8125rem;">Apply rule</button>
-      </form>
-      <div id="override-list" style="margin-top:1rem;"></div>
-    </div>
+      </div>
 
-    <!-- Personality card -->
-    <div class="card personality-card" style="margin-bottom:1.5rem;">
-      <div class="section-title">Your money personality</div>
-      <div id="personality-type" class="personality-type"></div>
-      <div id="personality-meta" style="color:var(--muted);font-size:0.875rem;margin:0.25rem 0 1rem;"></div>
-      <div class="section-title" style="margin-bottom:0.75rem;">Action plan</div>
-      <div id="action-plan"></div>
+      <div class="tx-toolbar">
+        <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…">
+        <div class="add-category">
+          <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
+          <button type="button" class="btn btn-outline btn-sm" id="add-category-btn">Add</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="tx-save" disabled>Save changes</button>
+      </div>
+      <div id="custom-cat-chips" class="cat-chips"></div>
+
+      <div class="bulk-bar" id="bulk-bar" style="display:none;">
+        <span id="bulk-count">0 selected</span>
+        <label>Set flow
+          <select id="bulk-flow">
+            <option value="">—</option>
+            <option value="income">Income</option>
+            <option value="expense">Spending</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </label>
+        <label>Set category
+          <select id="bulk-category"><option value="">—</option></select>
+        </label>
+        <button type="button" class="btn btn-outline btn-sm" id="bulk-apply">Apply to selected</button>
+      </div>
+
+      <div id="tx-error" class="form-error"></div>
+      <div class="tx-scroll" id="tx-list"></div>
     </div>
   </div>
 
@@ -179,7 +225,8 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
-           formatMonthYear, dateRangeLabel } from './api.js';
+           formatMonthYear, dateRangeLabel, escapeHtml,
+           getStoredPeriod, setStoredPeriod, periodQuery } from './api.js';
 
   setupNav('dashboard');
 
@@ -187,156 +234,217 @@
   const uploadSection = document.getElementById('upload-section');
   const dataSection = document.getElementById('data-section');
 
+  // Period is platform-wide (persisted in localStorage), so the dashboard opens
+  // on whatever window you last picked anywhere on the site.
+  const _parts = getStoredPeriod().startsWith('month:')
+    ? { period: 'monthly', month: getStoredPeriod().slice(6) }
+    : { period: getStoredPeriod(), month: '' };
+  let currentPeriod = _parts.period;
+  let currentMonth = _parts.month || '';
+
   function showLoading(msg = 'Loading your data…') {
     loadingEl.innerHTML = `<div class="spinner"></div> ${msg}`;
     loadingEl.style.display = 'flex';
     uploadSection.style.display = 'none';
     dataSection.style.display = 'none';
   }
-
   function showUpload() {
     loadingEl.style.display = 'none';
     uploadSection.style.display = 'block';
     dataSection.style.display = 'none';
   }
 
+  // ── Render the whole dashboard ──
   function renderDashboard(data) {
     loadingEl.style.display = 'none';
     uploadSection.style.display = 'none';
     dataSection.style.display = 'block';
 
-    const { metrics, budgets, personality, streak } = data;
+    const { metrics, budgets, personality } = data;
 
-    // Date range, shown as Month Year for easy reading
     if (metrics?.date_range) {
       document.getElementById('date-range').textContent = dateRangeLabel(metrics.date_range);
     }
 
-    // Streak badge
-    const streakBadge = document.getElementById('streak-badge');
-    if (streak?.current_streak > 0) {
-      streakBadge.textContent = `★ ${streak.current_streak} week streak`;
-      streakBadge.style.display = 'inline-flex';
-    }
-
-    // Metrics
+    // ── Metrics (trust the backend's canonical net_saved / savings_rate) ──
     const income = metrics?.total_income || 0;
     const spent = metrics?.total_spent || 0;
-    const saved = income - spent;
-    const savingsRate = income > 0 ? ((saved / income) * 100).toFixed(1) : 0;
+    const saved = metrics?.net_saved ?? (income - spent);
+    const rate = metrics?.savings_rate;  // may be null when income is tiny
 
     document.getElementById('m-income').textContent = formatAUD(income);
     document.getElementById('m-spent').textContent = formatAUD(spent);
-    document.getElementById('m-saved').textContent = formatAUD(saved);
+    const savedEl = document.getElementById('m-saved');
+    savedEl.textContent = formatAUD(saved);
+    savedEl.style.color = saved >= 0 ? 'var(--green)' : 'var(--red)';
     document.getElementById('m-daily').textContent =
       metrics?.daily_burn_rate ? `${formatAUD(metrics.daily_burn_rate)}/day` : '';
-    document.getElementById('m-savings-rate').textContent = `${savingsRate}% savings rate`;
+    document.getElementById('m-saved-caption').textContent = saved >= 0
+      ? `Income − Spending${rate != null ? ` · ${rate}% saved` : ''}`
+      : `You spent more than you earned`;
 
-    // Budget bars
+    // ── Hero one-liner: a plain-English read of the period ──
+    const label = metrics?.date_range ? dateRangeLabel(metrics.date_range) : 'this period';
+    document.getElementById('hero-summary').innerHTML = saved >= 0
+      ? `In <b>${label}</b> you earned <b>${formatAUD(income)}</b> and spent <b>${formatAUD(spent)}</b>, keeping <b style="color:var(--green)">${formatAUD(saved)}</b>${rate != null ? ` — that's ${rate}% of your income.` : '.'}`
+      : `In <b>${label}</b> you earned <b>${formatAUD(income)}</b> but spent <b>${formatAUD(spent)}</b>, so you were <b style="color:var(--red)">${formatAUD(Math.abs(saved))}</b> short.`;
+
+    // ── Budget bars ──
     const budgetList = budgets?.budgets || [];
     const barsEl = document.getElementById('budget-bars');
-    if (budgetList.length) {
-      barsEl.innerHTML = budgetList.map(b => {
-        const headroom = b.headroom_pct ?? 0;
-        const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
-        const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
-        return `
-          <div style="margin-bottom:1.1rem;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
-              <span style="font-weight:500;">${b.category}</span>
-              <span style="color:var(--muted);">${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}</span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div>
-            </div>
-            <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">
-              ${headroom.toFixed(0)}% headroom left
-            </div>
-          </div>`;
-      }).join('');
+    barsEl.innerHTML = budgetList.length ? budgetList.map(b => {
+      const headroom = b.headroom_pct ?? 0;
+      const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
+      const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
+      const cat = escapeHtml(b.category);
+      return `
+        <div class="budget-row" data-category="${cat}" role="button" tabindex="0" title="Edit this category's transactions">
+          <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
+            <span style="font-weight:500;">${cat} <span class="budget-edit-hint">edit ›</span></span>
+            <span style="color:var(--muted);">${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div></div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">${headroom.toFixed(0)}% headroom left</div>
+        </div>`;
+    }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No budget data available</p>';
+
+    // Clicking a category jumps to (and flashes) its group in the editor below.
+    barsEl.querySelectorAll('.budget-row').forEach(r => {
+      const go = () => jumpToCategory(r.dataset.category);
+      r.addEventListener('click', go);
+      r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+    });
+
+    // Spending outlook (forecast)
+    const sf = data.spend_forecast;
+    const outlook = document.getElementById('spend-outlook');
+    if (sf && sf.projected_next_month) {
+      const trend = sf.trend === 'up' ? 'trending up' : sf.trend === 'down' ? 'trending down' : 'steady';
+      let txt = `Outlook: ~${formatAUD(sf.projected_next_month)} projected next month (${trend}).`;
+      if (sf.runway_days != null && sf.run_short_date) {
+        txt += ` At this rate your balance lasts about ${sf.runway_days} days, into ${formatMonthYear(sf.run_short_date)}.`;
+      }
+      outlook.textContent = txt;
+      outlook.style.display = 'block';
     } else {
-      barsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No budget data available</p>';
+      outlook.style.display = 'none';
     }
 
     renderGoal(data);
-    populatePeriods(data);
+    renderAnomalies(data);
+    populateMonths(data);
 
-    // Personality
+    // ── Personality ──
     if (personality) {
-      document.getElementById('personality-type').textContent =
-        personality.personality_type || 'Unknown';
-      const sr = personality.savings_rate != null
-        ? `Savings rate: ${personality.savings_rate.toFixed(1)}%`
-        : '';
-      document.getElementById('personality-meta').textContent = sr;
-
+      document.getElementById('personality-type').textContent = personality.personality_type || 'Unknown';
+      document.getElementById('personality-meta').textContent =
+        personality.savings_rate != null ? `Savings rate: ${personality.savings_rate.toFixed(1)}%` : '';
       const actions = personality.action_plan || [];
       document.getElementById('action-plan').innerHTML = actions.length
-        ? actions.map(a =>
-            `<div class="action-plan-item"><span class="action-bullet">→</span><span>${a}</span></div>`
-          ).join('')
-        : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet — upload a statement to get personalised tips</p>';
+        ? actions.map(a => `<div class="action-plan-item"><span class="action-bullet">→</span><span>${escapeHtml(a)}</span></div>`).join('')
+        : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet</p>';
     }
   }
 
-  // ── Time-period selector ──
+  // ── AI insight (fetched lazily — may be an LLM call) ──
+  async function loadInsight() {
+    try {
+      const r = await apiFetch('/insight');
+      const card = document.getElementById('insight-card');
+      document.getElementById('insight-text').textContent = r.text || '';
+      card.style.display = r.text ? 'flex' : 'none';
+    } catch (_) { /* no data yet */ }
+  }
+
+  // ── Unusual transactions ──
+  function renderAnomalies(data) {
+    const anomalies = data.anomalies || [];
+    const card = document.getElementById('anomaly-card');
+    const list = document.getElementById('anomaly-list');
+    if (!anomalies.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    list.innerHTML = anomalies.map(a => `
+      <div class="anomaly-row">
+        <div class="anomaly-info">
+          <div class="anomaly-merchant">${escapeHtml(a.merchant)}</div>
+          <div class="anomaly-meta">${escapeHtml(a.category)} · usually ~${formatAUD(a.typical)} · ${formatMonthYear(a.date)}</div>
+        </div>
+        <div class="anomaly-amount">${formatAUD(a.amount)}</div>
+      </div>`).join('');
+  }
+
+  // ── Period control (segmented + month dropdown) ──
   let monthsPopulated = false;
-  function populatePeriods(data) {
-    const grp = document.getElementById('month-options');
+  function populateMonths(data) {
+    const sel = document.getElementById('month-select');
     const months = data.available_months || [];
     if (monthsPopulated || !months.length) return;
-    // newest month first
-    grp.innerHTML = months.slice().reverse()
-      .map(m => `<option value="month:${m}">${formatMonthYear(m)}</option>`).join('');
+    sel.innerHTML = '<option value="">Jump to month…</option>' +
+      months.slice().reverse().map(m => `<option value="${m}">${formatMonthYear(m)}</option>`).join('');
     monthsPopulated = true;
   }
 
-  document.getElementById('dash-period').addEventListener('change', async (e) => {
-    const v = e.target.value;
-    const qs = v.startsWith('month:')
-      ? `?period=monthly&month=${encodeURIComponent(v.slice(6))}`
-      : `?period=${encodeURIComponent(v)}`;
-    showLoading('Loading ' + (e.target.selectedOptions[0]?.text || 'period') + '…');
+  function syncPeriodUI() {
+    document.querySelectorAll('#period-segments button').forEach(b =>
+      b.classList.toggle('active', b.dataset.period === currentPeriod && !currentMonth));
+    if (currentMonth) document.getElementById('month-select').value = currentMonth;
+  }
+
+  async function loadPeriod() {
+    // Persist so every other page opens on this same window.
+    setStoredPeriod(currentMonth ? 'month:' + currentMonth : currentPeriod);
+    const qs = currentMonth
+      ? `?period=monthly&month=${encodeURIComponent(currentMonth)}`
+      : `?period=${encodeURIComponent(currentPeriod)}`;
+    showLoading('Loading…');
     try {
-      const data = await apiFetch('/dashboard' + qs);
-      renderDashboard(data);
+      renderDashboard(await apiFetch('/dashboard' + qs));
+      syncPeriodUI();
+      loadTransactions();
     } catch (err) {
       showToast(err.message || 'Could not load that period');
       renderDashboard(await apiFetch('/dashboard'));
     }
+  }
+
+  document.querySelectorAll('#period-segments button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentPeriod = btn.dataset.period;
+      currentMonth = '';
+      loadPeriod();
+    });
+  });
+  document.getElementById('month-select').addEventListener('change', (e) => {
+    currentMonth = e.target.value;
+    if (currentMonth) { currentPeriod = 'monthly'; }
+    loadPeriod();
   });
 
   // ── Savings goal ──
   function renderGoal(data) {
     const { goal, goal_recommendation: rec, forecast } = data;
-    const rationaleEl = document.getElementById('goal-rationale');
-    const progressEl = document.getElementById('goal-progress');
-
-    // Prefill the form from the saved goal, falling back to the AI recommendation
     const amount = goal?.target_amount ?? rec?.amount ?? '';
     const targetDate = (goal?.target_date ?? rec?.target_date ?? '').slice(0, 10);
+
     document.getElementById('goal-amount').value = amount;
     document.getElementById('goal-date').value = targetDate;
+    document.getElementById('goal-amount-display').textContent =
+      amount ? formatAUD(amount) : '—';
+    document.getElementById('goal-rationale').textContent =
+      rec?.rationale || 'Set a savings goal and your coach will track your progress.';
 
-    rationaleEl.textContent = rec?.rationale
-      ? `Coach tip: ${rec.rationale}`
-      : 'Set a savings goal and your coach will track your progress.';
-
-    if (forecast && goal) {
+    const progressEl = document.getElementById('goal-progress');
+    if (forecast && (goal || rec)) {
       const current = forecast.current_saved ?? 0;
-      const target = goal.target_amount || 1;
+      const target = (goal?.target_amount ?? rec?.amount) || 1;
       const pct = Math.min(100, Math.max(0, Math.round((current / target) * 100)));
       const onTrack = forecast.on_track;
-      const statusColor = onTrack ? 'var(--green)' : 'var(--red)';
-      const statusText = onTrack ? 'On track' : 'Not on track yet';
       progressEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
-          <span>${formatAUD(current)} saved of ${formatAUD(target)}</span>
-          <span style="color:${statusColor};font-weight:600;">${statusText}</span>
+          <span>${formatAUD(current)} of ${formatAUD(target)}</span>
+          <span style="color:${onTrack ? 'var(--green)' : 'var(--red)'};font-weight:600;">${onTrack ? 'On track' : 'Not on track yet'}</span>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill ${onTrack ? 'green' : 'yellow'}" style="width:${pct}%"></div>
-        </div>
+        <div class="progress-bar"><div class="progress-fill ${onTrack ? 'green' : 'yellow'}" style="width:${pct}%"></div></div>
         <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem;">
           Projected ${formatAUD(forecast.projected_total)} by ${formatMonthYear(forecast.target_date)}
           ${forecast.months_remaining != null ? `· ${forecast.months_remaining} months to go` : ''}
@@ -346,32 +454,37 @@
     }
   }
 
-  document.getElementById('goal-form').addEventListener('submit', async (e) => {
+  const goalForm = document.getElementById('goal-form');
+  document.getElementById('goal-edit-toggle').addEventListener('click', () => {
+    const showing = goalForm.style.display !== 'none';
+    goalForm.style.display = showing ? 'none' : 'block';
+    document.getElementById('goal-edit-toggle').textContent = showing ? 'Edit' : 'Close';
+  });
+  document.getElementById('goal-cancel').addEventListener('click', () => {
+    goalForm.style.display = 'none';
+    document.getElementById('goal-edit-toggle').textContent = 'Edit';
+  });
+
+  goalForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('goal-btn');
     const errEl = document.getElementById('goal-error');
     errEl.style.display = 'none';
-
     const amount = parseFloat(document.getElementById('goal-amount').value);
     const targetDate = document.getElementById('goal-date').value;
-    const ageVal = document.getElementById('goal-age').value;
-
     if (!amount || amount <= 0 || !targetDate) {
       errEl.textContent = 'Enter a target amount and date';
       errEl.style.display = 'block';
       return;
     }
-
-    const body = { amount, target_date: targetDate };
-    if (ageVal) body.age = parseInt(ageVal, 10);
-
     btn.disabled = true;
     btn.textContent = 'Saving…';
     try {
-      await apiFetch('/goal', { method: 'POST', body: JSON.stringify(body) });
-      const data = await apiFetch('/dashboard');
-      renderDashboard(data);
-      showToast('Goal updated!');
+      await apiFetch('/goal', { method: 'POST', body: JSON.stringify({ amount, target_date: targetDate }) });
+      goalForm.style.display = 'none';
+      document.getElementById('goal-edit-toggle').textContent = 'Edit';
+      renderDashboard(await apiFetch('/dashboard'));
+      showToast('Goal updated');
     } catch (err) {
       errEl.textContent = err.message || 'Could not save goal';
       errEl.style.display = 'block';
@@ -381,69 +494,284 @@
     }
   });
 
-  // ── Reclassify income / bills (overrides) ──
+  // ── Transaction editor ──────────────────────────────────────────────────
   const FLOW_LABEL = { income: 'Income', expense: 'Spending', transfer: 'Transfer' };
-  let overrideRules = [];
+  let txState = { transactions: [], categories: [], custom_categories: [] };
+  let savedRules = [];            // rules already persisted (text + tx_key)
+  const staged = new Map();       // tx_key → { flow?, category? } pending edits
+  const originals = new Map();     // tx_key → { flow, category } as loaded (immutable)
+  let txFilter = '';              // search box text (lowercased)
+  const expandedGroups = new Set(); // groups the user expanded past the row cap
+  const GROUP_CAP = 25;           // rows shown per group before "show all"
+  let customDirty = false;        // unsaved custom-category add/remove
 
-  function renderOverrides() {
-    const el = document.getElementById('override-list');
-    if (!overrideRules.length) {
-      el.innerHTML = '<p style="color:var(--muted);font-size:0.8125rem;">No custom rules yet.</p>';
-      return;
-    }
-    el.innerHTML = overrideRules.map((r, i) => `
-      <div class="override-row">
-        <span><span class="override-match">${r.match}</span>
-          <span class="override-flow">counts as ${FLOW_LABEL[r.flow] || r.flow}</span></span>
-        <button class="link-btn" data-i="${i}" style="color:var(--red);">Remove</button>
-      </div>`).join('');
-    el.querySelectorAll('button[data-i]').forEach(b => {
-      b.addEventListener('click', () => {
-        overrideRules.splice(parseInt(b.dataset.i, 10), 1);
-        saveOverrides();
+  function updateSaveBtn() {
+    document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
+  }
+
+  function categoryOptions(selected, disabled) {
+    const opts = txState.categories.map(c => {
+      const e = escapeHtml(c);
+      return `<option value="${e}"${c === selected ? ' selected' : ''}>${e}</option>`;
+    }).join('');
+    return `<select class="tx-cat" ${disabled ? 'disabled' : ''}>${opts}</select>`;
+  }
+
+  function flowOptions(selected) {
+    return `<select class="tx-flow">${
+      ['income', 'expense', 'transfer'].map(f =>
+        `<option value="${f}"${f === selected ? ' selected' : ''}>${FLOW_LABEL[f]}</option>`).join('')
+    }</select>`;
+  }
+
+  function rowHtml(t) {
+    const flow = t.flow;
+    const catDisabled = flow !== 'expense';
+    return `
+      <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
+        <input type="checkbox" class="tx-check" data-key="${t.key}">
+        <span class="tx-date">${formatMonthYear(t.date)}</span>
+        <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
+        <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>
+        ${flowOptions(flow)}
+        ${categoryOptions(catDisabled ? '' : t.category, catDisabled)}
+      </div>`;
+  }
+
+  function groupHtml(title, rows, opts = {}) {
+    if (!rows.length) return '';
+    const total = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const t = escapeHtml(title);
+    const expanded = expandedGroups.has(title);
+    const shown = expanded ? rows : rows.slice(0, GROUP_CAP);
+    const more = rows.length - shown.length;
+    const moreBtn = more > 0
+      ? `<button type="button" class="tx-more" data-group="${t}">Show all ${rows.length} ↓</button>`
+      : (expanded && rows.length > GROUP_CAP
+          ? `<button type="button" class="tx-more" data-group="${t}">Show fewer ↑</button>` : '');
+    return `
+      <div class="tx-group${opts.muted ? ' muted' : ''}" data-group="${t}">
+        <div class="tx-group-head">
+          <span>${t}</span>
+          <span class="tx-group-total">${rows.length} · ${formatAUD(total)}</span>
+        </div>
+        ${shown.map(rowHtml).join('')}
+        ${moreBtn}
+      </div>`;
+  }
+
+  // Jump from a budget category to its group in the editor and flash it.
+  function jumpToCategory(cat) {
+    document.getElementById('tx-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const grp = document.querySelector(`.tx-group[data-group="${(window.CSS && CSS.escape) ? CSS.escape(cat) : cat}"]`);
+    if (!grp) { showToast(`No spending rows under “${cat}”`); return; }
+    setTimeout(() => {
+      grp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      grp.classList.add('flash');
+      setTimeout(() => grp.classList.remove('flash'), 1600);
+    }, 350);
+  }
+
+  function renderTransactions() {
+    const el = document.getElementById('tx-list');
+    const all = txState.transactions;
+    const txs = txFilter
+      ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
+      : all;
+    if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions.</p>'; return; }
+    if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">No transactions match “${escapeHtml(txFilter)}”.</p>`; return; }
+
+    const income = txs.filter(t => t.flow === 'income');
+    const bills = txs.filter(t => t.flow === 'expense' && t.is_bill);
+    const transfers = txs.filter(t => t.flow === 'transfer');
+    const spending = txs.filter(t => t.flow === 'expense' && !t.is_bill);
+
+    // Spending grouped by category
+    const byCat = {};
+    spending.forEach(t => { (byCat[t.category || 'Other'] ||= []).push(t); });
+    const spendingHtml = Object.keys(byCat).sort().map(cat => groupHtml(cat, byCat[cat])).join('');
+
+    el.innerHTML =
+      groupHtml('Income', income) +
+      groupHtml('Bills', bills) +
+      spendingHtml +
+      groupHtml('Transfers (ignored)', transfers, { muted: true });
+
+    el.querySelectorAll('.tx-more').forEach(b => b.addEventListener('click', () => {
+      const g = b.dataset.group;
+      if (expandedGroups.has(g)) expandedGroups.delete(g); else expandedGroups.add(g);
+      renderTransactions();
+    }));
+    wireRows();
+  }
+
+  function origFor(key) {
+    return txState.transactions.find(t => t.key === key) || {};
+  }
+
+  function stageChange(key, field, value) {
+    const o = originals.get(key) || {};
+    const entry = staged.get(key) || {};
+    // Only keep a field in the rule if it differs from the original classification.
+    const origVal = field === 'flow' ? o.flow : (o.category || '');
+    if (value === origVal) { delete entry[field]; } else { entry[field] = value; }
+    if (Object.keys(entry).length) staged.set(key, entry); else staged.delete(key);
+    updateSaveBtn();
+    const row = document.querySelector(`.tx-row[data-key="${key}"]`);
+    if (row) row.classList.toggle('edited', staged.has(key));
+  }
+
+  function wireRows() {
+    document.querySelectorAll('.tx-row').forEach(row => {
+      const key = row.dataset.key;
+      const flowSel = row.querySelector('.tx-flow');
+      const catSel = row.querySelector('.tx-cat');
+      flowSel.addEventListener('change', () => {
+        stageChange(key, 'flow', flowSel.value);
+        catSel.disabled = flowSel.value !== 'expense';
       });
+      catSel.addEventListener('change', () => stageChange(key, 'category', catSel.value));
+    });
+    document.querySelectorAll('.tx-check').forEach(c =>
+      c.addEventListener('change', updateBulkBar));
+  }
+
+  function selectedKeys() {
+    return [...document.querySelectorAll('.tx-check:checked')].map(c => c.dataset.key);
+  }
+  function updateBulkBar() {
+    const n = selectedKeys().length;
+    const bar = document.getElementById('bulk-bar');
+    bar.style.display = n ? 'flex' : 'none';
+    document.getElementById('bulk-count').textContent = `${n} selected`;
+  }
+
+  document.getElementById('bulk-apply').addEventListener('click', () => {
+    const flow = document.getElementById('bulk-flow').value;
+    const cat = document.getElementById('bulk-category').value;
+    if (!flow && !cat) return;
+    selectedKeys().forEach(key => {
+      if (flow) stageChange(key, 'flow', flow);
+      if (cat) stageChange(key, 'category', cat);
+    });
+    // Re-render to reflect the staged values in the row selects.
+    applyStagedToState();
+    renderTransactions();
+    updateSaveBtn();
+  });
+
+  // Reflect staged edits onto the in-memory rows so re-render shows them.
+  function applyStagedToState() {
+    staged.forEach((entry, key) => {
+      const t = origFor(key);
+      if (entry.flow) t.flow = entry.flow;
+      if (entry.category) t.category = entry.category;
     });
   }
 
-  async function loadOverrides() {
-    try {
-      const res = await apiFetch('/overrides');
-      overrideRules = res.overrides || [];
-      renderOverrides();
-    } catch (_) { /* no snapshot yet */ }
+  // Add a custom category
+  document.getElementById('add-category-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-category');
+    const name = input.value.trim();
+    if (!name) return;
+    if (!txState.categories.includes(name)) txState.categories.push(name);
+    if (!txState.custom_categories.includes(name)) txState.custom_categories.push(name);
+    input.value = '';
+    customDirty = true;
+    updateSaveBtn();
+    refreshCategorySelects();
+    showToast(`Added “${name}” — Save changes to keep it`);
+  });
+
+  function removeCustomCategory(name) {
+    txState.custom_categories = txState.custom_categories.filter(c => c !== name);
+    txState.categories = txState.categories.filter(c => c !== name);
+    customDirty = true;
+    updateSaveBtn();
+    refreshCategorySelects();
+    showToast(`Removed “${name}” — Save changes to apply`);
   }
 
-  async function saveOverrides() {
-    await apiFetch('/overrides', {
-      method: 'POST',
-      body: JSON.stringify({ rules: overrideRules }),
-    });
-    renderOverrides();
-    renderDashboard(await apiFetch('/dashboard'));
-    showToast('Updated your numbers');
+  function renderCustomChips() {
+    const el = document.getElementById('custom-cat-chips');
+    const customs = txState.custom_categories || [];
+    if (!customs.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<span class="cat-chips-label">Your categories:</span>' +
+      customs.map(c => `<span class="cat-chip">${escapeHtml(c)}<button type="button" data-cat="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}">×</button></span>`).join('');
+    el.querySelectorAll('.cat-chip button').forEach(b =>
+      b.addEventListener('click', () => removeCustomCategory(b.dataset.cat)));
   }
 
-  document.getElementById('override-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const errEl = document.getElementById('override-error');
+  function refreshCategorySelects() {
+    document.getElementById('bulk-category').innerHTML =
+      '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
+    renderCustomChips();
+    renderTransactions();
+  }
+
+  // Search filter
+  document.getElementById('tx-search').addEventListener('input', (e) => {
+    txFilter = e.target.value.trim().toLowerCase();
+    renderTransactions();
+  });
+
+  // Save all staged edits as override rules (plus any new custom categories)
+  document.getElementById('tx-save').addEventListener('click', async () => {
+    const btn = document.getElementById('tx-save');
+    const errEl = document.getElementById('tx-error');
     errEl.style.display = 'none';
-    const match = document.getElementById('override-match').value.trim();
-    const flow = document.getElementById('override-flow').value;
-    if (!match) {
-      errEl.textContent = 'Type some text to match first';
-      errEl.style.display = 'block';
-      return;
-    }
-    overrideRules = overrideRules.filter(r => r.match.toLowerCase() !== match.toLowerCase());
-    overrideRules.push({ match, flow });
-    document.getElementById('override-match').value = '';
+
+    // Keep existing rules that aren't being superseded by a new single-row edit.
+    const stagedKeys = new Set(staged.keys());
+    const rules = savedRules.filter(r => !(r.tx_key && stagedKeys.has(r.tx_key)));
+    staged.forEach((entry, key) => {
+      const rule = { tx_key: key };
+      if (entry.flow) rule.flow = entry.flow;
+      if (entry.category) rule.category = entry.category;
+      rules.push(rule);
+    });
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
     try {
-      await saveOverrides();
+      await apiFetch('/overrides', {
+        method: 'POST',
+        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
+      });
+      staged.clear();
+      customDirty = false;
+      await loadPeriod();   // re-render current window + reload editor
+      showToast('Updated your numbers');
     } catch (err) {
-      errEl.textContent = err.message || 'Could not apply that rule';
+      errEl.textContent = err.message || 'Could not save changes';
       errEl.style.display = 'block';
+    } finally {
+      btn.textContent = 'Save changes';
+      updateSaveBtn();
     }
   });
+
+  async function loadTransactions() {
+    try {
+      const [tx, ov] = await Promise.all([
+        apiFetch('/transactions'),
+        apiFetch('/overrides').catch(() => ({ overrides: [], custom_categories: [] })),
+      ]);
+      txState = {
+        transactions: tx.transactions || [],
+        categories: tx.categories || [],
+        custom_categories: tx.custom_categories || [],
+      };
+      savedRules = ov.overrides || [];
+      staged.clear();
+      originals.clear();
+      customDirty = false;
+      txState.transactions.forEach(t => originals.set(t.key, { flow: t.flow, category: t.category }));
+      updateSaveBtn();
+      refreshCategorySelects();
+      updateBulkBar();
+    } catch (_) { /* no snapshot yet */ }
+  }
 
   // ── Upload form ──
   document.getElementById('upload-form').addEventListener('submit', async (e) => {
@@ -451,26 +779,20 @@
     const btn = document.getElementById('upload-btn');
     const errEl = document.getElementById('upload-error');
     errEl.style.display = 'none';
-
     const file = document.getElementById('csv-file').files[0];
-    if (!file) {
-      errEl.textContent = 'Please select a CSV or PDF file';
-      errEl.style.display = 'block';
-      return;
-    }
+    if (!file) { errEl.textContent = 'Please select a CSV or PDF file'; errEl.style.display = 'block'; return; }
 
     const fd = new FormData();
     fd.append('file', file);
     fd.append('period', 'monthly');
-
     btn.disabled = true;
     btn.textContent = 'Analysing…';
     showLoading('Analysing your spending… this may take a moment');
-
     try {
       await apiFetch('/analyze', { method: 'POST', body: fd });
-      const data = await apiFetch('/dashboard');
-      renderDashboard(data);
+      currentPeriod = 'monthly'; currentMonth = '';
+      await loadPeriod();
+      loadInsight();
       showToast('Analysis complete!');
     } catch (err) {
       showUpload();
@@ -484,14 +806,35 @@
 
   document.getElementById('reupload-btn').addEventListener('click', showUpload);
 
+  document.getElementById('reanalyze-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('reanalyze-btn');
+    btn.disabled = true;
+    btn.textContent = 'Re-analysing…';
+    try {
+      await apiFetch('/reanalyze', { method: 'POST' });
+      await loadPeriod();
+      loadInsight();
+      showToast('Re-analysed from your saved data');
+    } catch (err) {
+      showToast(err.message || 'Could not re-analyse');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Re-analyse';
+    }
+  });
+
   // ── Init ──
   async function init() {
     try {
       await requireAuth();
       showLoading();
-      const data = await apiFetch('/dashboard');
-      renderDashboard(data);
-      loadOverrides();
+      const qs = currentMonth
+        ? `?period=monthly&month=${encodeURIComponent(currentMonth)}`
+        : `?period=${encodeURIComponent(currentPeriod)}`;
+      renderDashboard(await apiFetch('/dashboard' + qs));
+      syncPeriodUI();
+      loadTransactions();
+      loadInsight();
     } catch (err) {
       if (err.message === 'no_analysis' || err.status === 404) {
         showUpload();

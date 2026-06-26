@@ -135,6 +135,19 @@ COACH_TOOLS = [
             "required": ["amount"],
         },
     }},
+    {"type": "function", "function": {
+        "name": "lookup_concept",
+        "description": (
+            "Look up a personal-finance concept (ETFs, superannuation, HECS, "
+            "emergency funds, budgeting) in the knowledge base. Use this to "
+            "explain how something works, and cite the source title."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    }},
 ]
 
 
@@ -186,6 +199,11 @@ def run_tool(name, args, transactions, context):
         result["item"] = args.get("item")
         return result
 
+    if name == "lookup_concept":
+        from modules.rag import search
+        hits = search(args.get("query", ""), k=2)
+        return {"results": [{"title": h["title"], "text": h["text"]} for h in hits]}
+
     return {"error": f"unknown tool {name}"}
 
 
@@ -224,10 +242,46 @@ def fallback_coach_response(user_message, context, transactions=None):
             text = context.get("invest_readiness_reason",
                                "Focus on building a cash buffer before investing.")
     else:
+        # Not a data question → try the knowledge base (concepts like ETFs, super).
+        from modules.rag import search
+        hits = search(user_message, k=1)
+        if hits:
+            return f"{hits[0]['text']}\n\nSource: {hits[0]['title']}. {DISCLAIMER}"
         text = " ".join(context.get("patterns", [])[:2]) or \
-            "Ask me about your spending, a category (e.g. coffee), saving, or a purchase."
+            "Ask me about your spending, a category (e.g. coffee), saving, a purchase, or a concept like ETFs or super."
 
     return f"{text} {DISCLAIMER}"
+
+
+def generate_insight(context):
+    """A short, friendly recap of the user's finances. Uses the LLM when a key is
+    present; otherwise a deterministic template built from the same context, so
+    it's always useful."""
+    system = (
+        f"{COACH_SYSTEM_PROMPT}\n\n"
+        "Write a friendly 2 to 3 sentence recap of this person's finances for the "
+        "period. Mention their biggest spending area and whether they saved. "
+        "Under 60 words. No hyphens.\n\n"
+        f"Context:\n{json.dumps(context)}"
+    )
+    text = call_llm(system, [{"role": "user", "content": "Give me my money insight."}])
+    source = "openai"
+    if text is None:
+        top = (context.get("top_categories") or [{}])[0]
+        saved = context.get("saved", 0) or 0
+        rate = context.get("savings_rate")
+        spent = context.get("spent", 0) or 0
+        saved_bit = (f"saved ${saved:,.0f}" if saved >= 0
+                     else f"overspent by ${abs(saved):,.0f}")
+        rate_bit = f" ({rate}% of income)" if rate is not None else ""
+        parts = [f"This period you spent ${spent:,.0f} and {saved_bit}{rate_bit}."]
+        if top.get("category"):
+            parts.append(f"Your biggest area was {top['category']} at ${top.get('amount', 0):,.0f}.")
+        text = " ".join(parts)
+        source = "fallback"
+    if DISCLAIMER not in text:
+        text = f"{text} {DISCLAIMER}"
+    return {"text": text, "source": source, "disclaimer": DISCLAIMER}
 
 
 def coach_chat(user_message, context, history=None, transactions=None):

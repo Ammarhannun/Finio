@@ -3,16 +3,26 @@ import pandas as pd
 from config import DISCLAIMER, FLOW_EXPENSE
 from modules.ai_coach import build_context
 from modules.analytics import analyze
+from modules.anomaly import detect_anomalies
 from modules.bank_parser import parse_bank_csv
 from modules.bill_detector import detect_bills
 from modules.budget_setter import suggest_budgets
 from modules.categoriser import categorise_data
-from modules.data_processor import add_flags, compute_metrics
+from modules.data_processor import (
+    add_flags,
+    apply_category_overrides,
+    compute_metrics,
+)
 from modules.history import build_snapshot
 from modules.invest import invest_summary
 from modules.period import available_months, filter_window, resolve_periods
 from modules.personality import score_personality
-from modules.savings_forecaster import forecast_goal, recommend_goal
+from modules.savings_forecaster import (
+    forecast_goal,
+    forecast_spending,
+    monthly_net_average,
+    recommend_goal,
+)
 
 DEFAULT_AGE = 22
 
@@ -29,8 +39,15 @@ def _category_spend(df):
 
 
 def _records(df):
-    """Serialise a transaction DataFrame to JSON-safe rows (merchant = description)."""
+    """Serialise a transaction DataFrame to JSON-safe rows (merchant = description).
+
+    Each row carries a stable `key` (tx_key) so the frontend can ask to
+    reclassify exactly that transaction via an override rule. Uses the shared
+    occurrence-aware key_series so duplicate transactions get distinct keys."""
+    from modules.data_processor import key_series
+
     tx = df[["date", "amount", "description", "category", "is_expense", "flow"]].copy()
+    tx["key"] = key_series(tx)
     tx["date"] = tx["date"].dt.strftime("%Y-%m-%d")
     tx = tx.rename(columns={"description": "merchant"})
     return tx.to_dict("records")
@@ -61,10 +78,14 @@ def analyze_window(
 
     metrics = compute_metrics(df)
     bills = detect_bills(full)
+    # Unusual charges are judged against the user's WHOLE history (stable baseline).
+    anomalies = detect_anomalies(full)
 
     # No goal supplied yet → recommend one from the user's actual numbers so the
-    # dashboard has something sensible to show before they confirm/edit it.
-    recommendation = recommend_goal(metrics)
+    # dashboard has something sensible to show before they confirm/edit it. Use
+    # the robust monthly average over the WHOLE history (not just this slice) so
+    # the suggested amount doesn't swing with a daily/weekly view.
+    recommendation = recommend_goal(metrics, monthly_saved=monthly_net_average(full))
     if goal_amount is None:
         goal_amount = recommendation["amount"]
     if goal_date is None:
@@ -75,6 +96,7 @@ def analyze_window(
     # Forecast the goal from the WHOLE history, not just this slice, so the
     # running total and monthly trend stay realistic on a daily/weekly view.
     forecast = forecast_goal(full, goal_amount, goal_date)
+    spend_forecast = forecast_spending(full, metrics)
     analysis = analyze(df, metrics, bills)
     baseline = _category_spend(prior_df) or None
     budgets = suggest_budgets(df, metrics, targets=budget_targets, baseline=baseline)
@@ -87,7 +109,9 @@ def analyze_window(
         "metrics": metrics,
         "analysis": analysis,
         "bills": bills,
+        "anomalies": anomalies,
         "forecast": forecast,
+        "spend_forecast": spend_forecast,
         "budgets": budgets,
         "invest": invest,
         "personality": personality,
@@ -114,6 +138,7 @@ def run_full_pipeline(
     goal_date=None,
     age=None,
     overrides=None,
+    user_examples=None,
     budget_targets=None,
     period=None,
     period_anchor=None,
@@ -125,7 +150,12 @@ def run_full_pipeline(
     # read from the filtered slice inside analyze_window.
     full = parse_bank_csv(csv_path)
     full = add_flags(full, overrides=overrides)
-    full = categorise_data(full)
+    # user_examples (past corrections) personalise the ML guess so new but
+    # similar merchants get the user's preferred category.
+    full = categorise_data(full, user_examples=user_examples)
+    # Category overrides land AFTER categorisation so a user-chosen category
+    # (incl. their custom ones) beats the rules/ML guess.
+    full = apply_category_overrides(full, overrides)
 
     result = analyze_window(
         full,
@@ -159,12 +189,17 @@ def analyze_stored(
     full = _restore_full_df(transactions)
     if overrides:
         from config import FLOW_EXPENSE, FLOW_TRANSFER
-        from modules.data_processor import apply_flow_overrides
+        from modules.data_processor import (
+            apply_category_overrides,
+            apply_flow_overrides,
+        )
 
         # Apply only the user's rules on top of the restored flow, then keep the
         # derived flags in sync — don't rebuild flow from scratch (that would
-        # lose the transfer classification decided at upload time).
+        # lose the transfer classification decided at upload time). Category
+        # overrides apply to the already-stored categories.
         full = apply_flow_overrides(full, overrides)
+        full = apply_category_overrides(full, overrides)
         full["is_transfer"] = full["flow"] == FLOW_TRANSFER
         full["is_expense"] = full["flow"] == FLOW_EXPENSE
     return analyze_window(

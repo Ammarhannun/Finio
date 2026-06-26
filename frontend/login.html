@@ -31,6 +31,10 @@
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password" minlength="6">
       </div>
+      <div class="form-group" id="age-group" style="display:none;">
+        <label for="age">Your age <span style="color:var(--muted);font-weight:400;">(for personalised invest tips)</span></label>
+        <input type="number" id="age" min="16" max="100" placeholder="24">
+      </div>
       <button type="submit" class="btn btn-primary btn-full" id="auth-btn">Log in</button>
     </form>
 
@@ -39,7 +43,7 @@
 </div>
 
 <script type="module">
-  import { supabase, getSession, initThemeToggle } from './api.js';
+  import { supabase, getSession, initThemeToggle, apiFetch } from './api.js';
 
   initThemeToggle();
 
@@ -58,7 +62,19 @@
     btn.textContent = m === 'login' ? 'Log in' : 'Create account';
     errorEl.style.display = 'none';
     successEl.style.display = 'none';
+    document.getElementById('age-group').style.display = m === 'signup' ? 'block' : 'none';
     document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  }
+
+  // Age is captured at signup but email confirmation means there's no session
+  // yet — stash it and save it to the profile on the first successful login.
+  async function flushPendingAge() {
+    const pending = localStorage.getItem('finio-signup-age');
+    if (!pending) return;
+    try {
+      await apiFetch('/profile', { method: 'POST', body: JSON.stringify({ age: parseInt(pending, 10) }) });
+    } catch (_) { /* non-fatal; they can set it on the profile page */ }
+    localStorage.removeItem('finio-signup-age');
   }
 
   tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
@@ -80,10 +96,13 @@
       if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        await flushPendingAge();
         window.location.href = 'dashboard.html';
       } else {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+        const ageVal = document.getElementById('age').value;
+        if (ageVal) localStorage.setItem('finio-signup-age', ageVal);
         successEl.textContent = 'Check your email to confirm your account, then log in here.';
         successEl.style.display = 'block';
         setMode('login');

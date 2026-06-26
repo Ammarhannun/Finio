@@ -32,7 +32,14 @@ export async function apiFetch(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch (e) {
+    // fetch() rejects with a TypeError when the server is unreachable / CORS
+    // blocked — turn that into a message a human can act on.
+    throw new Error('Could not reach the server. Is the backend running on :8000?');
+  }
 
   if (res.status === 401) {
     await supabase.auth.signOut();
@@ -75,16 +82,43 @@ export function initThemeToggle() {
   }
 }
 
-export function setupNav(activePage) {
+export async function setupNav(activePage) {
   initThemeToggle();
 
   document.querySelectorAll('.nav-links a').forEach(a => {
     if (a.dataset.page === activePage) a.classList.add('active');
   });
 
+  // Top-right account menu (avatar → dropdown), like a normal web app. Built in
+  // place of the old bare Logout button so every page gets it from one edit.
   const logoutBtn = document.getElementById('nav-logout');
   if (logoutBtn) {
-    logoutBtn.addEventListener('click', async () => {
+    const session = await getSession();
+    const email = session?.user?.email || '';
+    const initial = (email.trim()[0] || 'U').toUpperCase();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'nav-profile';
+    if (activePage === 'profile') wrap.classList.add('active');
+    wrap.innerHTML = `
+      <button class="nav-avatar" id="nav-avatar" aria-haspopup="true" aria-expanded="false" title="Account">${initial}</button>
+      <div class="nav-menu" id="nav-menu" role="menu">
+        <div class="nav-menu-email">${email}</div>
+        <a href="profile.html" role="menuitem">Profile</a>
+        <button class="nav-menu-item" id="nav-logout-item" role="menuitem">Log out</button>
+      </div>`;
+    logoutBtn.replaceWith(wrap);
+
+    const avatar = wrap.querySelector('#nav-avatar');
+    avatar.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = wrap.classList.toggle('open');
+      avatar.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!wrap.contains(e.target)) wrap.classList.remove('open');
+    });
+    wrap.querySelector('#nav-logout-item').addEventListener('click', async () => {
       await supabase.auth.signOut();
       window.location.href = 'login.html';
     });
@@ -100,6 +134,19 @@ export function setupNav(activePage) {
       }
     });
   }
+}
+
+// Escape text before putting it inside innerHTML. Bank/merchant descriptions
+// are untrusted input — without this a transaction named "<img onerror=…>"
+// would execute. Use on EVERY dynamic value interpolated into innerHTML.
+export function escapeHtml(value) {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export function formatAUD(amount) {
@@ -144,6 +191,22 @@ const BASE_PERIODS = [
   { value: 'all', label: 'All time' },
 ];
 
+// The selected period is platform-wide: one value persisted in localStorage so
+// changing it on ANY page (dashboard, patterns, invest, coach, spend) carries
+// to every other page. Format: 'monthly'|'weekly'|'daily'|'all'|'month:YYYY-MM'.
+const PERIOD_KEY = 'finio-period';
+export function getStoredPeriod() {
+  try { return localStorage.getItem(PERIOD_KEY) || 'monthly'; } catch (e) { return 'monthly'; }
+}
+export function setStoredPeriod(value) {
+  try { localStorage.setItem(PERIOD_KEY, value || 'monthly'); } catch (e) { /* ignore */ }
+}
+// Parse the stored value into the {period, month} shape some pages keep.
+export function storedPeriodParts() {
+  const v = getStoredPeriod();
+  return v.startsWith('month:') ? { period: 'monthly', month: v.slice(6) } : { period: v, month: null };
+}
+
 // Turn a selector value into the query string the API expects.
 export function periodQuery(value) {
   if (value && value.startsWith('month:')) {
@@ -153,10 +216,11 @@ export function periodQuery(value) {
 }
 
 // Mount a period <select> into `container`. `onChange(value)` fires on change.
-export function mountPeriodBar(container, months, onChange, current = 'monthly') {
+// Defaults to the platform-wide stored period and persists every change.
+export function mountPeriodBar(container, months, onChange, current = getStoredPeriod()) {
   if (!container) return;
   const monthOpts = (months || []).slice().reverse()
-    .map(m => `<option value="month:${m}">${formatMonthYear(m)}</option>`).join('');
+    .map(m => `<option value="month:${m}"${`month:${m}` === current ? ' selected' : ''}>${formatMonthYear(m)}</option>`).join('');
   container.innerHTML = `
     <div class="period-bar">
       <span class="period-tag">Period</span>
@@ -167,7 +231,10 @@ export function mountPeriodBar(container, months, onChange, current = 'monthly')
         ${monthOpts ? `<optgroup label="Specific month">${monthOpts}</optgroup>` : ''}
       </select>
     </div>`;
-  container.querySelector('select').addEventListener('change', (e) => onChange(e.target.value));
+  container.querySelector('select').addEventListener('change', (e) => {
+    setStoredPeriod(e.target.value);   // platform-wide
+    onChange(e.target.value);
+  });
 }
 
 export function showToast(msg) {

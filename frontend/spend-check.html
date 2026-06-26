@@ -66,11 +66,12 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar,
+           getStoredPeriod, storedPeriodParts } from './api.js';
 
   setupNav('spend');
 
-  let spendPeriod = { period: 'monthly', month: null };
+  let spendPeriod = storedPeriodParts();
 
   const VERDICTS = {
     green: { icon: '✓', label: 'All good, go for it' },
@@ -87,7 +88,7 @@
           spendPeriod = value.startsWith('month:')
             ? { period: 'monthly', month: value.slice(6) }
             : { period: value, month: null };
-        }, 'monthly');
+        }, getStoredPeriod());
     } catch (_) {}
   }
 

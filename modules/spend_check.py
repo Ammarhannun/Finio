@@ -3,26 +3,32 @@ from config import DISCLAIMER
 SAFETY_BUFFER_DAYS = 7
 
 def check_purchase(df, metrics, purchase_amount, days_ahead=30):
-    current = metrics["net_saved"]
+    # Prefer the real account balance (running balance at the end of the window).
+    # Fall back to period net savings when the statement had no balance column.
+    balance = metrics.get("latest_balance")
+    uses_balance = balance is not None
+    current = balance if uses_balance else metrics["net_saved"]
     burn = metrics["daily_burn_rate"]
     safety_buffer = round(burn * SAFETY_BUFFER_DAYS, 2)
     projected = round(
         current - purchase_amount - (burn * days_ahead),
         2,
     )
+    basis = "your current balance" if uses_balance else "your savings this period"
     if projected >= safety_buffer:
         verdict = "green"
-        message = "You can afford this. Projected balance stays above your safety buffer."
+        message = f"You can afford this. Projected balance (from {basis}) stays above your safety buffer."
     elif projected >= 0:
         verdict = "yellow"
-        message = "Tight. You would be above zero but below your safety buffer."
+        message = f"Tight. Based on {basis}, you would be above zero but below your safety buffer."
     else:
         verdict = "red"
-        message = "Risky. Projected balance goes negative after this purchase."
+        message = f"Risky. Based on {basis}, your projected balance goes negative after this purchase."
     return {
         "verdict": verdict,
         "purchase_amount": purchase_amount,
         "current_net": round(current, 2),
+        "uses_balance": uses_balance,
         "projected_balance": projected,
         "safety_buffer": safety_buffer,
         "days_ahead": days_ahead,

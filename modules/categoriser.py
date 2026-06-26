@@ -1,3 +1,5 @@
+import hashlib
+
 import pandas as pd
 from config import CATEGORY_RULES, TRANSFERS_LABEL, TRAINING_CSV
 from sklearn.feature_extraction.text import CountVectorizer
@@ -20,6 +22,60 @@ def train_model(X, y):
     return model
 
 
+_MODEL = None
+_USER_MODELS = {}          # signature -> model trained with that user's examples
+_MAX_USER_MODELS = 20      # bound memory
+_EXAMPLE_WEIGHT = 3        # repeat user corrections so they outweigh one base row
+
+
+def examples_from_overrides(overrides):
+    """Turn the user's saved category corrections into (text -> category) training
+    examples. Text-match rules carry the text directly; exact tx_key rules are
+    skipped here (they're already enforced verbatim by apply_category_overrides).
+    This is the 'active learning' signal: corrections teach the model to
+    generalise to NEW similar merchants on the next upload.
+    """
+    out = []
+    for r in overrides or []:
+        cat, text = r.get("category"), r.get("match")
+        if cat and text:
+            out.append((str(text), str(cat)))
+    return out
+
+
+def _sig(examples):
+    return hashlib.md5(
+        "|".join(f"{t}=>{c}" for t, c in sorted(examples)).encode()
+    ).hexdigest()
+
+
+def get_model(extra_examples=None):
+    """Return the trained categoriser, cached so it trains once per process.
+
+    With `extra_examples` (the user's corrections) it trains an augmented model
+    — base training data plus the user's (text->category) examples, weighted so
+    they actually move predictions — cached per example-set signature.
+    """
+    global _MODEL
+    if not extra_examples:
+        if _MODEL is None:
+            X, y = load_training_data()
+            _MODEL = train_model(X, y)
+        return _MODEL
+
+    sig = _sig(extra_examples)
+    if sig not in _USER_MODELS:
+        X, y = load_training_data()
+        ex_X = pd.Series([t for t, _ in extra_examples] * _EXAMPLE_WEIGHT)
+        ex_y = pd.Series([c for _, c in extra_examples] * _EXAMPLE_WEIGHT)
+        Xa = pd.concat([X, ex_X], ignore_index=True)
+        ya = pd.concat([y, ex_y], ignore_index=True)
+        if len(_USER_MODELS) >= _MAX_USER_MODELS:
+            _USER_MODELS.clear()
+        _USER_MODELS[sig] = train_model(Xa, ya)
+    return _USER_MODELS[sig]
+
+
 def rule_category(name):
     """PRIMARY categoriser: first keyword found in the cleaned merchant name
     wins. Rules are ordered (specific before general) in config.CATEGORY_RULES.
@@ -33,7 +89,7 @@ def rule_category(name):
     return None
 
 
-def categorise_data(df):
+def categorise_data(df, user_examples=None):
     df = df.copy()
     df["category"] = None
 
@@ -53,8 +109,7 @@ def categorise_data(df):
     # 3. ML model only fills genuine unknowns the rules couldn't place.
     unknown_mask = expense_mask & df["category"].isna()
     if unknown_mask.any():
-        X, y = load_training_data()
-        model = train_model(X, y)
+        model = get_model(user_examples)
         df.loc[unknown_mask, "category"] = model.predict(
             df.loc[unknown_mask, name_col]
         )
