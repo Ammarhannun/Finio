@@ -39,8 +39,8 @@ def _get_index():
     return _INDEX
 
 
-def search(query, k=2, min_score=0.05):
-    """Return up to k knowledge-base snippets most relevant to the query."""
+def _tfidf_search(query, k, min_score):
+    """Keyword retrieval over the local KB files — the no-key fallback."""
     vec, matrix, docs = _get_index()
     if not docs or not query:
         return []
@@ -50,3 +50,31 @@ def search(query, k=2, min_score=0.05):
         {"id": d["id"], "title": d["title"], "text": d["text"], "score": round(float(s), 3)}
         for s, d in ranked[:k] if s >= min_score
     ]
+
+
+def search(query, k=2, min_score=0.05):
+    """Return up to k KB snippets most relevant to the query.
+
+    Tries semantic search first (OpenAI embedding + pgvector `match_kb`), which
+    matches on meaning. Falls back to TF-IDF keyword matching when there's no
+    key, no migration, or any error — so retrieval always works.
+    """
+    if not query:
+        return []
+    from modules.embeddings import embed_one
+
+    vector = embed_one(query)
+    if vector is not None:
+        try:
+            from modules import db
+            hits = db.match_kb(db.get_client(), vector, k)  # kb_chunks is global
+            results = [
+                {"id": h["id"], "title": h["title"], "text": h["content"],
+                 "score": round(float(h.get("similarity", 0)), 3)}
+                for h in hits if h.get("similarity", 0) >= min_score
+            ]
+            if results:
+                return results
+        except Exception:
+            pass  # pgvector not set up / unreachable → fall back
+    return _tfidf_search(query, k, min_score)

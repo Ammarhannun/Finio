@@ -1,9 +1,56 @@
 """Supabase persistence — transactions, snapshots, streaks, goals, budgets."""
 
+import json
 import os
 from datetime import date, datetime, timezone
 
 from modules.history import update_streak
+
+
+def _vec(embedding):
+    """pgvector accepts its text form '[0.1,0.2,...]'. We pass embeddings as a
+    string (for both inserts and RPC) and cast ::vector in SQL — this sidesteps
+    PostgREST mistyping a raw float array."""
+    return json.dumps([float(x) for x in embedding])
+
+
+def upsert_kb_chunks(client, rows):
+    """rows: [{id, title, content, embedding(list[float])}] → kb_chunks."""
+    payload = [
+        {"id": r["id"], "title": r["title"], "content": r["content"],
+         "embedding": _vec(r["embedding"])}
+        for r in rows
+    ]
+    if payload:
+        client.table("kb_chunks").upsert(payload, on_conflict="id").execute()
+
+
+def match_kb(client, embedding, k=2):
+    res = client.rpc(
+        "match_kb", {"query_embedding": _vec(embedding), "match_count": k}
+    ).execute()
+    return res.data or []
+
+
+def upsert_merchant_embeddings(client, user_id, rows):
+    """rows: [{merchant, category, embedding(list[float])}] for one user."""
+    payload = [
+        {"user_id": user_id, "merchant": r["merchant"],
+         "category": r.get("category"), "embedding": _vec(r["embedding"])}
+        for r in rows
+    ]
+    if payload:
+        client.table("merchant_embeddings").upsert(
+            payload, on_conflict="user_id,merchant"
+        ).execute()
+
+
+def match_merchants(client, user_id, embedding, k=5):
+    res = client.rpc(
+        "match_merchants",
+        {"uid": user_id, "query_embedding": _vec(embedding), "match_count": k},
+    ).execute()
+    return res.data or []
 
 
 def is_configured():
