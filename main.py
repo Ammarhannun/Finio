@@ -30,19 +30,26 @@ app = FastAPI(title="Finio", description="AI-powered personal finance analyser")
 # (comma-separated).
 _default_origins = [
     "http://localhost:5500", "http://127.0.0.1:5500",
+    "http://[::1]:5500",
     "http://localhost:3000", "http://127.0.0.1:3000",
 ]
 _origins = [
     o.strip() for o in os.getenv("FINIO_ORIGINS", "").split(",") if o.strip()
-] or _default_origins
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_origins,
+]
+_cors: dict = dict(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+if _origins:
+    _cors["allow_origins"] = _origins
+else:
+    # Local dev: browsers often hit the frontend via IPv6 (::1) even when the
+    # address bar says localhost — allow common loopback hosts/ports.
+    _cors["allow_origins"] = _default_origins
+    _cors["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
+
+app.add_middleware(CORSMiddleware, **_cors)
 
 
 @app.get("/")
@@ -123,6 +130,29 @@ async def analyze_csv(
                 ) from exc
         else:
             result["persisted"] = False
+
+        # Best-effort: embed each unique merchant for semantic merchant search.
+        # Needs a key + the pgvector migration; silently skipped otherwise so it
+        # never blocks or fails the upload.
+        if user and result.get("persisted"):
+            try:
+                from modules.embeddings import embed_texts
+                txs = result.get("all_transactions", result["transactions"])
+                seen = {}
+                for t in txs:
+                    m = (t.get("merchant") or "").strip()
+                    if m and m not in seen:
+                        seen[m] = t.get("category")
+                merchants = list(seen.keys())
+                vectors = embed_texts(merchants)
+                if vectors:
+                    rows = [{"merchant": m, "category": seen[m], "embedding": v}
+                            for m, v in zip(merchants, vectors)]
+                    db.upsert_merchant_embeddings(
+                        db.get_client(user.token), user.user_id, rows
+                    )
+            except Exception:
+                pass
 
         return result
     finally:

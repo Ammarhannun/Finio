@@ -148,6 +148,9 @@ CRYPTO_OPTIONS = ["BTC", "ETH"]
 
 # ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
 OPENAI_MODEL = "gpt-4o-mini"
+# embeddings.py — semantic search (RAG + merchant search). 1536 dims.
+EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIM = 1536
 COACH_SYSTEM_PROMPT = (
     "You are Finio, a warm, upbeat money companion for young Australians aged 18 to 30. "
     "Chat naturally and answer whatever the user asks, including everyday questions, "
