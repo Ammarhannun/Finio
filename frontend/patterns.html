@@ -13,6 +13,7 @@
   <a class="nav-logo" href="dashboard.html"><span class="brand">finio</span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="coach.html" data-page="coach">AI Coach</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
@@ -88,8 +89,10 @@
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass,
            mountPeriodBar, periodQuery, getStoredPeriod, escapeHtml } from './api.js';
+  import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('patterns');
+  mountCoachWidget('patterns');
 
   let currentPeriod = 'monthly';
 

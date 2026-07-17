@@ -104,11 +104,17 @@
   // Already signed in? Jump straight to the dashboard.
   getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
 
-  // Reveal feature slips as they scroll into view.
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-  }, { threshold: 0.15 });
-  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  // Reveal feature slips as they scroll into view. Content is visible by
+  // default — html.js opts INTO the animation, and a safety timer force-shows
+  // everything so nothing can ever stay invisible.
+  if ('IntersectionObserver' in window) {
+    document.documentElement.classList.add('js');
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+    setTimeout(() => document.querySelectorAll('.reveal').forEach(el => el.classList.add('in', 'force')), 2500);
+  }
 </script>
 </body>
 </html>

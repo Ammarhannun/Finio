@@ -11,6 +11,9 @@ class CoachRequest(BaseModel):
     # Optional period so the coach can answer about the window the user is viewing.
     period: Optional[str] = None
     month: Optional[str] = None
+    # Which page the user is on (dashboard/transactions/invest/…) so the coach
+    # can tailor help to what's on screen.
+    page: Optional[str] = Field(None, max_length=30)
 
 
 class GoalRequest(BaseModel):

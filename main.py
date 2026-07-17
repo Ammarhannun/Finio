@@ -507,8 +507,21 @@ def insight(
     user: AuthUser = Depends(get_current_user),
 ):
     """A short natural-language recap of the user's finances (LLM when a key is
-    set, template otherwise). Fetched lazily so it isn't computed on every load."""
+    set, template otherwise). The default (no-period) insight is CACHED in the
+    snapshot — one LLM call per analysis, not one per dashboard load."""
     client, data = _require_snapshot(user)
+
+    if not any([period, month, start, end]):
+        cached = db.get_cached_insight(client, user.user_id)
+        if cached:
+            return cached
+        context = data.get("context")
+        if not context:
+            raise HTTPException(status_code=404, detail="No insight yet — upload a statement first")
+        result = generate_insight(context)
+        db.save_cached_insight(client, user.user_id, result)
+        return result
+
     resliced = _period_view(client, user, data, period=period, month=month, start=start, end=end)
     context = (resliced or data).get("context")
     if not context:
@@ -546,6 +559,10 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
     context = (resliced or data).get("context")
     if not context:
         raise HTTPException(status_code=404, detail="No coach context — upload a CSV first")
+    if body.page:
+        # Tell the coach what's on the user's screen so help fits the page
+        # (and reclassification proposals make sense on the transactions page).
+        context = {**context, "current_page": body.page}
 
     history_rows = db.get_chat_history(client, user.user_id)
     history = [{"role": row["role"], "content": row["message"]} for row in history_rows]

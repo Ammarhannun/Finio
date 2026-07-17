@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio · Transactions</title>
+  <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="dashboard.html"><span class="brand">finio</span></a>
+  <div class="nav-links">
+    <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="transactions.html" data-page="transactions">Transactions</a>
+    <a href="patterns.html" data-page="patterns">Patterns</a>
+    <a href="coach.html" data-page="coach">AI Coach</a>
+    <a href="spend-check.html" data-page="spend">Spend Check</a>
+    <a href="invest.html" data-page="invest">Invest</a>
+  </div>
+  <div class="nav-right">
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
+    <button id="nav-logout">Logout</button>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your transactions…</div>
+
+  <div id="data-section" style="display:none;">
+    <div class="page-header">
+      <h1>Transactions</h1>
+      <p style="color:var(--muted);">
+        Every transaction and how Finio classified it. Fix a flow or category and
+        every number on the platform updates — or just tell the coach what to change.
+      </p>
+    </div>
+
+    <div class="card" id="tx-card">
+      <div class="tx-toolbar">
+        <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…">
+        <div class="add-category">
+          <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
+          <button type="button" class="btn btn-outline btn-sm" id="add-category-btn">Add</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="tx-save" disabled>Save changes</button>
+      </div>
+      <div id="custom-cat-chips" class="cat-chips"></div>
+
+      <div class="bulk-bar" id="bulk-bar" style="display:none;">
+        <span id="bulk-count">0 selected</span>
+        <label>Set flow
+          <select id="bulk-flow">
+            <option value="">—</option>
+            <option value="income">Income</option>
+            <option value="expense">Spending</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </label>
+        <label>Set category
+          <select id="bulk-category"><option value="">—</option></select>
+        </label>
+        <button type="button" class="btn btn-outline btn-sm" id="bulk-apply">Apply to selected</button>
+      </div>
+
+      <div id="tx-error" class="form-error"></div>
+      <div class="tx-scroll" id="tx-list"></div>
+    </div>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+<div id="toast"></div>
+
+<script type="module">
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
+           formatDay, escapeHtml } from './api.js';
+  import { mountCoachWidget } from './coach-widget.js';
+
+  setupNav('transactions');
+  mountCoachWidget('transactions');
+
+  const loadingEl = document.getElementById('loading');
+  const dataSection = document.getElementById('data-section');
+
+  const FLOW_LABEL = { income: 'Income', expense: 'Spending', transfer: 'Transfer' };
+  let txState = { transactions: [], categories: [], custom_categories: [] };
+  let savedRules = [];
+  const staged = new Map();
+  const originals = new Map();
+  let txFilter = '';
+  const expandedGroups = new Set();
+  const GROUP_CAP = 25;
+  let customDirty = false;
+
+  function updateSaveBtn() {
+    document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
+  }
+
+  function categoryOptions(selected, disabled) {
+    // Non-expense rows get a plain "—" so the browser doesn't display a
+    // misleading first category greyed out.
+    if (disabled) return `<select class="tx-cat" disabled><option value="">—</option></select>`;
+    const opts = txState.categories.map(c => {
+      const e = escapeHtml(c);
+      return `<option value="${e}"${c === selected ? ' selected' : ''}>${e}</option>`;
+    }).join('');
+    return `<select class="tx-cat">${opts}</select>`;
+  }
+
+  function flowOptions(selected) {
+    return `<select class="tx-flow">${
+      ['income', 'expense', 'transfer'].map(f =>
+        `<option value="${f}"${f === selected ? ' selected' : ''}>${FLOW_LABEL[f]}</option>`).join('')
+    }</select>`;
+  }
+
+  function rowHtml(t) {
+    const catDisabled = t.flow !== 'expense';
+    return `
+      <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
+        <input type="checkbox" class="tx-check" data-key="${t.key}">
+        <span class="tx-date">${formatDay(t.date)}</span>
+        <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
+        <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>
+        ${flowOptions(t.flow)}
+        ${categoryOptions(catDisabled ? '' : t.category, catDisabled)}
+      </div>`;
+  }
+
+  function groupHtml(title, rows, opts = {}) {
+    if (!rows.length) return '';
+    const total = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const t = escapeHtml(title);
+    const expanded = expandedGroups.has(title);
+    const shown = expanded ? rows : rows.slice(0, GROUP_CAP);
+    const more = rows.length - shown.length;
+    const moreBtn = more > 0
+      ? `<button type="button" class="tx-more" data-group="${t}">Show all ${rows.length} ↓</button>`
+      : (expanded && rows.length > GROUP_CAP
+          ? `<button type="button" class="tx-more" data-group="${t}">Show fewer ↑</button>` : '');
+    return `
+      <div class="tx-group${opts.muted ? ' muted' : ''}" data-group="${t}">
+        <div class="tx-group-head">
+          <span>${t}</span>
+          <span class="tx-group-total">${rows.length} · ${formatAUD(total)}</span>
+        </div>
+        ${shown.map(rowHtml).join('')}
+        ${moreBtn}
+      </div>`;
+  }
+
+  function renderTransactions() {
+    const el = document.getElementById('tx-list');
+    const all = txState.transactions;
+    const txs = txFilter
+      ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
+      : all;
+    if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the Dashboard.</p>'; return; }
+    if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">No transactions match “${escapeHtml(txFilter)}”.</p>`; return; }
+
+    const income = txs.filter(t => t.flow === 'income');
+    const bills = txs.filter(t => t.flow === 'expense' && t.is_bill);
+    const transfers = txs.filter(t => t.flow === 'transfer');
+    const spending = txs.filter(t => t.flow === 'expense' && !t.is_bill);
+
+    const byCat = {};
+    spending.forEach(t => { (byCat[t.category || 'Other'] ||= []).push(t); });
+    const spendingHtml = Object.keys(byCat).sort().map(cat => groupHtml(cat, byCat[cat])).join('');
+
+    el.innerHTML =
+      groupHtml('Income', income) +
+      groupHtml('Bills', bills) +
+      spendingHtml +
+      groupHtml('Transfers (ignored)', transfers, { muted: true });
+
+    el.querySelectorAll('.tx-more').forEach(b => b.addEventListener('click', () => {
+      const g = b.dataset.group;
+      if (expandedGroups.has(g)) expandedGroups.delete(g); else expandedGroups.add(g);
+      renderTransactions();
+    }));
+    wireRows();
+  }
+
+  function origFor(key) { return txState.transactions.find(t => t.key === key) || {}; }
+
+  function stageChange(key, field, value) {
+    const o = originals.get(key) || {};
+    const entry = staged.get(key) || {};
+    const origVal = field === 'flow' ? o.flow : (o.category || '');
+    if (value === origVal) { delete entry[field]; } else { entry[field] = value; }
+    if (Object.keys(entry).length) staged.set(key, entry); else staged.delete(key);
+    updateSaveBtn();
+    const row = document.querySelector(`.tx-row[data-key="${key}"]`);
+    if (row) row.classList.toggle('edited', staged.has(key));
+  }
+
+  function wireRows() {
+    document.querySelectorAll('.tx-row').forEach(row => {
+      const key = row.dataset.key;
+      const flowSel = row.querySelector('.tx-flow');
+      const catSel = row.querySelector('.tx-cat');
+      flowSel.addEventListener('change', () => {
+        stageChange(key, 'flow', flowSel.value);
+        catSel.disabled = flowSel.value !== 'expense';
+      });
+      catSel.addEventListener('change', () => stageChange(key, 'category', catSel.value));
+    });
+    document.querySelectorAll('.tx-check').forEach(c => c.addEventListener('change', updateBulkBar));
+  }
+
+  function selectedKeys() {
+    return [...document.querySelectorAll('.tx-check:checked')].map(c => c.dataset.key);
+  }
+  function updateBulkBar() {
+    const n = selectedKeys().length;
+    document.getElementById('bulk-bar').style.display = n ? 'flex' : 'none';
+    document.getElementById('bulk-count').textContent = `${n} selected`;
+  }
+
+  document.getElementById('bulk-apply').addEventListener('click', () => {
+    const flow = document.getElementById('bulk-flow').value;
+    const cat = document.getElementById('bulk-category').value;
+    if (!flow && !cat) return;
+    selectedKeys().forEach(key => {
+      if (flow) stageChange(key, 'flow', flow);
+      if (cat) stageChange(key, 'category', cat);
+    });
+    applyStagedToState();
+    renderTransactions();
+    updateSaveBtn();
+  });
+
+  function applyStagedToState() {
+    staged.forEach((entry, key) => {
+      const t = origFor(key);
+      if (entry.flow) t.flow = entry.flow;
+      if (entry.category) t.category = entry.category;
+    });
+  }
+
+  document.getElementById('add-category-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-category');
+    const name = input.value.trim();
+    if (!name) return;
+    if (!txState.categories.includes(name)) txState.categories.push(name);
+    if (!txState.custom_categories.includes(name)) txState.custom_categories.push(name);
+    input.value = '';
+    customDirty = true;
+    updateSaveBtn();
+    refreshCategorySelects();
+    showToast(`Added “${name}” — Save changes to keep it`);
+  });
+
+  function removeCustomCategory(name) {
+    txState.custom_categories = txState.custom_categories.filter(c => c !== name);
+    txState.categories = txState.categories.filter(c => c !== name);
+    customDirty = true;
+    updateSaveBtn();
+    refreshCategorySelects();
+    showToast(`Removed “${name}” — Save changes to apply`);
+  }
+
+  function renderCustomChips() {
+    const el = document.getElementById('custom-cat-chips');
+    const customs = txState.custom_categories || [];
+    if (!customs.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<span class="cat-chips-label">Your categories:</span>' +
+      customs.map(c => `<span class="cat-chip">${escapeHtml(c)}<button type="button" data-cat="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}">×</button></span>`).join('');
+    el.querySelectorAll('.cat-chip button').forEach(b =>
+      b.addEventListener('click', () => removeCustomCategory(b.dataset.cat)));
+  }
+
+  function refreshCategorySelects() {
+    document.getElementById('bulk-category').innerHTML =
+      '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
+    renderCustomChips();
+    renderTransactions();
+  }
+
+  document.getElementById('tx-search').addEventListener('input', (e) => {
+    txFilter = e.target.value.trim().toLowerCase();
+    renderTransactions();
+  });
+
+  document.getElementById('tx-save').addEventListener('click', async () => {
+    const btn = document.getElementById('tx-save');
+    const errEl = document.getElementById('tx-error');
+    errEl.style.display = 'none';
+    const stagedKeys = new Set(staged.keys());
+    const rules = savedRules.filter(r => !(r.tx_key && stagedKeys.has(r.tx_key)));
+    staged.forEach((entry, key) => {
+      const rule = { tx_key: key };
+      if (entry.flow) rule.flow = entry.flow;
+      if (entry.category) rule.category = entry.category;
+      rules.push(rule);
+    });
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      await apiFetch('/overrides', {
+        method: 'POST',
+        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
+      });
+      staged.clear();
+      customDirty = false;
+      await load();
+      showToast('Updated your numbers');
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not save changes';
+      errEl.style.display = 'block';
+    } finally {
+      btn.textContent = 'Save changes';
+      updateSaveBtn();
+    }
+  });
+
+  // Coach applied a change from the chat → refresh the list.
+  window.addEventListener('finio:overrides-applied', () => load());
+
+  // Deep link from the dashboard budget card: transactions.html#cat=Groceries
+  function applyHash() {
+    const m = location.hash.match(/#cat=(.+)/);
+    if (!m) return;
+    const cat = decodeURIComponent(m[1]);
+    const grp = document.querySelector(`.tx-group[data-group="${(window.CSS && CSS.escape) ? CSS.escape(cat) : cat}"]`);
+    if (grp) {
+      grp.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      grp.classList.add('flash');
+      setTimeout(() => grp.classList.remove('flash'), 1600);
+    }
+  }
+
+  async function load() {
+    try {
+      const [tx, ov] = await Promise.all([
+        apiFetch('/transactions'),
+        apiFetch('/overrides').catch(() => ({ overrides: [], custom_categories: [] })),
+      ]);
+      txState = {
+        transactions: tx.transactions || [],
+        categories: tx.categories || [],
+        custom_categories: tx.custom_categories || [],
+      };
+      savedRules = ov.overrides || [];
+      staged.clear();
+      originals.clear();
+      customDirty = false;
+      txState.transactions.forEach(t => originals.set(t.key, { flow: t.flow, category: t.category }));
+      updateSaveBtn();
+      refreshCategorySelects();
+      updateBulkBar();
+      loadingEl.style.display = 'none';
+      dataSection.style.display = 'block';
+      applyHash();
+    } catch (err) {
+      loadingEl.style.display = 'none';
+      dataSection.style.display = 'block';
+      if (err.message === 'no_analysis' || err.status === 404) {
+        document.getElementById('tx-list').innerHTML =
+          '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the <a href="dashboard.html">Dashboard</a>.</p>';
+      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
+        showToast(err.message);
+      }
+    }
+  }
+
+  (async () => { try { await requireAuth(); await load(); } catch (_) {} })();
+</script>
+</body>
+</html>

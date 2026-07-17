@@ -7,6 +7,7 @@ from config import (
     FLOW_INCOME,
     FLOW_TRANSFER,
     MIN_INCOME_FOR_RATE,
+    REFUND_KEYWORDS,
     TRANSFER_KEYWORDS,
 )
 
@@ -16,10 +17,18 @@ def _is_transfer(description):
     return any(keyword in text for keyword in TRANSFER_KEYWORDS)
 
 
+def _is_refund(description):
+    text = str(description).upper()
+    return any(keyword in text for keyword in REFUND_KEYWORDS)
+
+
 def _default_flow(row):
     if row["is_transfer"]:
         return FLOW_TRANSFER
-    return FLOW_INCOME if row["amount"] > 0 else FLOW_EXPENSE
+    if row["amount"] > 0:
+        # Money back (refund/reversal) offsets spending; it isn't earnings.
+        return FLOW_EXPENSE if _is_refund(row["description"]) else FLOW_INCOME
+    return FLOW_EXPENSE
 
 
 def tx_key(date, merchant, amount, occ=0):

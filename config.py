@@ -30,7 +30,7 @@ DATE_FORMATS = [
     "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%b %d %Y",  # PDF month-name dates
 ]
 
-# ML categories (categoriser.py) — 7 general buckets
+# ML categories (categoriser.py) — 8 general buckets
 CATEGORIES = [
     "Food & Dining",   # restaurants, delivery, takeaway, cafes
     "Groceries",       # supermarkets, convenience stores
@@ -38,7 +38,8 @@ CATEGORIES = [
     "Subscriptions",   # streaming, gym, phone plans
     "Shopping",        # retail, amazon, electronics, clothes
     "Health",          # pharmacy, medical
-    "Other",           # rent, uncategorised
+    "Housing & Rent",  # rent, real-estate agencies, strata, utilities-adjacent
+    "Other",           # uncategorised
 ]
 
 # "Transfers" is NOT a spend bucket. Money moved between your own accounts or to
@@ -46,6 +47,11 @@ CATEGORIES = [
 # total_income, and the spending breakdown. Kept separate so it never inflates
 # the numbers or the "Other" pile.
 TRANSFERS_LABEL = "Transfers"
+
+# A positive amount that is really money BACK (not earnings). Counted as an
+# expense offset so refunds reduce total_spent instead of inflating income.
+REFUND_KEYWORDS = ["REFUND", "REVERSAL", "CASHBACK", "CASH BACK", "RETURNED PURCHASE"]
+
 TRANSFER_KEYWORDS = [
     "TRANSFER TO", "TRANSFER FROM", "TFR TO", "TFR FROM",
     "PAYID", "OSKO", "PAY ANYONE", "INTERNAL TRANSFER", "INTER-ACCOUNT",
@@ -76,6 +82,13 @@ SUBURB_STOPWORDS = {
 # merchant name wins, so put specific entries before general ones
 # (e.g. "UBER EATS" before "UBER", "AMAZON PRIME" before "AMAZON").
 CATEGORY_RULES = [
+    # Housing first — "RENT" etc. must win before anything generic.
+    ("Housing & Rent", [
+        "RENT", "REAL ESTATE", "REALESTATE", "RAY WHITE", "LJ HOOKER",
+        "MCGRATH", "STRATA", "BOND", "LANDLORD", "PROPERTY MGMT",
+        "PROPERTY MANAGEMENT", "ELECTRICITY", "ENERGY AUSTRALIA", "AGL",
+        "ORIGIN ENERGY", "WATER CORP", "SYDNEY WATER", "COUNCIL RATES",
+    ]),
     ("Food & Dining", [
         "UBER EATS", "UBEREATS", "DOORDASH", "DELIVEROO", "MENULOG", "EASI",
         "MCDONALD", "KFC", "HUNGRY JACK", "NANDOS", "GUZMAN", "ZAMBRERO",
@@ -146,6 +159,10 @@ ETF_OPTIONS = ["VGS", "A200", "NDQ"]
 # included for completeness with a heavy risk caveat, never as a recommendation.
 CRYPTO_OPTIONS = ["BTC", "ETH"]
 
+# Bump when analysis logic changes enough that old stored snapshots would show
+# misleading numbers; the dashboard then prompts the user to hit Re-analyse.
+SNAPSHOT_VERSION = 3
+
 # ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
 OPENAI_MODEL = "gpt-4o-mini"
 # embeddings.py — semantic search (RAG + merchant search). 1536 dims.
@@ -159,6 +176,8 @@ COACH_SYSTEM_PROMPT = (
     "than guessing. Currency is AUD. Keep replies friendly and concise. "
     "Give general information only, never personal financial advice, and never tell "
     "the user to buy or sell a specific investment. "
+    "Write in PLAIN TEXT only: no markdown, no asterisks, no headings, no bullet "
+    "symbols. Short paragraphs and simple sentences. "
     "If can_invest is false, steer toward saving and building a buffer instead of investing. "
     "Never use hyphens in your replies."
 )

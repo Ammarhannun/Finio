@@ -12,6 +12,7 @@
   <a class="nav-logo" href="dashboard.html"><span class="brand">finio</span></a>
   <div class="nav-links">
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
+    <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="coach.html" data-page="coach">AI Coach</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
@@ -82,6 +83,12 @@
         <button id="reanalyze-btn" class="btn btn-outline btn-sm" title="Recompute from your saved data, no re-upload needed">Re-analyse</button>
         <button id="reupload-btn" class="btn btn-outline btn-sm">Upload new statement</button>
       </div>
+    </div>
+
+    <!-- Stale-snapshot nudge -->
+    <div id="stale-banner" class="stale-banner" style="display:none;">
+      <span>These numbers were computed by an older version of Finio's analysis.</span>
+      <button type="button" class="btn btn-primary btn-sm" id="stale-reanalyze">Re-analyse now</button>
     </div>
 
     <!-- Hero summary -->
@@ -175,48 +182,14 @@
       </div><!-- /dash-col right -->
     </div>
 
-    <!-- Transaction editor: see + fix what counted as what -->
-    <div class="card" id="tx-card">
-      <div class="card-head">
-        <div>
-          <div class="section-title">What counted as what</div>
-          <p class="tx-help">
-            This is every transaction and how Finio classified it. Change a flow or
-            category to correct it, or tick a few rows to change them together.
-            Every number updates to match.
-          </p>
-        </div>
+    <!-- Compact link card — the full editor lives on its own Transactions page -->
+    <a class="card tx-link-card" href="transactions.html" id="tx-link-card">
+      <div>
+        <div class="section-title">What counted as what</div>
+        <p class="tx-help" id="tx-summary">Review every transaction and fix anything Finio got wrong.</p>
       </div>
-
-      <div class="tx-toolbar">
-        <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…">
-        <div class="add-category">
-          <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
-          <button type="button" class="btn btn-outline btn-sm" id="add-category-btn">Add</button>
-        </div>
-        <button type="button" class="btn btn-primary btn-sm" id="tx-save" disabled>Save changes</button>
-      </div>
-      <div id="custom-cat-chips" class="cat-chips"></div>
-
-      <div class="bulk-bar" id="bulk-bar" style="display:none;">
-        <span id="bulk-count">0 selected</span>
-        <label>Set flow
-          <select id="bulk-flow">
-            <option value="">—</option>
-            <option value="income">Income</option>
-            <option value="expense">Spending</option>
-            <option value="transfer">Transfer</option>
-          </select>
-        </label>
-        <label>Set category
-          <select id="bulk-category"><option value="">—</option></select>
-        </label>
-        <button type="button" class="btn btn-outline btn-sm" id="bulk-apply">Apply to selected</button>
-      </div>
-
-      <div id="tx-error" class="form-error"></div>
-      <div class="tx-scroll" id="tx-list"></div>
-    </div>
+      <span class="tx-link-arrow">Open transactions →</span>
+    </a>
   </div>
 
   <p class="disclaimer">General information only, not financial advice</p>
@@ -225,10 +198,12 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
-           formatMonthYear, dateRangeLabel, escapeHtml,
+           formatMonthYear, formatDay, dateRangeLabel, escapeHtml,
            getStoredPeriod, setStoredPeriod, periodQuery } from './api.js';
+  import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('dashboard');
+  mountCoachWidget('dashboard');
 
   const loadingEl = document.getElementById('loading');
   const uploadSection = document.getElementById('upload-section');
@@ -262,6 +237,10 @@
 
     const { metrics, budgets, personality } = data;
 
+    // Old snapshot computed by outdated logic → nudge a recompute.
+    document.getElementById('stale-banner').style.display =
+      data.snapshot_stale ? 'flex' : 'none';
+
     if (metrics?.date_range) {
       document.getElementById('date-range').textContent = dateRangeLabel(metrics.date_range);
     }
@@ -290,27 +269,41 @@
       : `In <b>${label}</b> you earned <b>${formatAUD(income)}</b> but spent <b>${formatAUD(spent)}</b>, so you were <b style="color:var(--red)">${formatAUD(Math.abs(saved))}</b> short.`;
 
     // ── Budget bars ──
-    const budgetList = budgets?.budgets || [];
+    // Hide categories with no activity at all; show an honest "no budget yet"
+    // state when there's no limit (first month — nothing to compare against).
+    const budgetList = (budgets?.budgets || []).filter(b =>
+      (b.actual_spend || 0) > 0 || b.suggested_limit != null);
     const barsEl = document.getElementById('budget-bars');
     barsEl.innerHTML = budgetList.length ? budgetList.map(b => {
-      const headroom = b.headroom_pct ?? 0;
-      const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
-      const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
       const cat = escapeHtml(b.category);
+      const hasLimit = b.suggested_limit != null && b.suggested_limit > 0;
+      let bar, footer, amounts;
+      if (hasLimit) {
+        const headroom = b.headroom_pct ?? 0;
+        const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
+        const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
+        bar = `<div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div></div>`;
+        footer = `${headroom.toFixed(0)}% headroom left`;
+        amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}`;
+      } else {
+        bar = `<div class="progress-bar"><div class="progress-fill neutral" style="width:100%"></div></div>`;
+        footer = 'No budget yet — set after your next month';
+        amounts = `${formatAUD(b.actual_spend)}`;
+      }
       return `
         <div class="budget-row" data-category="${cat}" role="button" tabindex="0" title="Edit this category's transactions">
           <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
             <span style="font-weight:500;">${cat} <span class="budget-edit-hint">edit ›</span></span>
-            <span style="color:var(--muted);">${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}</span>
+            <span style="color:var(--muted);">${amounts}</span>
           </div>
-          <div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div></div>
-          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">${headroom.toFixed(0)}% headroom left</div>
+          ${bar}
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">${footer}</div>
         </div>`;
-    }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No budget data available</p>';
+    }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No spending yet this period</p>';
 
-    // Clicking a category jumps to (and flashes) its group in the editor below.
+    // Clicking a category opens its group on the Transactions page.
     barsEl.querySelectorAll('.budget-row').forEach(r => {
-      const go = () => jumpToCategory(r.dataset.category);
+      const go = () => { window.location.href = 'transactions.html#cat=' + encodeURIComponent(r.dataset.category); };
       r.addEventListener('click', go);
       r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     });
@@ -367,7 +360,7 @@
       <div class="anomaly-row">
         <div class="anomaly-info">
           <div class="anomaly-merchant">${escapeHtml(a.merchant)}</div>
-          <div class="anomaly-meta">${escapeHtml(a.category)} · usually ~${formatAUD(a.typical)} · ${formatMonthYear(a.date)}</div>
+          <div class="anomaly-meta">${escapeHtml(a.category)} · usually ~${formatAUD(a.typical)} · ${formatDay(a.date)} ${String(a.date).slice(0, 4)}</div>
         </div>
         <div class="anomaly-amount">${formatAUD(a.amount)}</div>
       </div>`).join('');
@@ -494,283 +487,17 @@
     }
   });
 
-  // ── Transaction editor ──────────────────────────────────────────────────
-  const FLOW_LABEL = { income: 'Income', expense: 'Spending', transfer: 'Transfer' };
-  let txState = { transactions: [], categories: [], custom_categories: [] };
-  let savedRules = [];            // rules already persisted (text + tx_key)
-  const staged = new Map();       // tx_key → { flow?, category? } pending edits
-  const originals = new Map();     // tx_key → { flow, category } as loaded (immutable)
-  let txFilter = '';              // search box text (lowercased)
-  const expandedGroups = new Set(); // groups the user expanded past the row cap
-  const GROUP_CAP = 25;           // rows shown per group before "show all"
-  let customDirty = false;        // unsaved custom-category add/remove
-
-  function updateSaveBtn() {
-    document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
-  }
-
-  function categoryOptions(selected, disabled) {
-    const opts = txState.categories.map(c => {
-      const e = escapeHtml(c);
-      return `<option value="${e}"${c === selected ? ' selected' : ''}>${e}</option>`;
-    }).join('');
-    return `<select class="tx-cat" ${disabled ? 'disabled' : ''}>${opts}</select>`;
-  }
-
-  function flowOptions(selected) {
-    return `<select class="tx-flow">${
-      ['income', 'expense', 'transfer'].map(f =>
-        `<option value="${f}"${f === selected ? ' selected' : ''}>${FLOW_LABEL[f]}</option>`).join('')
-    }</select>`;
-  }
-
-  function rowHtml(t) {
-    const flow = t.flow;
-    const catDisabled = flow !== 'expense';
-    return `
-      <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
-        <input type="checkbox" class="tx-check" data-key="${t.key}">
-        <span class="tx-date">${formatMonthYear(t.date)}</span>
-        <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
-        <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>
-        ${flowOptions(flow)}
-        ${categoryOptions(catDisabled ? '' : t.category, catDisabled)}
-      </div>`;
-  }
-
-  function groupHtml(title, rows, opts = {}) {
-    if (!rows.length) return '';
-    const total = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
-    const t = escapeHtml(title);
-    const expanded = expandedGroups.has(title);
-    const shown = expanded ? rows : rows.slice(0, GROUP_CAP);
-    const more = rows.length - shown.length;
-    const moreBtn = more > 0
-      ? `<button type="button" class="tx-more" data-group="${t}">Show all ${rows.length} ↓</button>`
-      : (expanded && rows.length > GROUP_CAP
-          ? `<button type="button" class="tx-more" data-group="${t}">Show fewer ↑</button>` : '');
-    return `
-      <div class="tx-group${opts.muted ? ' muted' : ''}" data-group="${t}">
-        <div class="tx-group-head">
-          <span>${t}</span>
-          <span class="tx-group-total">${rows.length} · ${formatAUD(total)}</span>
-        </div>
-        ${shown.map(rowHtml).join('')}
-        ${moreBtn}
-      </div>`;
-  }
-
-  // Jump from a budget category to its group in the editor and flash it.
-  function jumpToCategory(cat) {
-    document.getElementById('tx-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const grp = document.querySelector(`.tx-group[data-group="${(window.CSS && CSS.escape) ? CSS.escape(cat) : cat}"]`);
-    if (!grp) { showToast(`No spending rows under “${cat}”`); return; }
-    setTimeout(() => {
-      grp.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      grp.classList.add('flash');
-      setTimeout(() => grp.classList.remove('flash'), 1600);
-    }, 350);
-  }
-
-  function renderTransactions() {
-    const el = document.getElementById('tx-list');
-    const all = txState.transactions;
-    const txs = txFilter
-      ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
-      : all;
-    if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions.</p>'; return; }
-    if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">No transactions match “${escapeHtml(txFilter)}”.</p>`; return; }
-
-    const income = txs.filter(t => t.flow === 'income');
-    const bills = txs.filter(t => t.flow === 'expense' && t.is_bill);
-    const transfers = txs.filter(t => t.flow === 'transfer');
-    const spending = txs.filter(t => t.flow === 'expense' && !t.is_bill);
-
-    // Spending grouped by category
-    const byCat = {};
-    spending.forEach(t => { (byCat[t.category || 'Other'] ||= []).push(t); });
-    const spendingHtml = Object.keys(byCat).sort().map(cat => groupHtml(cat, byCat[cat])).join('');
-
-    el.innerHTML =
-      groupHtml('Income', income) +
-      groupHtml('Bills', bills) +
-      spendingHtml +
-      groupHtml('Transfers (ignored)', transfers, { muted: true });
-
-    el.querySelectorAll('.tx-more').forEach(b => b.addEventListener('click', () => {
-      const g = b.dataset.group;
-      if (expandedGroups.has(g)) expandedGroups.delete(g); else expandedGroups.add(g);
-      renderTransactions();
-    }));
-    wireRows();
-  }
-
-  function origFor(key) {
-    return txState.transactions.find(t => t.key === key) || {};
-  }
-
-  function stageChange(key, field, value) {
-    const o = originals.get(key) || {};
-    const entry = staged.get(key) || {};
-    // Only keep a field in the rule if it differs from the original classification.
-    const origVal = field === 'flow' ? o.flow : (o.category || '');
-    if (value === origVal) { delete entry[field]; } else { entry[field] = value; }
-    if (Object.keys(entry).length) staged.set(key, entry); else staged.delete(key);
-    updateSaveBtn();
-    const row = document.querySelector(`.tx-row[data-key="${key}"]`);
-    if (row) row.classList.toggle('edited', staged.has(key));
-  }
-
-  function wireRows() {
-    document.querySelectorAll('.tx-row').forEach(row => {
-      const key = row.dataset.key;
-      const flowSel = row.querySelector('.tx-flow');
-      const catSel = row.querySelector('.tx-cat');
-      flowSel.addEventListener('change', () => {
-        stageChange(key, 'flow', flowSel.value);
-        catSel.disabled = flowSel.value !== 'expense';
-      });
-      catSel.addEventListener('change', () => stageChange(key, 'category', catSel.value));
-    });
-    document.querySelectorAll('.tx-check').forEach(c =>
-      c.addEventListener('change', updateBulkBar));
-  }
-
-  function selectedKeys() {
-    return [...document.querySelectorAll('.tx-check:checked')].map(c => c.dataset.key);
-  }
-  function updateBulkBar() {
-    const n = selectedKeys().length;
-    const bar = document.getElementById('bulk-bar');
-    bar.style.display = n ? 'flex' : 'none';
-    document.getElementById('bulk-count').textContent = `${n} selected`;
-  }
-
-  document.getElementById('bulk-apply').addEventListener('click', () => {
-    const flow = document.getElementById('bulk-flow').value;
-    const cat = document.getElementById('bulk-category').value;
-    if (!flow && !cat) return;
-    selectedKeys().forEach(key => {
-      if (flow) stageChange(key, 'flow', flow);
-      if (cat) stageChange(key, 'category', cat);
-    });
-    // Re-render to reflect the staged values in the row selects.
-    applyStagedToState();
-    renderTransactions();
-    updateSaveBtn();
-  });
-
-  // Reflect staged edits onto the in-memory rows so re-render shows them.
-  function applyStagedToState() {
-    staged.forEach((entry, key) => {
-      const t = origFor(key);
-      if (entry.flow) t.flow = entry.flow;
-      if (entry.category) t.category = entry.category;
-    });
-  }
-
-  // Add a custom category
-  document.getElementById('add-category-btn').addEventListener('click', () => {
-    const input = document.getElementById('new-category');
-    const name = input.value.trim();
-    if (!name) return;
-    if (!txState.categories.includes(name)) txState.categories.push(name);
-    if (!txState.custom_categories.includes(name)) txState.custom_categories.push(name);
-    input.value = '';
-    customDirty = true;
-    updateSaveBtn();
-    refreshCategorySelects();
-    showToast(`Added “${name}” — Save changes to keep it`);
-  });
-
-  function removeCustomCategory(name) {
-    txState.custom_categories = txState.custom_categories.filter(c => c !== name);
-    txState.categories = txState.categories.filter(c => c !== name);
-    customDirty = true;
-    updateSaveBtn();
-    refreshCategorySelects();
-    showToast(`Removed “${name}” — Save changes to apply`);
-  }
-
-  function renderCustomChips() {
-    const el = document.getElementById('custom-cat-chips');
-    const customs = txState.custom_categories || [];
-    if (!customs.length) { el.innerHTML = ''; return; }
-    el.innerHTML = '<span class="cat-chips-label">Your categories:</span>' +
-      customs.map(c => `<span class="cat-chip">${escapeHtml(c)}<button type="button" data-cat="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}">×</button></span>`).join('');
-    el.querySelectorAll('.cat-chip button').forEach(b =>
-      b.addEventListener('click', () => removeCustomCategory(b.dataset.cat)));
-  }
-
-  function refreshCategorySelects() {
-    document.getElementById('bulk-category').innerHTML =
-      '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
-    renderCustomChips();
-    renderTransactions();
-  }
-
-  // Search filter
-  document.getElementById('tx-search').addEventListener('input', (e) => {
-    txFilter = e.target.value.trim().toLowerCase();
-    renderTransactions();
-  });
-
-  // Save all staged edits as override rules (plus any new custom categories)
-  document.getElementById('tx-save').addEventListener('click', async () => {
-    const btn = document.getElementById('tx-save');
-    const errEl = document.getElementById('tx-error');
-    errEl.style.display = 'none';
-
-    // Keep existing rules that aren't being superseded by a new single-row edit.
-    const stagedKeys = new Set(staged.keys());
-    const rules = savedRules.filter(r => !(r.tx_key && stagedKeys.has(r.tx_key)));
-    staged.forEach((entry, key) => {
-      const rule = { tx_key: key };
-      if (entry.flow) rule.flow = entry.flow;
-      if (entry.category) rule.category = entry.category;
-      rules.push(rule);
-    });
-
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-    try {
-      await apiFetch('/overrides', {
-        method: 'POST',
-        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
-      });
-      staged.clear();
-      customDirty = false;
-      await loadPeriod();   // re-render current window + reload editor
-      showToast('Updated your numbers');
-    } catch (err) {
-      errEl.textContent = err.message || 'Could not save changes';
-      errEl.style.display = 'block';
-    } finally {
-      btn.textContent = 'Save changes';
-      updateSaveBtn();
-    }
-  });
-
+  // ── Transactions summary (full editor lives on transactions.html) ──
   async function loadTransactions() {
     try {
-      const [tx, ov] = await Promise.all([
-        apiFetch('/transactions'),
-        apiFetch('/overrides').catch(() => ({ overrides: [], custom_categories: [] })),
-      ]);
-      txState = {
-        transactions: tx.transactions || [],
-        categories: tx.categories || [],
-        custom_categories: tx.custom_categories || [],
-      };
-      savedRules = ov.overrides || [];
-      staged.clear();
-      originals.clear();
-      customDirty = false;
-      txState.transactions.forEach(t => originals.set(t.key, { flow: t.flow, category: t.category }));
-      updateSaveBtn();
-      refreshCategorySelects();
-      updateBulkBar();
-    } catch (_) { /* no snapshot yet */ }
+      const tx = await apiFetch('/transactions');
+      const txs = tx.transactions || [];
+      const fixedByUser = (await apiFetch('/overrides').catch(() => ({ overrides: [] }))).overrides.length;
+      const el = document.getElementById('tx-summary');
+      el.textContent = `${txs.length} transactions this statement`
+        + (fixedByUser ? ` · ${fixedByUser} rule${fixedByUser === 1 ? '' : 's'} you set` : '')
+        + '. Review anything Finio got wrong.';
+    } catch (_) { /* no data yet */ }
   }
 
   // ── Upload form ──
@@ -805,6 +532,9 @@
   });
 
   document.getElementById('reupload-btn').addEventListener('click', showUpload);
+
+  document.getElementById('stale-reanalyze').addEventListener('click', () =>
+    document.getElementById('reanalyze-btn').click());
 
   document.getElementById('reanalyze-btn').addEventListener('click', async () => {
     const btn = document.getElementById('reanalyze-btn');
