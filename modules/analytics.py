@@ -8,8 +8,10 @@ def category_breakdown(df):
     else:
         expenses = df[df["amount"] < 0].copy()
     expenses = expenses[expenses["category"] != TRANSFERS_LABEL]
-    expenses["amount_abs"] = expenses["amount"].abs()
+    # Negate, don't abs(): refunds (positive expenses) offset their category.
+    expenses["amount_abs"] = -expenses["amount"]
     totals = expenses.groupby("category")["amount_abs"].sum()
+    totals = totals[totals > 0]
     total_spent = totals.sum()
     breakdown = []
     for category, amount in totals.sort_values(ascending=False).items():

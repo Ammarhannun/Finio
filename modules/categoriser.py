@@ -97,8 +97,12 @@ def categorise_data(df, user_examples=None):
     if "is_transfer" in df.columns:
         df.loc[df["is_transfer"], "category"] = TRANSFERS_LABEL
 
-    # Only genuine expenses (negative, non-transfer) need a spend category.
-    expense_mask = (df["amount"] < 0) & (df["category"].isna())
+    # Only genuine expenses need a spend category. Use flow when present so
+    # refunds (positive-amount expenses) get categorised too; fall back to sign.
+    if "flow" in df.columns:
+        expense_mask = (df["flow"] == "expense") & (df["category"].isna())
+    else:
+        expense_mask = (df["amount"] < 0) & (df["category"].isna())
     if not expense_mask.any():
         return df
 

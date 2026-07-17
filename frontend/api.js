@@ -174,6 +174,16 @@ export function formatMonthYear(value) {
   return s;
 }
 
+// Row-level date: "2 Jan" (day matters when listing transactions).
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+export function formatDay(value) {
+  if (!value) return '';
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${parseInt(m[3], 10)} ${MONTHS_SHORT[parseInt(m[2], 10) - 1]}`;
+  const d = new Date(value);
+  return isNaN(d) ? String(value) : `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+}
+
 // Human label for a date range, in Month Year only.
 export function dateRangeLabel(dr) {
   if (!dr?.start) return '';

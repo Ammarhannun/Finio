@@ -23,18 +23,7 @@ def forecast_spending(df, metrics):
     if exp.empty:
         return out
 
-    monthly = exp.set_index("date")["amount"].abs().resample("MS").sum()
-    if not len(monthly):
-        return out
-    avg = float(monthly.mean())
-    recent = float(monthly.tail(3).mean())        # last 3 months ≈ current habits
-    out["avg_monthly_spend"] = round(avg, 2)
-    out["projected_next_month"] = round(recent, 2)
-    if len(monthly) >= 2:
-        prior = float(monthly.iloc[:-1].mean())
-        out["trend"] = "up" if monthly.iloc[-1] > prior else "down"
-
-    # Runway: how long the real balance lasts at the current daily burn.
+    # Runway (balance / daily burn) is meaningful even with little history.
     balance = (metrics or {}).get("latest_balance")
     burn = (metrics or {}).get("daily_burn_rate") or 0
     if balance is not None and burn > 0:
@@ -42,13 +31,47 @@ def forecast_spending(df, metrics):
         out["runway_days"] = runway
         last_date = exp["date"].max()
         out["run_short_date"] = (last_date + pd.Timedelta(days=runway)).strftime("%Y-%m-%d")
+
+    monthly = exp.set_index("date")["amount"].abs().resample("MS").sum()
+    monthly = _complete_months(monthly, exp["date"])
+    # One (possibly partial) month is not a trend — don't project from it.
+    if len(monthly) < 2:
+        return out
+    avg = float(monthly.mean())
+    recent = float(monthly.tail(3).mean())        # last 3 months ≈ current habits
+    out["avg_monthly_spend"] = round(avg, 2)
+    out["projected_next_month"] = round(recent, 2)
+    prior = float(monthly.iloc[:-1].mean())
+    out["trend"] = "up" if monthly.iloc[-1] > prior else "down"
     return out
 
 
+def _complete_months(series_by_month, dates):
+    """Drop incomplete EDGE months from a monthly resample.
+
+    A statement rarely starts on the 1st or ends on the 31st; counting a half
+    month as a whole one drags every average (goal recs, forecasts). The first
+    month is kept only if the data starts on day 1; the last only if the data
+    runs to that month's final day. Falls back to everything when nothing whole
+    survives (better a rough number than none).
+    """
+    if not len(series_by_month):
+        return series_by_month
+    keep = series_by_month
+    first_day = dates.min()
+    last_day = dates.max()
+    if first_day.day != 1:
+        keep = keep.iloc[1:]
+    if len(keep) and last_day != (last_day + pd.offsets.MonthEnd(0)):
+        keep = keep.iloc[:-1]
+    return keep if len(keep) else series_by_month
+
+
 def monthly_net_average(df):
-    """Average NET savings per calendar month (income minus spend, transfers
-    excluded). Resampling by month means one big payday or a single lean month
-    no longer skews the figure, so it's a realistic 'what you save per month'.
+    """Average NET savings per COMPLETE calendar month (income minus spend,
+    transfers excluded). Resampling by month means one big payday or a lean
+    month doesn't skew it, and dropping partial edge months stops a half month
+    being counted as a whole one.
     """
     df = df.copy()
     if "is_transfer" in df.columns:
@@ -57,6 +80,7 @@ def monthly_net_average(df):
         return 0.0
     df["date"] = pd.to_datetime(df["date"])
     monthly = df.set_index("date")["amount"].resample("MS").sum()
+    monthly = _complete_months(monthly, df["date"])
     return float(monthly.mean()) if len(monthly) else 0.0
 
 

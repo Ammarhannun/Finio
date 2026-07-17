@@ -17,9 +17,12 @@ from config import CATEGORIES, DISCLAIMER, FLOW_EXPENSE
 
 
 def _spend_by_category(rows):
+    # Negate rather than abs(): expenses are negative (→ positive spend) and
+    # refunds are positive (→ they REDUCE the category's spend, not inflate it).
     rows = rows.copy()
-    rows["amount_abs"] = rows["amount"].abs()
-    return rows.groupby("category")["amount_abs"].sum().to_dict()
+    rows["spend"] = -rows["amount"]
+    out = rows.groupby("category")["spend"].sum()
+    return out[out > 0].to_dict()
 
 
 def suggest_budgets(df, metrics, targets=None, baseline=None):

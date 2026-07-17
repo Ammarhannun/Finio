@@ -34,8 +34,10 @@ def _category_spend(df):
     expenses = df[df["flow"] == FLOW_EXPENSE].copy()
     if expenses.empty:
         return {}
-    expenses["amount_abs"] = expenses["amount"].abs()
-    return expenses.groupby("category")["amount_abs"].sum().to_dict()
+    # Negate, don't abs(): refunds (positive expenses) offset their category.
+    expenses["spend"] = -expenses["amount"]
+    out = expenses.groupby("category")["spend"].sum()
+    return out[out > 0].to_dict()
 
 
 def _records(df):

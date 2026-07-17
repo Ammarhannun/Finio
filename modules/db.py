@@ -357,7 +357,15 @@ def load_dashboard(client, user_id):
         "goal_recommendation": summary.get("goal_recommendation"),
         "streak": streak,
         "goal": goal,
+        # True when the stored snapshot was computed by older analysis logic —
+        # the frontend nudges the user to hit Re-analyse.
+        "snapshot_stale": (summary.get("snapshot_version") or 0) < _snapshot_version(),
     }
+
+
+def _snapshot_version():
+    from config import SNAPSHOT_VERSION
+    return SNAPSHOT_VERSION
 
 
 def persist_analysis(
@@ -407,6 +415,8 @@ def persist_analysis(
         summary_json["overrides"] = overrides
     if custom_categories is not None:
         summary_json["custom_categories"] = custom_categories
+    from config import SNAPSHOT_VERSION
+    summary_json["snapshot_version"] = SNAPSHOT_VERSION
     save_snapshot(client, user_id, month_date, summary_json)
 
     existing = get_streak(client, user_id)
@@ -439,6 +449,27 @@ def get_overrides(client, user_id):
     return []
 
 
+def get_cached_insight(client, user_id):
+    """The stored AI insight for the current snapshot (None if not generated)."""
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("insight")
+    return None
+
+
+def save_cached_insight(client, user_id, insight):
+    """Cache the AI insight inside the snapshot so it's ONE LLM call per
+    analysis, not one per dashboard load."""
+    row = get_latest_snapshot(client, user_id)
+    if not row:
+        return
+    summary = row.get("summary_json") or {}
+    summary["insight"] = insight
+    month = row["month"]
+    month_date = f"{month}-01" if len(str(month)) == 7 else month
+    save_snapshot(client, user_id, month_date, summary)
+
+
 def get_custom_categories(client, user_id):
     """The user's own categories, stored in the snapshot JSON (no extra table)."""
     row = get_latest_snapshot(client, user_id)
@@ -469,6 +500,11 @@ def save_overrides(client, user_id, overrides, resliced, custom_categories=None)
         return
     summary = row.get("summary_json") or {}
     summary["overrides"] = overrides
+    # Numbers changed → the cached AI insight no longer matches; regenerate lazily.
+    summary.pop("insight", None)
+    # A recompute brings the snapshot up to current logic.
+    from config import SNAPSHOT_VERSION
+    summary["snapshot_version"] = SNAPSHOT_VERSION
     if custom_categories is not None:
         summary["custom_categories"] = custom_categories
     for key in (

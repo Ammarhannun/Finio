@@ -136,6 +136,26 @@ COACH_TOOLS = [
         },
     }},
     {"type": "function", "function": {
+        "name": "propose_reclassification",
+        "description": (
+            "Propose changing how transactions are counted when the user asks "
+            "(e.g. 'count PAYID LAITH as income', 'make all Uber Eats takeaway'). "
+            "Matches every transaction whose description contains `match`. The "
+            "change is NOT applied directly — the user sees it as a card and "
+            "confirms with one click. Use `category` for spend categories, "
+            "`flow` for income/expense/transfer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "match": {"type": "string", "description": "text to match in the merchant/description"},
+                "category": {"type": "string"},
+                "flow": {"type": "string", "enum": ["income", "expense", "transfer"]},
+            },
+            "required": ["match"],
+        },
+    }},
+    {"type": "function", "function": {
         "name": "lookup_concept",
         "description": (
             "Look up a personal-finance concept (ETFs, superannuation, HECS, "
@@ -204,6 +224,18 @@ def run_tool(name, args, transactions, context):
         hits = search(args.get("query", ""), k=2)
         return {"results": [{"title": h["title"], "text": h["text"]} for h in hits]}
 
+    if name == "propose_reclassification":
+        match = str(args.get("match", "")).strip()
+        category = (args.get("category") or "").strip() or None
+        flow = args.get("flow") if args.get("flow") in ("income", "expense", "transfer") else None
+        if not match or not (category or flow):
+            return {"ok": False, "error": "need match plus a category or flow"}
+        affected = [r for r in (transactions or []) if match.lower() in str(r.get("merchant", "")).lower()]
+        proposal = {"match": match, "category": category, "flow": flow,
+                    "affected_count": len(affected)}
+        return {"ok": True, "proposal": proposal,
+                "note": "Proposed to the user for one-click confirmation — do not claim it is applied yet."}
+
     return {"error": f"unknown tool {name}"}
 
 
@@ -246,7 +278,13 @@ def fallback_coach_response(user_message, context, transactions=None):
         from modules.rag import search
         hits = search(user_message, k=1)
         if hits:
-            return f"{hits[0]['text']}\n\nSource: {hits[0]['title']}. {DISCLAIMER}"
+            # Chat-sized answer: drop the markdown heading, keep the first
+            # paragraph or two, and cite the source.
+            paras = [p.strip() for p in hits[0]["text"].split("\n\n")
+                     if p.strip() and not p.strip().startswith("#")]
+            summary = " ".join(paras[:2])
+            return (f"{summary}\n\nSource: {hits[0]['title']}. "
+                    f"Ask me to go deeper if you want more. {DISCLAIMER}")
         text = " ".join(context.get("patterns", [])[:2]) or \
             "Ask me about your spending, a category (e.g. coffee), saving, a purchase, or a concept like ETFs or super."
 
@@ -313,6 +351,7 @@ def coach_chat(user_message, context, history=None, transactions=None):
         {"role": "user", "content": user_message}
     ]
 
+    proposals = []
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             response = client.chat.completions.create(
@@ -326,7 +365,8 @@ def coach_chat(user_message, context, history=None, transactions=None):
                 text = msg.content or ""
                 if DISCLAIMER not in text:
                     text = f"{text} {DISCLAIMER}"
-                return {"text": text, "source": "openai", "disclaimer": DISCLAIMER}
+                return {"text": text, "source": "openai", "disclaimer": DISCLAIMER,
+                        "proposed_actions": proposals}
 
             messages.append({
                 "role": "assistant",
@@ -343,6 +383,8 @@ def coach_chat(user_message, context, history=None, transactions=None):
                 except json.JSONDecodeError:
                     args = {}
                 result = run_tool(tc.function.name, args, transactions, context)
+                if tc.function.name == "propose_reclassification" and result.get("ok"):
+                    proposals.append(result["proposal"])
                 messages.append({
                     "role": "tool", "tool_call_id": tc.id,
                     "content": json.dumps(result, default=str),
