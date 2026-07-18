@@ -40,6 +40,9 @@
 
     <div class="card" id="tx-card">
       <div class="tx-toolbar">
+        <label class="select-all-label" title="Select every transaction shown (respects your search)">
+          <input type="checkbox" id="select-all"> Select all
+        </label>
         <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…">
         <div class="add-category">
           <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
@@ -94,6 +97,16 @@
   const expandedGroups = new Set();
   const GROUP_CAP = 25;
   let customDirty = false;
+  // Selection lives in state (not just the DOM) so it survives re-renders
+  // (expanding a group, select-all, etc.).
+  const selected = new Set();
+
+  function visibleTxs() {
+    const all = txState.transactions;
+    return txFilter
+      ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
+      : all;
+  }
 
   function updateSaveBtn() {
     document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
@@ -121,7 +134,7 @@
     const catDisabled = t.flow !== 'expense';
     return `
       <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
-        <input type="checkbox" class="tx-check" data-key="${t.key}">
+        <input type="checkbox" class="tx-check" data-key="${t.key}"${selected.has(t.key) ? ' checked' : ''}>
         <span class="tx-date">${formatDay(t.date)}</span>
         <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
         <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>
@@ -130,8 +143,11 @@
       </div>`;
   }
 
+  let groupRows = {};   // group title -> rows, rebuilt each render (for group select)
+
   function groupHtml(title, rows, opts = {}) {
     if (!rows.length) return '';
+    groupRows[title] = rows;
     const total = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
     const t = escapeHtml(title);
     const expanded = expandedGroups.has(title);
@@ -141,10 +157,15 @@
       ? `<button type="button" class="tx-more" data-group="${t}">Show all ${rows.length} ↓</button>`
       : (expanded && rows.length > GROUP_CAP
           ? `<button type="button" class="tx-more" data-group="${t}">Show fewer ↑</button>` : '');
+    const allInGroup = rows.every(r => selected.has(r.key));
     return `
       <div class="tx-group${opts.muted ? ' muted' : ''}" data-group="${t}">
         <div class="tx-group-head">
-          <span>${t}</span>
+          <span class="tx-group-left">
+            <input type="checkbox" class="tx-group-check" data-group="${t}"
+                   title="Select all in ${t}"${allInGroup && rows.length ? ' checked' : ''}>
+            ${t}
+          </span>
           <span class="tx-group-total">${rows.length} · ${formatAUD(total)}</span>
         </div>
         ${shown.map(rowHtml).join('')}
@@ -155,9 +176,8 @@
   function renderTransactions() {
     const el = document.getElementById('tx-list');
     const all = txState.transactions;
-    const txs = txFilter
-      ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
-      : all;
+    groupRows = {};
+    const txs = visibleTxs();
     if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the Dashboard.</p>'; return; }
     if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">No transactions match “${escapeHtml(txFilter)}”.</p>`; return; }
 
@@ -180,6 +200,14 @@
       const g = b.dataset.group;
       if (expandedGroups.has(g)) expandedGroups.delete(g); else expandedGroups.add(g);
       renderTransactions();
+    }));
+
+    // Whole-group select: tick a category/income/bills header checkbox.
+    el.querySelectorAll('.tx-group-check').forEach(c => c.addEventListener('change', () => {
+      const rows = groupRows[c.dataset.group] || [];
+      rows.forEach(r => c.checked ? selected.add(r.key) : selected.delete(r.key));
+      renderTransactions();
+      updateBulkBar();
     }));
     wireRows();
   }
@@ -208,17 +236,33 @@
       });
       catSel.addEventListener('change', () => stageChange(key, 'category', catSel.value));
     });
-    document.querySelectorAll('.tx-check').forEach(c => c.addEventListener('change', updateBulkBar));
+    document.querySelectorAll('.tx-check').forEach(c => c.addEventListener('change', () => {
+      if (c.checked) selected.add(c.dataset.key); else selected.delete(c.dataset.key);
+      updateBulkBar();
+    }));
   }
 
   function selectedKeys() {
-    return [...document.querySelectorAll('.tx-check:checked')].map(c => c.dataset.key);
+    return [...selected];
   }
   function updateBulkBar() {
-    const n = selectedKeys().length;
+    const n = selected.size;
     document.getElementById('bulk-bar').style.display = n ? 'flex' : 'none';
     document.getElementById('bulk-count').textContent = `${n} selected`;
+    // Keep the toolbar Select-all box honest: checked only when every visible
+    // transaction is selected.
+    const vis = visibleTxs();
+    const box = document.getElementById('select-all');
+    box.checked = vis.length > 0 && vis.every(t => selected.has(t.key));
   }
+
+  // Toolbar Select all: every transaction currently shown (respects search).
+  document.getElementById('select-all').addEventListener('change', (e) => {
+    const vis = visibleTxs();
+    vis.forEach(t => e.target.checked ? selected.add(t.key) : selected.delete(t.key));
+    renderTransactions();
+    updateBulkBar();
+  });
 
   document.getElementById('bulk-apply').addEventListener('click', () => {
     const flow = document.getElementById('bulk-flow').value;
@@ -282,7 +326,9 @@
 
   document.getElementById('tx-search').addEventListener('input', (e) => {
     txFilter = e.target.value.trim().toLowerCase();
+    selected.clear();          // new search = fresh selection, no hidden leftovers
     renderTransactions();
+    updateBulkBar();
   });
 
   document.getElementById('tx-save').addEventListener('click', async () => {
@@ -347,6 +393,7 @@
       savedRules = ov.overrides || [];
       staged.clear();
       originals.clear();
+      selected.clear();
       customDirty = false;
       txState.transactions.forEach(t => originals.set(t.key, { flow: t.flow, category: t.category }));
       updateSaveBtn();
