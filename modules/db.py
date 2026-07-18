@@ -429,6 +429,8 @@ def persist_analysis(
         summary_json["overrides"] = overrides
     if custom_categories is not None:
         summary_json["custom_categories"] = custom_categories
+    summary_json["llm_categories"] = result.get("llm_categories", {})
+    summary_json["pending_questions"] = result.get("pending_questions", [])
     from config import SNAPSHOT_VERSION
     summary_json["snapshot_version"] = SNAPSHOT_VERSION
     save_snapshot(client, user_id, month_date, summary_json)
@@ -490,6 +492,36 @@ def get_custom_categories(client, user_id):
     if row:
         return (row.get("summary_json") or {}).get("custom_categories", [])
     return []
+
+
+def get_llm_categories(client, user_id):
+    """Cached LLM merchant classifications (merchant -> {category, confidence})."""
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("llm_categories", {})
+    return {}
+
+
+def get_pending_questions(client, user_id):
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("pending_questions", [])
+    return []
+
+
+def remove_pending_question(client, user_id, merchant):
+    """Drop one quiz question (answered or skipped) from the snapshot."""
+    row = get_latest_snapshot(client, user_id)
+    if not row:
+        return []
+    summary = row.get("summary_json") or {}
+    remaining = [q for q in summary.get("pending_questions", [])
+                 if q.get("merchant", "").strip().upper() != merchant.strip().upper()]
+    summary["pending_questions"] = remaining
+    month = row["month"]
+    month_date = f"{month}-01" if len(str(month)) == 7 else month
+    save_snapshot(client, user_id, month_date, summary)
+    return remaining
 
 
 def save_custom_categories(client, user_id, custom_categories):

@@ -41,6 +41,15 @@ class ProfileRequest(BaseModel):
     custom_categories: Optional[List[str]] = None
 
 
+class QuizRequest(BaseModel):
+    """One quiz answer: categorise/flow a merchant, or skip the question."""
+
+    merchant: str = Field(..., min_length=1, max_length=200)
+    category: Optional[str] = Field(None, max_length=60)
+    flow: Optional[Literal["income", "expense", "transfer"]] = None
+    skip: bool = False
+
+
 class OverrideRule(BaseModel):
     """Reclassify transactions. A rule targets either one transaction by
     `tx_key` (precise, single-row / multi-select edits) or every transaction

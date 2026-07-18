@@ -38,6 +38,19 @@
       </p>
     </div>
 
+    <!-- Finio's quick questions — only shows when it's genuinely unsure -->
+    <div class="card quiz-card" id="quiz-card" style="display:none;">
+      <div class="quiz-head">
+        <span class="section-title">✦ Finio has <span id="quiz-total">0</span> quick questions</span>
+        <span class="quiz-progress" id="quiz-progress"></span>
+      </div>
+      <div class="quiz-body">
+        <div class="quiz-merchant" id="quiz-merchant"></div>
+        <div class="quiz-meta" id="quiz-meta"></div>
+        <div class="quiz-actions" id="quiz-actions"></div>
+      </div>
+    </div>
+
     <div class="card" id="tx-card">
       <div class="tx-toolbar">
         <label class="select-all-label" title="Select every transaction shown (respects your search)">
@@ -363,6 +376,61 @@
     }
   });
 
+  // ── Finio's quick questions (categorisation quiz) ──
+  let quizQuestions = [];
+  let quizAnswered = 0;
+
+  function renderQuiz() {
+    const card = document.getElementById('quiz-card');
+    if (!quizQuestions.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const q = quizQuestions[0];
+    const totalN = quizAnswered + quizQuestions.length;
+    document.getElementById('quiz-total').textContent = totalN;
+    document.getElementById('quiz-progress').textContent =
+      `${quizAnswered + 1} of ${totalN}`;
+    document.getElementById('quiz-merchant').textContent = q.merchant;
+    document.getElementById('quiz-meta').textContent =
+      `appears ${q.count}× · ${formatAUD(q.total)} total — what is this?`;
+
+    const actions = document.getElementById('quiz-actions');
+    const catOpts = txState.categories.map(c => {
+      const e = escapeHtml(c);
+      const sel = q.suggested === c ? ' selected' : '';
+      return `<option value="${e}"${sel}>${e}</option>`;
+    }).join('');
+    actions.innerHTML = `
+      ${q.suggested ? `<button class="btn btn-primary btn-sm" data-act="suggested">${escapeHtml(q.suggested)} ✓</button>` : ''}
+      <span class="quiz-pick">
+        <select id="quiz-cat">${catOpts}</select>
+        <button class="btn btn-outline btn-sm" data-act="category">Set category</button>
+      </span>
+      <button class="btn btn-outline btn-sm" data-act="income">It's income</button>
+      <button class="btn btn-outline btn-sm" data-act="transfer">It's a transfer</button>
+      <button class="link-btn" data-act="skip">Skip</button>`;
+
+    actions.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+      const act = b.dataset.act;
+      const body = { merchant: q.merchant };
+      if (act === 'suggested') body.category = q.suggested;
+      else if (act === 'category') body.category = document.getElementById('quiz-cat').value;
+      else if (act === 'income') body.flow = 'income';
+      else if (act === 'transfer') body.flow = 'transfer';
+      else body.skip = true;
+      actions.querySelectorAll('button').forEach(x => x.disabled = true);
+      try {
+        await apiFetch('/quiz', { method: 'POST', body: JSON.stringify(body) });
+        quizAnswered += 1;
+        if (!body.skip) showToast(`Got it — “${q.merchant}” sorted`);
+        await load();   // numbers + list + remaining questions all refresh
+        window.dispatchEvent(new CustomEvent('finio:quiz-answered'));
+      } catch (err) {
+        showToast(err.message || 'Could not save that answer');
+        renderQuiz();
+      }
+    }));
+  }
+
   // Coach applied a change from the chat → refresh the list.
   window.addEventListener('finio:overrides-applied', () => load());
 
@@ -390,6 +458,8 @@
         categories: tx.categories || [],
         custom_categories: tx.custom_categories || [],
       };
+      quizQuestions = tx.pending_questions || [];
+      renderQuiz();
       savedRules = ov.overrides || [];
       staged.clear();
       originals.clear();
