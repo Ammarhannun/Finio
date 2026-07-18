@@ -78,6 +78,18 @@ def get_client(access_token=None):
     return client
 
 
+def get_admin_client():
+    """Client using the SERVICE ROLE key (bypasses RLS). Server-side admin
+    tasks only — e.g. indexing the global knowledge base. Never expose this
+    key to the browser. Returns None when the key isn't configured."""
+    from supabase import create_client
+
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not key:
+        return None
+    return create_client(os.environ["SUPABASE_URL"], key)
+
+
 def get_user(access_token):
     client = get_client()
     try:
