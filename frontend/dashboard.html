@@ -6,6 +6,7 @@
   <title>Finio · Dashboard</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <nav>
@@ -14,7 +15,6 @@
     <a href="dashboard.html" data-page="dashboard">Dashboard</a>
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
-    <a href="coach.html" data-page="coach">AI Coach</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
     <a href="invest.html" data-page="invest">Invest</a>
   </div>
@@ -50,8 +50,8 @@
           <input type="file" id="csv-file" accept=".csv,.pdf" required>
         </div>
         <p style="color:var(--muted);font-size:0.8125rem;margin:-0.25rem 0 1rem;">
-          Upload your whole statement. You can switch between monthly, weekly and
-          daily views on the dashboard afterwards.
+          Upload your whole statement — Finio works out what you usually earn,
+          spend and save.
         </p>
         <div id="upload-error" class="form-error"></div>
         <button type="submit" class="btn btn-primary btn-full" id="upload-btn">
@@ -69,16 +69,11 @@
         <p id="date-range" class="dash-sub"></p>
       </div>
       <div class="dash-controls">
-        <div class="period-control" id="period-control">
-          <div class="segmented" id="period-segments">
-            <button type="button" data-period="monthly">Month</button>
-            <button type="button" data-period="weekly">Week</button>
-            <button type="button" data-period="daily">Day</button>
-            <button type="button" data-period="all">All</button>
-          </div>
-          <select id="month-select" class="month-select" aria-label="Specific month">
-            <option value="">Jump to month…</option>
-          </select>
+        <div class="segmented" id="period-segments" title="Show your usual spending per day / week / month, or everything">
+          <button type="button" data-period="daily">Day</button>
+          <button type="button" data-period="weekly">Week</button>
+          <button type="button" data-period="monthly">Month</button>
+          <button type="button" data-period="all">All</button>
         </div>
         <button id="reanalyze-btn" class="btn btn-outline btn-sm" title="Recompute from your saved data, no re-upload needed">Re-analyse</button>
         <button id="reupload-btn" class="btn btn-outline btn-sm">Upload new statement</button>
@@ -91,39 +86,50 @@
       <button type="button" class="btn btn-primary btn-sm" id="stale-reanalyze">Re-analyse now</button>
     </div>
 
-    <!-- Hero summary -->
-    <p id="hero-summary" class="hero-summary"></p>
-    <p id="spend-outlook" class="spend-outlook" style="display:none;"></p>
-
-    <!-- AI insight (LLM when a key is set, template otherwise) -->
+    <!-- AI insight -->
     <div id="insight-card" class="insight-card" style="display:none;">
       <span class="insight-icon">✦</span>
       <p id="insight-text"></p>
     </div>
 
-    <!-- Metric cards -->
+    <!-- Metric cards: "what you usually do with money" in the chosen span -->
     <div class="cards-row">
       <div class="card metric-card">
-        <div class="label">Income</div>
+        <div class="label" id="l-income">Income</div>
         <div class="value" id="m-income">—</div>
-        <div class="sub">total received</div>
+        <div class="sub" id="s-income">—</div>
       </div>
       <div class="card metric-card">
-        <div class="label">Spent</div>
+        <div class="label" id="l-spent">Spending</div>
         <div class="value" id="m-spent" style="color:var(--red)">—</div>
-        <div class="sub" id="m-daily">—</div>
+        <div class="sub" id="s-spent">—</div>
       </div>
       <div class="card metric-card">
-        <div class="label">Saved</div>
+        <div class="label" id="l-saved">Saved</div>
         <div class="value" id="m-saved">—</div>
-        <div class="sub" id="m-saved-caption">Income − Spending</div>
+        <div class="sub" id="s-saved">—</div>
       </div>
     </div>
 
-    <!-- Two-column row: goal + personality (left), budgets (right) -->
+    <!-- Chart + top merchants -->
+    <div class="dash-chart-row">
+      <div class="card" id="chart-card">
+        <div class="card-head">
+          <div class="section-title">How your spending changes</div>
+          <span class="chart-note" id="chart-note"></span>
+        </div>
+        <div class="chart-wrap"><canvas id="spend-chart"></canvas></div>
+      </div>
+      <div class="card" id="merchants-card">
+        <div class="section-title">Top merchants</div>
+        <p class="tx-help">Where your money actually goes, all time.</p>
+        <div id="merchant-list"></div>
+      </div>
+    </div>
+
+    <!-- Two-column row: goal + personality (left), budgets + anomalies (right) -->
     <div class="dash-two-col">
       <div class="dash-col">
-      <!-- Savings goal card -->
       <div class="card" id="goal-card">
         <div class="card-head">
           <div class="section-title">Your savings goal</div>
@@ -156,7 +162,6 @@
         </form>
       </div>
 
-      <!-- Personality card (in the left column to balance the tall budget card) -->
       <div class="card personality-card" id="personality-card">
         <div class="section-title">Your money personality</div>
         <div id="personality-type" class="personality-type"></div>
@@ -164,20 +169,19 @@
         <div class="section-title" style="margin-bottom:0.75rem;">Action plan</div>
         <div id="action-plan"></div>
       </div>
+      </div><!-- /dash-col left -->
+
+      <div class="dash-col">
+      <div class="card" id="budgets-card">
+        <div class="section-title">Budget breakdown</div>
+        <div id="budget-bars"></div>
+      </div>
 
       <!-- Unusual transactions (anomaly detection) — hidden when none -->
       <div class="card" id="anomaly-card" style="display:none;">
         <div class="section-title">Unusual transactions</div>
         <p class="tx-help">Charges that look high next to your usual spending in that category.</p>
         <div id="anomaly-list"></div>
-      </div>
-      </div><!-- /dash-col left -->
-
-      <div class="dash-col">
-      <!-- Budget bars -->
-      <div class="card" id="budgets-card">
-        <div class="section-title">Budget breakdown</div>
-        <div id="budget-bars"></div>
       </div>
       </div><!-- /dash-col right -->
     </div>
@@ -199,7 +203,7 @@
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
            formatMonthYear, formatDay, dateRangeLabel, escapeHtml,
-           getStoredPeriod, setStoredPeriod, periodQuery } from './api.js';
+           getStoredPeriod, setStoredPeriod } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('dashboard');
@@ -209,13 +213,12 @@
   const uploadSection = document.getElementById('upload-section');
   const dataSection = document.getElementById('data-section');
 
-  // Period is platform-wide (persisted in localStorage), so the dashboard opens
-  // on whatever window you last picked anywhere on the site.
-  const _parts = getStoredPeriod().startsWith('month:')
-    ? { period: 'monthly', month: getStoredPeriod().slice(6) }
-    : { period: getStoredPeriod(), month: '' };
-  let currentPeriod = _parts.period;
-  let currentMonth = _parts.month || '';
+  // The span selector shows your USUAL money per day/week/month (averages over
+  // your whole history) or the all-time totals. Purely client-side — instant.
+  const stored = getStoredPeriod();
+  let span = ['daily', 'weekly', 'monthly', 'all'].includes(stored) ? stored : 'monthly';
+  let dash = null;      // latest /dashboard payload
+  let chart = null;
 
   function showLoading(msg = 'Loading your data…') {
     loadingEl.innerHTML = `<div class="spinner"></div> ${msg}`;
@@ -229,49 +232,164 @@
     dataSection.style.display = 'none';
   }
 
+  const SPAN_LABEL = { daily: 'day', weekly: 'week', monthly: 'month' };
+
+  // ── Metric cards for the chosen span ──
+  function renderMetrics() {
+    const m = dash.metrics || {};
+    const averages = dash.averages || {};
+    const monthsUsed = averages.months_used || 0;
+
+    let inc, sp, sv, subIncome, subSpent, subSaved, labelPrefix;
+    if (span === 'all') {
+      inc = m.total_income; sp = m.total_spent; sv = m.net_saved;
+      labelPrefix = '';
+      subIncome = 'total received';
+      subSpent = m.daily_burn_rate ? `${formatAUD(m.daily_burn_rate)}/day burn` : '';
+      subSaved = sv >= 0
+        ? `Income − Spending${m.savings_rate != null ? ` · ${m.savings_rate}% saved` : ''}`
+        : 'You spent more than you earned';
+    } else {
+      const a = averages[span];
+      if (!a) { span = 'all'; return renderMetrics(); }
+      inc = a.income; sp = a.spent; sv = a.saved;
+      labelPrefix = 'Usual ';
+      const basis = span === 'monthly' && monthsUsed
+        ? `avg of ${monthsUsed} full month${monthsUsed === 1 ? '' : 's'}`
+        : 'avg over your whole history';
+      subIncome = `per ${SPAN_LABEL[span]} · ${basis}`;
+      subSpent = `per ${SPAN_LABEL[span]}`;
+      subSaved = sv >= 0 ? `what you usually keep per ${SPAN_LABEL[span]}` : `you usually overspend per ${SPAN_LABEL[span]}`;
+    }
+
+    document.getElementById('l-income').textContent = labelPrefix + 'Income';
+    document.getElementById('l-spent').textContent = labelPrefix + 'Spending';
+    document.getElementById('l-saved').textContent = labelPrefix + 'Saved';
+    document.getElementById('m-income').textContent = formatAUD(inc);
+    document.getElementById('m-spent').textContent = formatAUD(sp);
+    const savedEl = document.getElementById('m-saved');
+    savedEl.textContent = formatAUD(sv);
+    savedEl.style.color = sv >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('s-income').textContent = subIncome;
+    document.getElementById('s-spent').textContent = subSpent;
+    document.getElementById('s-saved').textContent = subSaved;
+
+    document.querySelectorAll('#period-segments button').forEach(b =>
+      b.classList.toggle('active', b.dataset.period === span));
+  }
+
+  document.querySelectorAll('#period-segments button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      span = btn.dataset.period;
+      setStoredPeriod(span);      // other pages follow the same span
+      renderMetrics();
+    });
+  });
+
+  // ── Spending-over-time chart ──
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function renderChart() {
+    const series = (dash.averages || {}).spend_series || [];
+    const card = document.getElementById('chart-card');
+    if (series.length < 2) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    document.getElementById('chart-note').textContent = 'spent vs kept, each month';
+    const ctx = document.getElementById('spend-chart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      data: {
+        labels: series.map(s => formatMonthYear(s.month)),
+        datasets: [
+          {
+            type: 'bar', label: 'Spent',
+            data: series.map(s => s.spent),
+            backgroundColor: cssVar('--red') + 'cc',
+            borderRadius: 6, maxBarThickness: 42,
+          },
+          {
+            type: 'line', label: 'Saved',
+            data: series.map(s => s.saved),
+            borderColor: cssVar('--accent'),
+            backgroundColor: cssVar('--accent'),
+            tension: 0.35, pointRadius: 3,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          y: { grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted'), callback: v => '$' + Number(v).toLocaleString() } },
+          x: { grid: { display: false }, ticks: { color: cssVar('--muted') } },
+        },
+        plugins: {
+          legend: { labels: { color: cssVar('--muted'), usePointStyle: true } },
+          tooltip: {
+            backgroundColor: cssVar('--bg-elev'), borderColor: cssVar('--border-strong'),
+            borderWidth: 1, titleColor: cssVar('--text'), bodyColor: cssVar('--muted'),
+            callbacks: { label: c => ` ${c.dataset.label}: ${formatAUD(c.raw)}` },
+          },
+        },
+      },
+    });
+  }
+
+  // ── Top merchants ──
+  function renderMerchants() {
+    const tops = (dash.averages || {}).top_merchants || [];
+    const el = document.getElementById('merchant-list');
+    if (!tops.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Nothing yet</p>';
+      return;
+    }
+    const max = tops[0].total || 1;
+    el.innerHTML = tops.map(t => `
+      <div class="merchant-row">
+        <div class="merchant-name" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</div>
+        <div class="merchant-bar"><span style="width:${Math.max(6, Math.round(t.total / max * 100))}%"></span></div>
+        <div class="merchant-amt">${formatAUD(t.total)}</div>
+      </div>`).join('');
+  }
+
   // ── Render the whole dashboard ──
   function renderDashboard(data) {
+    dash = data;
     loadingEl.style.display = 'none';
     uploadSection.style.display = 'none';
     dataSection.style.display = 'block';
 
-    const { metrics, budgets, personality } = data;
-
-    // Old snapshot computed by outdated logic → nudge a recompute.
     document.getElementById('stale-banner').style.display =
       data.snapshot_stale ? 'flex' : 'none';
 
-    if (metrics?.date_range) {
-      document.getElementById('date-range').textContent = dateRangeLabel(metrics.date_range);
+    if (data.metrics?.date_range) {
+      document.getElementById('date-range').textContent =
+        'Statement: ' + dateRangeLabel(data.metrics.date_range);
     }
 
-    // ── Metrics (trust the backend's canonical net_saved / savings_rate) ──
-    const income = metrics?.total_income || 0;
-    const spent = metrics?.total_spent || 0;
-    const saved = metrics?.net_saved ?? (income - spent);
-    const rate = metrics?.savings_rate;  // may be null when income is tiny
+    renderMetrics();
+    renderChart();
+    renderMerchants();
+    renderBudgets(data);
+    renderGoal(data);
+    renderAnomalies(data);
 
-    document.getElementById('m-income').textContent = formatAUD(income);
-    document.getElementById('m-spent').textContent = formatAUD(spent);
-    const savedEl = document.getElementById('m-saved');
-    savedEl.textContent = formatAUD(saved);
-    savedEl.style.color = saved >= 0 ? 'var(--green)' : 'var(--red)';
-    document.getElementById('m-daily').textContent =
-      metrics?.daily_burn_rate ? `${formatAUD(metrics.daily_burn_rate)}/day` : '';
-    document.getElementById('m-saved-caption').textContent = saved >= 0
-      ? `Income − Spending${rate != null ? ` · ${rate}% saved` : ''}`
-      : `You spent more than you earned`;
+    const personality = data.personality;
+    if (personality) {
+      document.getElementById('personality-type').textContent = personality.personality_type || 'Unknown';
+      document.getElementById('personality-meta').textContent =
+        personality.savings_rate != null ? `Savings rate: ${personality.savings_rate.toFixed(1)}%` : '';
+      const actions = personality.action_plan || [];
+      document.getElementById('action-plan').innerHTML = actions.length
+        ? actions.map(a => `<div class="action-plan-item"><span class="action-bullet">→</span><span>${escapeHtml(a)}</span></div>`).join('')
+        : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet</p>';
+    }
+  }
 
-    // ── Hero one-liner: a plain-English read of the period ──
-    const label = metrics?.date_range ? dateRangeLabel(metrics.date_range) : 'this period';
-    document.getElementById('hero-summary').innerHTML = saved >= 0
-      ? `In <b>${label}</b> you earned <b>${formatAUD(income)}</b> and spent <b>${formatAUD(spent)}</b>, keeping <b style="color:var(--green)">${formatAUD(saved)}</b>${rate != null ? ` — that's ${rate}% of your income.` : '.'}`
-      : `In <b>${label}</b> you earned <b>${formatAUD(income)}</b> but spent <b>${formatAUD(spent)}</b>, so you were <b style="color:var(--red)">${formatAUD(Math.abs(saved))}</b> short.`;
-
-    // ── Budget bars ──
-    // Hide categories with no activity at all; show an honest "no budget yet"
-    // state when there's no limit (first month — nothing to compare against).
-    const budgetList = (budgets?.budgets || []).filter(b =>
+  // ── Budget bars ──
+  function renderBudgets(data) {
+    const budgetList = (data.budgets?.budgets || []).filter(b =>
       (b.actual_spend || 0) > 0 || b.suggested_limit != null);
     const barsEl = document.getElementById('budget-bars');
     barsEl.innerHTML = budgetList.length ? budgetList.map(b => {
@@ -299,47 +417,16 @@
           ${bar}
           <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">${footer}</div>
         </div>`;
-    }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No spending yet this period</p>';
+    }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No spending yet</p>';
 
-    // Clicking a category opens its group on the Transactions page.
     barsEl.querySelectorAll('.budget-row').forEach(r => {
       const go = () => { window.location.href = 'transactions.html#cat=' + encodeURIComponent(r.dataset.category); };
       r.addEventListener('click', go);
       r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     });
-
-    // Spending outlook (forecast)
-    const sf = data.spend_forecast;
-    const outlook = document.getElementById('spend-outlook');
-    if (sf && sf.projected_next_month) {
-      const trend = sf.trend === 'up' ? 'trending up' : sf.trend === 'down' ? 'trending down' : 'steady';
-      let txt = `Outlook: ~${formatAUD(sf.projected_next_month)} projected next month (${trend}).`;
-      if (sf.runway_days != null && sf.run_short_date) {
-        txt += ` At this rate your balance lasts about ${sf.runway_days} days, into ${formatMonthYear(sf.run_short_date)}.`;
-      }
-      outlook.textContent = txt;
-      outlook.style.display = 'block';
-    } else {
-      outlook.style.display = 'none';
-    }
-
-    renderGoal(data);
-    renderAnomalies(data);
-    populateMonths(data);
-
-    // ── Personality ──
-    if (personality) {
-      document.getElementById('personality-type').textContent = personality.personality_type || 'Unknown';
-      document.getElementById('personality-meta').textContent =
-        personality.savings_rate != null ? `Savings rate: ${personality.savings_rate.toFixed(1)}%` : '';
-      const actions = personality.action_plan || [];
-      document.getElementById('action-plan').innerHTML = actions.length
-        ? actions.map(a => `<div class="action-plan-item"><span class="action-bullet">→</span><span>${escapeHtml(a)}</span></div>`).join('')
-        : '<p style="color:var(--muted);font-size:0.875rem;">No actions yet</p>';
-    }
   }
 
-  // ── AI insight (fetched lazily — may be an LLM call) ──
+  // ── AI insight (cached server-side; one LLM call per analysis) ──
   async function loadInsight() {
     try {
       const r = await apiFetch('/insight');
@@ -365,53 +452,6 @@
         <div class="anomaly-amount">${formatAUD(a.amount)}</div>
       </div>`).join('');
   }
-
-  // ── Period control (segmented + month dropdown) ──
-  let monthsPopulated = false;
-  function populateMonths(data) {
-    const sel = document.getElementById('month-select');
-    const months = data.available_months || [];
-    if (monthsPopulated || !months.length) return;
-    sel.innerHTML = '<option value="">Jump to month…</option>' +
-      months.slice().reverse().map(m => `<option value="${m}">${formatMonthYear(m)}</option>`).join('');
-    monthsPopulated = true;
-  }
-
-  function syncPeriodUI() {
-    document.querySelectorAll('#period-segments button').forEach(b =>
-      b.classList.toggle('active', b.dataset.period === currentPeriod && !currentMonth));
-    if (currentMonth) document.getElementById('month-select').value = currentMonth;
-  }
-
-  async function loadPeriod() {
-    // Persist so every other page opens on this same window.
-    setStoredPeriod(currentMonth ? 'month:' + currentMonth : currentPeriod);
-    const qs = currentMonth
-      ? `?period=monthly&month=${encodeURIComponent(currentMonth)}`
-      : `?period=${encodeURIComponent(currentPeriod)}`;
-    showLoading('Loading…');
-    try {
-      renderDashboard(await apiFetch('/dashboard' + qs));
-      syncPeriodUI();
-      loadTransactions();
-    } catch (err) {
-      showToast(err.message || 'Could not load that period');
-      renderDashboard(await apiFetch('/dashboard'));
-    }
-  }
-
-  document.querySelectorAll('#period-segments button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      currentPeriod = btn.dataset.period;
-      currentMonth = '';
-      loadPeriod();
-    });
-  });
-  document.getElementById('month-select').addEventListener('change', (e) => {
-    currentMonth = e.target.value;
-    if (currentMonth) { currentPeriod = 'monthly'; }
-    loadPeriod();
-  });
 
   // ── Savings goal ──
   function renderGoal(data) {
@@ -476,7 +516,7 @@
       await apiFetch('/goal', { method: 'POST', body: JSON.stringify({ amount, target_date: targetDate }) });
       goalForm.style.display = 'none';
       document.getElementById('goal-edit-toggle').textContent = 'Edit';
-      renderDashboard(await apiFetch('/dashboard'));
+      await loadDashboard();
       showToast('Goal updated');
     } catch (err) {
       errEl.textContent = err.message || 'Could not save goal';
@@ -500,6 +540,36 @@
     } catch (_) { /* no data yet */ }
   }
 
+  // ── Load everything (single fetch; span switching is client-side) ──
+  async function loadDashboard() {
+    renderDashboard(await apiFetch('/dashboard'));
+    loadTransactions();
+    loadInsight();
+  }
+
+  // Coach applied a change from the chat → refresh the numbers.
+  window.addEventListener('finio:overrides-applied', () => loadDashboard());
+
+  // ── Re-analyse ──
+  document.getElementById('stale-reanalyze').addEventListener('click', () =>
+    document.getElementById('reanalyze-btn').click());
+
+  document.getElementById('reanalyze-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('reanalyze-btn');
+    btn.disabled = true;
+    btn.textContent = 'Re-analysing…';
+    try {
+      await apiFetch('/reanalyze', { method: 'POST' });
+      await loadDashboard();
+      showToast('Re-analysed from your saved data');
+    } catch (err) {
+      showToast(err.message || 'Could not re-analyse');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Re-analyse';
+    }
+  });
+
   // ── Upload form ──
   document.getElementById('upload-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -511,15 +581,12 @@
 
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('period', 'monthly');
     btn.disabled = true;
     btn.textContent = 'Analysing…';
     showLoading('Analysing your spending… this may take a moment');
     try {
       await apiFetch('/analyze', { method: 'POST', body: fd });
-      currentPeriod = 'monthly'; currentMonth = '';
-      await loadPeriod();
-      loadInsight();
+      await loadDashboard();
       showToast('Analysis complete!');
     } catch (err) {
       showUpload();
@@ -533,38 +600,12 @@
 
   document.getElementById('reupload-btn').addEventListener('click', showUpload);
 
-  document.getElementById('stale-reanalyze').addEventListener('click', () =>
-    document.getElementById('reanalyze-btn').click());
-
-  document.getElementById('reanalyze-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('reanalyze-btn');
-    btn.disabled = true;
-    btn.textContent = 'Re-analysing…';
-    try {
-      await apiFetch('/reanalyze', { method: 'POST' });
-      await loadPeriod();
-      loadInsight();
-      showToast('Re-analysed from your saved data');
-    } catch (err) {
-      showToast(err.message || 'Could not re-analyse');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Re-analyse';
-    }
-  });
-
   // ── Init ──
-  async function init() {
+  (async () => {
     try {
       await requireAuth();
       showLoading();
-      const qs = currentMonth
-        ? `?period=monthly&month=${encodeURIComponent(currentMonth)}`
-        : `?period=${encodeURIComponent(currentPeriod)}`;
-      renderDashboard(await apiFetch('/dashboard' + qs));
-      syncPeriodUI();
-      loadTransactions();
-      loadInsight();
+      await loadDashboard();
     } catch (err) {
       if (err.message === 'no_analysis' || err.status === 404) {
         showUpload();
@@ -573,9 +614,7 @@
         showToast(err.message);
       }
     }
-  }
-
-  init();
+  })();
 </script>
 </body>
 </html>

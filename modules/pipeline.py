@@ -2,7 +2,7 @@ import pandas as pd
 
 from config import DISCLAIMER, FLOW_EXPENSE
 from modules.ai_coach import build_context
-from modules.analytics import analyze
+from modules.analytics import analyze, compute_averages
 from modules.anomaly import detect_anomalies
 from modules.bank_parser import parse_bank_csv
 from modules.bill_detector import detect_bills
@@ -82,6 +82,8 @@ def analyze_window(
     bills = detect_bills(full)
     # Unusual charges are judged against the user's WHOLE history (stable baseline).
     anomalies = detect_anomalies(full)
+    # "What I usually spend" per day/week/month + chart series + top merchants.
+    averages = compute_averages(full)
 
     # No goal supplied yet → recommend one from the user's actual numbers so the
     # dashboard has something sensible to show before they confirm/edit it. Use
@@ -112,6 +114,7 @@ def analyze_window(
         "analysis": analysis,
         "bills": bills,
         "anomalies": anomalies,
+        "averages": averages,
         "forecast": forecast,
         "spend_forecast": spend_forecast,
         "budgets": budgets,

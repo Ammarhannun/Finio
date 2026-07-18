@@ -1487,3 +1487,59 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
   background: var(--accent); color: #fff; border: none; border-radius: 50%;
   width: 40px; height: 40px; font-size: 1.1rem; cursor: pointer;
 }
+
+/* ══ Dashboard v3: chart row + top merchants ═════════════════════════════ */
+.dash-chart-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  align-items: stretch;
+}
+@media (max-width: 900px) { .dash-chart-row { grid-template-columns: 1fr; } }
+.chart-wrap { position: relative; height: 260px; }
+.chart-note { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+
+.merchant-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.8125rem;
+}
+.merchant-row:last-child { border-bottom: none; }
+.merchant-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.merchant-bar { background: var(--bg-input); border-radius: 99px; height: 8px; overflow: hidden; }
+.merchant-bar span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.merchant-amt { font-family: 'Space Mono', monospace; white-space: nowrap; }
+
+/* ══ Coach widget: chats drawer ══════════════════════════════════════════ */
+.cw-head-left { display: flex; align-items: center; gap: 0.5rem; }
+.cw-drawer {
+  display: none;
+  border-bottom: 1px dashed var(--border-strong);
+  background: var(--bg-card);
+  max-height: 45%;
+  overflow-y: auto;
+}
+.cw-drawer.open { display: block; }
+.cw-drawer-head {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); font-weight: 700; padding: 0.6rem 1rem 0.2rem;
+}
+.cw-chat-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  width: 100%; text-align: left; background: none; border: none;
+  font-family: inherit; font-size: 0.8125rem; color: var(--text);
+  padding: 0.55rem 1rem; cursor: pointer;
+}
+.cw-chat-item:hover { background: var(--bg-input); }
+.cw-chat-item.active { background: var(--accent-dim); }
+.cw-chat-item.muted { color: var(--muted); cursor: default; }
+.cw-chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-chat-count {
+  font-size: 0.7rem; color: var(--muted);
+  background: var(--bg-input); border-radius: 99px; padding: 0.1rem 0.5rem;
+}
