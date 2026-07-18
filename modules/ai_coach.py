@@ -14,6 +14,26 @@ QUICK_QUESTIONS = [
 ]
 
 
+import re as _re
+
+
+def _plain(text):
+    """Strip the markdown the model sneaks in despite the plain-text prompt —
+    **bold**, *italic*, `code`, ### headings, bullet symbols — so chat bubbles
+    never show raw asterisks."""
+    if not text:
+        return text
+    t = str(text)
+    t = _re.sub(r"\*\*([^*]+)\*\*", r"\1", t)     # **bold**
+    t = _re.sub(r"(?<!\w)\*([^*\n]+)\*(?!\w)", r"\1", t)  # *italic*
+    t = _re.sub(r"__([^_]+)__", r"\1", t)
+    t = _re.sub(r"`([^`]+)`", r"\1", t)
+    t = _re.sub(r"^#{1,6}\s*", "", t, flags=_re.M)  # headings
+    t = _re.sub(r"^\s*[-•]\s+", "- ", t, flags=_re.M)
+    t = t.replace("**", "").replace("*", "")
+    return t.strip()
+
+
 def has_llm():
     return bool(os.getenv("OPENAI_API_KEY"))
 
@@ -303,6 +323,8 @@ def generate_insight(context):
         f"Context:\n{json.dumps(context)}"
     )
     text = call_llm(system, [{"role": "user", "content": "Give me my money insight."}])
+    if text is not None:
+        text = _plain(text)
     source = "openai"
     if text is None:
         top = (context.get("top_categories") or [{}])[0]
@@ -362,7 +384,7 @@ def coach_chat(user_message, context, history=None, transactions=None):
             )
             msg = response.choices[0].message
             if not msg.tool_calls:
-                text = msg.content or ""
+                text = _plain(msg.content or "")
                 if DISCLAIMER not in text:
                     text = f"{text} {DISCLAIMER}"
                 return {"text": text, "source": "openai", "disclaimer": DISCLAIMER,

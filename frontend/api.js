@@ -229,8 +229,6 @@ export function periodQuery(value) {
 // Defaults to the platform-wide stored period and persists every change.
 export function mountPeriodBar(container, months, onChange, current = getStoredPeriod()) {
   if (!container) return;
-  const monthOpts = (months || []).slice().reverse()
-    .map(m => `<option value="month:${m}"${`month:${m}` === current ? ' selected' : ''}>${formatMonthYear(m)}</option>`).join('');
   container.innerHTML = `
     <div class="period-bar">
       <span class="period-tag">Period</span>
@@ -238,7 +236,6 @@ export function mountPeriodBar(container, months, onChange, current = getStoredP
         ${BASE_PERIODS.map(p =>
           `<option value="${p.value}"${p.value === current ? ' selected' : ''}>${p.label}</option>`
         ).join('')}
-        ${monthOpts ? `<optgroup label="Specific month">${monthOpts}</optgroup>` : ''}
       </select>
     </div>`;
   container.querySelector('select').addEventListener('change', (e) => {

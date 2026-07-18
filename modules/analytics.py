@@ -1,5 +1,76 @@
 import pandas as pd
-from config import DISCLAIMER, FLOW_EXPENSE, TRANSFERS_LABEL
+from config import DISCLAIMER, FLOW_EXPENSE, FLOW_INCOME, TRANSFERS_LABEL
+
+
+def compute_averages(df):
+    """What the user USUALLY earns/spends/saves per day, week and month,
+    averaged over their whole history — plus a month-by-month series for the
+    spending chart, and their top merchants.
+
+    This powers the dashboard's Day/Week/Month view: not "what happened in the
+    latest slice" but "what a typical day/week/month looks like for you".
+    """
+    from modules.savings_forecaster import _complete_months
+
+    out = {"daily": None, "weekly": None, "monthly": None,
+           "months_used": 0, "spend_series": [], "top_merchants": []}
+    if df is None or df.empty:
+        return out
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    exp = df[df["flow"] == FLOW_EXPENSE]
+    inc = df[df["flow"] == FLOW_INCOME]
+
+    days = (df["date"].max() - df["date"].min()).days + 1
+    total_spent = float(-exp["amount"].sum()) if not exp.empty else 0.0
+    total_income = float(inc["amount"].sum()) if not inc.empty else 0.0
+
+    def block(spent, income):
+        return {"spent": round(spent, 2), "income": round(income, 2),
+                "saved": round(income - spent, 2)}
+
+    if days > 0:
+        d_sp, d_in = total_spent / days, total_income / days
+        out["daily"] = block(d_sp, d_in)
+        out["weekly"] = block(d_sp * 7, d_in * 7)
+
+    # Monthly average from COMPLETE months when we have them (a real "usual
+    # month"); otherwise scale the daily rate.
+    m_spent = exp.set_index("date")["amount"].resample("MS").sum().mul(-1) if not exp.empty else pd.Series(dtype=float)
+    m_income = inc.set_index("date")["amount"].resample("MS").sum() if not inc.empty else pd.Series(dtype=float)
+    m_spent_c = _complete_months(m_spent, df["date"]) if len(m_spent) else m_spent
+    if len(m_spent_c) >= 1 and days >= 28:
+        m_income_c = _complete_months(m_income, df["date"]) if len(m_income) else m_income
+        out["monthly"] = block(
+            float(m_spent_c.mean()),
+            float(m_income_c.mean()) if len(m_income_c) else 0.0,
+        )
+        out["months_used"] = int(len(m_spent_c))
+    elif days > 0:
+        out["monthly"] = block(total_spent / days * 30.44, total_income / days * 30.44)
+
+    # Month-by-month spending (every month incl. partial edges — it's a chart,
+    # the shape matters more than perfection; saved uses income of same month).
+    if len(m_spent):
+        inc_by_m = m_income.to_dict() if len(m_income) else {}
+        for ts, spent in m_spent.items():
+            income = float(inc_by_m.get(ts, 0.0))
+            out["spend_series"].append({
+                "month": ts.strftime("%Y-%m"),
+                "spent": round(float(spent), 2),
+                "saved": round(income - float(spent), 2),
+            })
+
+    # Where the money actually goes: top merchants by total spend.
+    if not exp.empty:
+        name_col = "merchant_clean" if "merchant_clean" in exp.columns else "description"
+        top = (-exp.groupby(exp[name_col].astype(str))["amount"].sum()).sort_values(ascending=False)
+        out["top_merchants"] = [
+            {"merchant": m, "total": round(float(v), 2)}
+            for m, v in top.head(5).items() if v > 0
+        ]
+    return out
+
 
 def category_breakdown(df):
     # Spend = expense-flow rows only; transfers/income never enter the breakdown.

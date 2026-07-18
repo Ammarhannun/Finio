@@ -574,6 +574,7 @@ def _():
         "analysis",
         "bills",
         "anomalies",
+        "averages",
         "forecast",
         "spend_forecast",
         "budgets",

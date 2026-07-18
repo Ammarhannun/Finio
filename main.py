@@ -255,6 +255,7 @@ def dashboard(
         "analysis": resliced["analysis"],
         "bills": resliced["bills"],
         "anomalies": resliced.get("anomalies", []),
+        "averages": resliced.get("averages"),
         "forecast": resliced["forecast"],
         "spend_forecast": resliced.get("spend_forecast"),
         "budgets": resliced["budgets"],
@@ -544,9 +545,16 @@ def spend_check(body: SpendCheckRequest, user: AuthUser = Depends(get_current_us
 
 
 @app.get("/coach/history")
-def coach_history(user: AuthUser = Depends(get_current_user)):
+def coach_history(chat_id: Optional[str] = None, user: AuthUser = Depends(get_current_user)):
     client = db.get_client(user.token)
-    return {"history": db.get_chat_history(client, user.user_id)}
+    return {"history": db.get_chat_history(client, user.user_id, chat_id=chat_id)}
+
+
+@app.get("/chats")
+def chats(user: AuthUser = Depends(get_current_user)):
+    """The user's coach conversations, newest first."""
+    client = db.get_client(user.token)
+    return {"chats": db.list_chats(client, user.user_id)}
 
 
 @app.post("/coach")
@@ -564,7 +572,8 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
         # (and reclassification proposals make sense on the transactions page).
         context = {**context, "current_page": body.page}
 
-    history_rows = db.get_chat_history(client, user.user_id)
+    chat_id = body.chat_id or "default"
+    history_rows = db.get_chat_history(client, user.user_id, chat_id=chat_id)
     history = [{"role": row["role"], "content": row["message"]} for row in history_rows]
 
     # Give the coach the user's real transactions so its tools can compute
@@ -576,8 +585,8 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
 
     response = coach_chat(body.message, context, history=history, transactions=transactions)
 
-    db.append_chat(client, user.user_id, "user", body.message)
-    db.append_chat(client, user.user_id, "assistant", response["text"])
+    db.append_chat(client, user.user_id, "user", body.message, chat_id=chat_id)
+    db.append_chat(client, user.user_id, "assistant", response["text"], chat_id=chat_id)
 
     return {
         **response,

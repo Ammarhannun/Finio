@@ -338,6 +338,7 @@ def load_dashboard(client, user_id):
         "analysis": summary.get("analysis"),
         "bills": summary.get("bills", []),
         "anomalies": summary.get("anomalies", []),
+        "averages": summary.get("averages"),
         "forecast": summary.get("forecast"),
         "spend_forecast": summary.get("spend_forecast"),
         "budgets": summary.get("budgets"),
@@ -403,6 +404,7 @@ def persist_analysis(
         "analysis": result["analysis"],
         "bills": result["bills"],
         "anomalies": result.get("anomalies", []),
+        "averages": result.get("averages"),
         "forecast": result["forecast"],
         "spend_forecast": result.get("spend_forecast"),
         "budgets": result["budgets"],
@@ -508,7 +510,7 @@ def save_overrides(client, user_id, overrides, resliced, custom_categories=None)
     if custom_categories is not None:
         summary["custom_categories"] = custom_categories
     for key in (
-        "metrics", "analysis", "bills", "anomalies", "forecast", "spend_forecast",
+        "metrics", "analysis", "bills", "anomalies", "averages", "forecast", "spend_forecast",
         "budgets", "invest", "personality", "context", "goal_recommendation",
     ):
         if key in resliced:
@@ -525,24 +527,68 @@ def save_overrides(client, user_id, overrides, resliced, custom_categories=None)
     )
 
 
-def append_chat(client, user_id, role, message):
-    client.table("chat_history").insert(
-        {
-            "user_id": user_id,
-            "role": role,
-            "message": message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    ).execute()
+def append_chat(client, user_id, role, message, chat_id="default"):
+    row = {
+        "user_id": user_id,
+        "role": role,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "chat_id": chat_id,
+    }
+    try:
+        client.table("chat_history").insert(row).execute()
+    except Exception:
+        # chat_id column missing (002 migration not run yet) → single-chat mode.
+        row.pop("chat_id", None)
+        client.table("chat_history").insert(row).execute()
 
 
-def get_chat_history(client, user_id, limit=20):
-    result = (
-        client.table("chat_history")
-        .select("role, message, timestamp")
-        .eq("user_id", user_id)
-        .order("timestamp", desc=True)
-        .limit(limit)
-        .execute()
-    )
+def get_chat_history(client, user_id, limit=20, chat_id=None):
+    """Messages for one chat (or the legacy single stream when chat_id is None
+    or the 002 migration hasn't been run)."""
+    def _q(with_chat):
+        q = (
+            client.table("chat_history")
+            .select("role, message, timestamp" + (", chat_id" if with_chat else ""))
+            .eq("user_id", user_id)
+        )
+        if with_chat and chat_id:
+            q = q.eq("chat_id", chat_id)
+        return q.order("timestamp", desc=True).limit(limit).execute()
+
+    try:
+        result = _q(True)
+    except Exception:
+        result = _q(False)
     return list(reversed(result.data or []))
+
+
+def list_chats(client, user_id, limit=200):
+    """The user's chats, newest activity first: [{chat_id, title, last_ts, count}].
+    Title = first user message in the chat. Falls back to one 'default' chat
+    when the 002 migration hasn't been run."""
+    try:
+        result = (
+            client.table("chat_history")
+            .select("chat_id, role, message, timestamp")
+            .eq("user_id", user_id)
+            .order("timestamp", desc=False)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:
+        return [{"chat_id": "default", "title": "Chat", "last_ts": None, "count": 0}]
+
+    chats = {}
+    for row in result.data or []:
+        cid = row.get("chat_id") or "default"
+        c = chats.setdefault(cid, {"chat_id": cid, "title": None, "last_ts": None, "count": 0})
+        c["count"] += 1
+        c["last_ts"] = row["timestamp"]
+        if c["title"] is None and row["role"] == "user":
+            c["title"] = (row["message"] or "")[:48]
+    out = list(chats.values())
+    for c in out:
+        c["title"] = c["title"] or "New chat"
+    out.sort(key=lambda c: c["last_ts"] or "", reverse=True)
+    return out

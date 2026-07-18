@@ -14,6 +14,8 @@ class CoachRequest(BaseModel):
     # Which page the user is on (dashboard/transactions/invest/…) so the coach
     # can tailor help to what's on screen.
     page: Optional[str] = Field(None, max_length=30)
+    # Which conversation this message belongs to (multiple chats).
+    chat_id: Optional[str] = Field(None, max_length=40)
 
 
 class GoalRequest(BaseModel):
