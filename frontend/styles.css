@@ -1553,3 +1553,17 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 .select-all-label input { width: 16px; height: 16px; cursor: pointer; }
 .tx-group-left { display: inline-flex; align-items: center; gap: 0.5rem; }
 .tx-group-check { width: 14px; height: 14px; cursor: pointer; }
+
+/* ══ Categorisation quiz card ════════════════════════════════════════════ */
+.quiz-card {
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-dim);
+}
+.quiz-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.6rem; }
+.quiz-progress { font-size: 0.78rem; color: var(--muted); font-family: 'Space Mono', monospace; }
+.quiz-merchant { font-family: 'Space Mono', monospace; font-weight: 700; font-size: 1.05rem; }
+.quiz-meta { font-size: 0.8125rem; color: var(--muted); margin: 0.15rem 0 0.8rem; }
+.quiz-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.quiz-pick { display: inline-flex; align-items: center; gap: 0.4rem; }
+.quiz-pick select { width: auto; min-width: 150px; padding: 0.45rem 2rem 0.45rem 0.7rem; font-size: 0.8125rem; }

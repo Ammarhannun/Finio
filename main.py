@@ -18,6 +18,7 @@ from schemas import (
     GoalRequest,
     OverrideRequest,
     ProfileRequest,
+    QuizRequest,
     SpendCheckRequest,
 )
 
@@ -86,14 +87,16 @@ async def analyze_csv(
         saved_overrides = None
         user_examples = None
         saved_custom = None
+        saved_llm_cache = None
         if user:
             try:
                 _client = db.get_client(user.token)
                 saved_overrides = db.get_overrides(_client, user.user_id)
                 saved_custom = db.get_custom_categories(_client, user.user_id)
+                saved_llm_cache = db.get_llm_categories(_client, user.user_id)
                 user_examples = examples_from_overrides(saved_overrides)
             except Exception:
-                saved_overrides = user_examples = saved_custom = None
+                saved_overrides = user_examples = saved_custom = saved_llm_cache = None
 
         result = run_full_pipeline(
             tmp_path,
@@ -102,6 +105,8 @@ async def analyze_csv(
             age=age,
             overrides=saved_overrides,
             user_examples=user_examples,
+            llm_cache=saved_llm_cache,
+            custom_categories=saved_custom,
             period=period,
             period_start=period_start,
             period_end=period_end,
@@ -346,9 +351,45 @@ def transactions(
         "transactions": txs,
         "categories": _all_categories(custom),
         "custom_categories": custom,
+        "pending_questions": db.get_pending_questions(client, user.user_id),
         "period": resliced["period"],
         "disclaimer": DISCLAIMER,
     }
+
+
+@app.post("/quiz")
+def quiz_answer(body: QuizRequest, user: AuthUser = Depends(get_current_user)):
+    """Answer (or skip) one categorisation question. An answer becomes a
+    permanent override rule — every number recomputes immediately — and the
+    question is removed either way."""
+    client, data = _require_snapshot(user)
+
+    if not body.skip and (body.category or body.flow):
+        all_tx = db.get_all_transactions(client, user.user_id)
+        overrides = db.get_overrides(client, user.user_id)
+        overrides = [r for r in overrides
+                     if not (r.get("match") and r["match"].lower() == body.merchant.lower())]
+        rule = {"match": body.merchant}
+        if body.category:
+            rule["category"] = body.category
+        if body.flow:
+            rule["flow"] = body.flow
+        overrides.append(rule)
+        goal = data.get("goal") or {}
+        resliced = analyze_stored(
+            all_tx,
+            goal_amount=goal.get("target_amount"),
+            goal_date=goal.get("target_date"),
+            overrides=overrides,
+        )
+        db.save_overrides(
+            client, user.user_id, overrides, resliced,
+            custom_categories=db.get_custom_categories(client, user.user_id),
+        )
+        _cache_clear_user(user.user_id)
+
+    remaining = db.remove_pending_question(client, user.user_id, body.merchant)
+    return {"remaining_questions": remaining, "disclaimer": DISCLAIMER}
 
 
 @app.post("/overrides")

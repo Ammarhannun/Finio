@@ -587,6 +587,8 @@ def _():
         "goal_used",
         "period",
         "all_transactions",
+        "llm_categories",
+        "pending_questions",
         "disclaimer",
     }
     assert_eq(set(r.keys()), keys)
@@ -732,6 +734,38 @@ def _():
     out = forecast_spending(pd.DataFrame(rows), {"latest_balance": 1000, "daily_burn_rate": 20})
     assert_true(out["projected_next_month"] > 0)
     assert_eq(out["runway_days"], 50)   # 1000 / 20
+
+
+@test("llm_categoriser: quiz asks about unsure + big transfers, skips known")
+def _():
+    import pandas as pd
+
+    from modules.llm_categoriser import build_questions
+
+    rows = [
+        {"date": "2026-03-01", "amount": -40.0, "flow": "expense",
+         "merchant_clean": "MYSTERY SHOP", "description": "MYSTERY SHOP"},
+        {"date": "2026-03-02", "amount": -300.0, "flow": "transfer",
+         "merchant_clean": "PAYID JOHN", "description": "PAYID JOHN"},
+        {"date": "2026-03-03", "amount": -20.0, "flow": "expense",
+         "merchant_clean": "KNOWN CAFE", "description": "KNOWN CAFE"},
+    ]
+    df = pd.DataFrame(rows)
+    llm = {
+        "MYSTERY SHOP": {"category": None, "confidence": "low"},
+        "KNOWN CAFE": {"category": "Food & Dining", "confidence": "high"},
+    }
+    qs = build_questions(df, llm, overrides=[])
+    merchants = [q["merchant"] for q in qs]
+    assert_in("MYSTERY SHOP", merchants)      # unsure expense → asked
+    assert_in("PAYID JOHN", merchants)        # big transfer → asked
+    assert_true("KNOWN CAFE" not in merchants)  # confident → not asked
+    # Biggest money first, and never more than 6.
+    assert_eq(merchants[0], "PAYID JOHN")
+    assert_true(len(qs) <= 6)
+    # A merchant the user already fixed is never asked about.
+    qs2 = build_questions(df, llm, overrides=[{"match": "MYSTERY SHOP", "category": "Shopping"}])
+    assert_true("MYSTERY SHOP" not in [q["merchant"] for q in qs2])
 
 
 @test("anomaly: flags an outlier charge for its category")

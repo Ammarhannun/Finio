@@ -89,7 +89,19 @@ def rule_category(name):
     return None
 
 
-def categorise_data(df, user_examples=None):
+def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
+                    llm_meta=None):
+    """Categorise expenses. Order of authority:
+    1. keyword rules (deterministic, free)
+    2. LLM (cached per merchant; the accuracy workhorse when a key is set)
+    3. Naive Bayes (offline fallback only)
+    Category overrides (the user's own corrections) are applied AFTER this by
+    the pipeline, so they always win.
+
+    `llm_cache` is {merchant: {category, confidence}} from previous runs — only
+    NEW merchants hit the API. When `llm_meta` (a dict) is supplied it receives
+    the merged cache so the caller can persist it.
+    """
     df = df.copy()
     df["category"] = None
 
@@ -110,7 +122,27 @@ def categorise_data(df, user_examples=None):
     name_col = "merchant_clean" if "merchant_clean" in df.columns else "description"
     df.loc[expense_mask, "category"] = df.loc[expense_mask, name_col].apply(rule_category)
 
-    # 3. ML model only fills genuine unknowns the rules couldn't place.
+    # 3. LLM layer for merchants the rules didn't recognise (cache-first).
+    unknown_mask = expense_mask & df["category"].isna()
+    if unknown_mask.any():
+        from config import CATEGORIES
+        from modules.llm_categoriser import categorise_merchants
+
+        cats = list(categories or CATEGORIES)
+        cache = dict(llm_cache or {})
+        names = df.loc[unknown_mask, name_col].astype(str)
+        new_merchants = [m for m in names.unique() if m not in cache]
+        if new_merchants:
+            fresh = categorise_merchants(new_merchants, cats)
+            if fresh:
+                cache.update(fresh)
+        if llm_meta is not None:
+            llm_meta["cache"] = cache
+        if cache:
+            mapped = names.map(lambda m: (cache.get(m) or {}).get("category"))
+            df.loc[unknown_mask, "category"] = mapped.values
+
+    # 4. Naive Bayes only for whatever is STILL unknown (no key / LLM unsure).
     unknown_mask = expense_mask & df["category"].isna()
     if unknown_mask.any():
         model = get_model(user_examples)

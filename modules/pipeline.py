@@ -144,6 +144,8 @@ def run_full_pipeline(
     age=None,
     overrides=None,
     user_examples=None,
+    llm_cache=None,
+    custom_categories=None,
     budget_targets=None,
     period=None,
     period_anchor=None,
@@ -155,9 +157,14 @@ def run_full_pipeline(
     # read from the filtered slice inside analyze_window.
     full = parse_bank_csv(csv_path)
     full = add_flags(full, overrides=overrides)
-    # user_examples (past corrections) personalise the ML guess so new but
-    # similar merchants get the user's preferred category.
-    full = categorise_data(full, user_examples=user_examples)
+    # user_examples (past corrections) personalise the fallback model; llm_cache
+    # holds previous LLM merchant classifications so only NEW merchants cost a
+    # call. llm_meta collects the merged cache for persistence.
+    from config import CATEGORIES as _CATS
+    cats = list(_CATS) + [c for c in (custom_categories or []) if c not in _CATS]
+    llm_meta = {}
+    full = categorise_data(full, user_examples=user_examples,
+                           llm_cache=llm_cache, categories=cats, llm_meta=llm_meta)
     # Category overrides land AFTER categorisation so a user-chosen category
     # (incl. their custom ones) beats the rules/ML guess.
     full = apply_category_overrides(full, overrides)
@@ -171,6 +178,12 @@ def run_full_pipeline(
     # Persist the WHOLE history (not just the current slice) so the dashboard can
     # re-slice into other periods later without a re-upload.
     result["all_transactions"] = _records(full)
+    # LLM merchant cache + the short "help me categorise" quiz.
+    from modules.llm_categoriser import build_questions
+    result["llm_categories"] = llm_meta.get("cache", llm_cache or {})
+    result["pending_questions"] = build_questions(
+        full, result["llm_categories"], overrides=overrides
+    )
     return result
 
 
