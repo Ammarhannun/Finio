@@ -36,7 +36,17 @@ def main():
         {"id": d["id"], "title": d["title"], "content": d["text"], "embedding": v}
         for d, v in zip(docs, vectors)
     ]
-    db.upsert_kb_chunks(db.get_client(), rows)
+    # kb_chunks is a global table protected by RLS — writing it needs the
+    # service-role key (admin), not the public anon key.
+    client = db.get_admin_client()
+    if client is None:
+        print("SUPABASE_SERVICE_ROLE_KEY is not set in .env — needed to write the"
+              " global kb_chunks table (RLS blocks the anon key).\n"
+              "Find it in Supabase → Settings → API → service_role, add\n"
+              "  SUPABASE_SERVICE_ROLE_KEY=...\n"
+              "to .env, and rerun. Keep that key secret (server-side only).")
+        return
+    db.upsert_kb_chunks(client, rows)
     print(f"Indexed {len(rows)} KB chunks into kb_chunks: "
           + ", ".join(d["id"] for d in docs))
 

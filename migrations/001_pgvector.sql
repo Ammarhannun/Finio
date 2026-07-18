@@ -53,3 +53,9 @@ language sql stable as $$
     order by m.embedding <=> query_embedding::vector
     limit match_count;
 $$;
+
+-- 6. kb_chunks is global, read-only content: anyone may read it; writes go
+--    through the service-role key only (scripts/index_kb.py).
+alter table kb_chunks enable row level security;
+drop policy if exists "kb readable by all" on kb_chunks;
+create policy "kb readable by all" on kb_chunks for select using (true);
