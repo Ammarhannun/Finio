@@ -41,12 +41,19 @@
     <!-- Finio's quick questions — only shows when it's genuinely unsure -->
     <div class="card quiz-card" id="quiz-card" style="display:none;">
       <div class="quiz-head">
-        <span class="section-title">✦ Finio has <span id="quiz-total">0</span> quick questions</span>
-        <span class="quiz-progress" id="quiz-progress"></span>
+        <div class="quiz-kicker">
+          <span class="quiz-kicker-mark" aria-hidden="true">✦</span>
+          <span>Finio has <span id="quiz-total">0</span> quick questions</span>
+        </div>
+        <div class="quiz-progress-wrap">
+          <div class="quiz-progress-bar" id="quiz-progress-bar" aria-hidden="true"><span></span></div>
+          <span class="quiz-progress" id="quiz-progress"></span>
+        </div>
       </div>
       <div class="quiz-body">
         <div class="quiz-merchant" id="quiz-merchant"></div>
         <div class="quiz-meta" id="quiz-meta"></div>
+        <p class="quiz-prompt" id="quiz-prompt"></p>
         <div class="quiz-actions" id="quiz-actions"></div>
       </div>
     </div>
@@ -386,49 +393,87 @@
     card.style.display = 'block';
     const q = quizQuestions[0];
     const totalN = quizAnswered + quizQuestions.length;
+    const step = quizAnswered + 1;
     document.getElementById('quiz-total').textContent = totalN;
-    document.getElementById('quiz-progress').textContent =
-      `${quizAnswered + 1} of ${totalN}`;
+    document.getElementById('quiz-progress').textContent = `${step} / ${totalN}`;
+    const bar = document.querySelector('#quiz-progress-bar span');
+    if (bar) bar.style.width = `${Math.round((step / totalN) * 100)}%`;
     document.getElementById('quiz-merchant').textContent = q.merchant;
     document.getElementById('quiz-meta').textContent =
-      `appears ${q.count}× · ${formatAUD(q.total)} total — what is this?`;
+      `appears ${q.count}× · ${formatAUD(q.total)} total`;
+    document.getElementById('quiz-prompt').textContent = q.kind === 'flow'
+      ? 'Is this money moving between your own accounts, income, or spending?'
+      : 'Which category should Finio use for this?';
 
     const actions = document.getElementById('quiz-actions');
-    const catOpts = txState.categories.map(c => {
-      const e = escapeHtml(c);
-      const sel = q.suggested === c ? ' selected' : '';
-      return `<option value="${e}"${sel}>${e}</option>`;
-    }).join('');
-    actions.innerHTML = `
-      ${q.suggested ? `<button class="btn btn-primary btn-sm" data-act="suggested">${escapeHtml(q.suggested)} ✓</button>` : ''}
-      <span class="quiz-pick">
-        <select id="quiz-cat">${catOpts}</select>
-        <button class="btn btn-outline btn-sm" data-act="category">Set category</button>
-      </span>
-      <button class="btn btn-outline btn-sm" data-act="income">It's income</button>
-      <button class="btn btn-outline btn-sm" data-act="transfer">It's a transfer</button>
-      <button class="link-btn" data-act="skip">Skip</button>`;
+    const catOpts = ['<option value="">Or pick a category…</option>']
+      .concat(txState.categories.map(c => {
+        const e = escapeHtml(c);
+        return `<option value="${e}"${q.kind === 'category' && q.suggested === c ? ' selected' : ''}>${e}</option>`;
+      })).join('');
 
-    actions.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
-      const act = b.dataset.act;
+    if (q.kind === 'flow') {
+      actions.innerHTML = `
+        <div class="quiz-choices">
+          <button type="button" class="quiz-chip primary" data-act="flow" data-flow="transfer">My own transfer</button>
+          <button type="button" class="quiz-chip" data-act="flow" data-flow="income">Income</button>
+          <button type="button" class="quiz-chip" data-act="flow" data-flow="expense">Spending</button>
+        </div>
+        <div class="quiz-secondary">
+          <label class="quiz-select-label" for="quiz-cat">If spending, choose a category</label>
+          <select id="quiz-cat" class="quiz-select">${catOpts}</select>
+        </div>
+        <button type="button" class="quiz-skip" data-act="skip">Skip for now</button>`;
+    } else {
+      actions.innerHTML = `
+        <div class="quiz-choices">
+          ${q.suggested ? `<button type="button" class="quiz-chip primary" data-act="category" data-cat="${escapeHtml(q.suggested)}">${escapeHtml(q.suggested)}</button>` : ''}
+          <button type="button" class="quiz-chip" data-act="flow" data-flow="income">Income</button>
+          <button type="button" class="quiz-chip" data-act="flow" data-flow="transfer">Transfer</button>
+        </div>
+        <div class="quiz-secondary">
+          <label class="quiz-select-label" for="quiz-cat">Different category</label>
+          <select id="quiz-cat" class="quiz-select">${catOpts}</select>
+        </div>
+        <button type="button" class="quiz-skip" data-act="skip">Skip for now</button>`;
+    }
+
+    const sel = actions.querySelector('#quiz-cat');
+    if (sel) sel.addEventListener('change', () => {
+      if (sel.value) answer({ merchant: q.merchant, category: sel.value, flow: 'expense' });
+    });
+
+    actions.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
       const body = { merchant: q.merchant };
-      if (act === 'suggested') body.category = q.suggested;
-      else if (act === 'category') body.category = document.getElementById('quiz-cat').value;
-      else if (act === 'income') body.flow = 'income';
-      else if (act === 'transfer') body.flow = 'transfer';
-      else body.skip = true;
-      actions.querySelectorAll('button').forEach(x => x.disabled = true);
+      if (b.dataset.act === 'flow') {
+        body.flow = b.dataset.flow;
+        if (b.dataset.flow === 'expense') {
+          // Reveal category picker focus instead of guessing a category.
+          const catSel = actions.querySelector('#quiz-cat');
+          if (catSel) { catSel.focus(); return; }
+        }
+      } else if (b.dataset.act === 'category') {
+        body.category = b.dataset.cat;
+        body.flow = 'expense';
+      } else {
+        body.skip = true;
+      }
+      answer(body);
+    }));
+
+    async function answer(body) {
+      actions.querySelectorAll('button, select').forEach(x => { x.disabled = true; });
       try {
         await apiFetch('/quiz', { method: 'POST', body: JSON.stringify(body) });
         quizAnswered += 1;
         if (!body.skip) showToast(`Got it — “${q.merchant}” sorted`);
-        await load();   // numbers + list + remaining questions all refresh
+        await load();
         window.dispatchEvent(new CustomEvent('finio:quiz-answered'));
       } catch (err) {
         showToast(err.message || 'Could not save that answer');
         renderQuiz();
       }
-    }));
+    }
   }
 
   // Coach applied a change from the chat → refresh the list.
