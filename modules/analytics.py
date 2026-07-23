@@ -12,8 +12,9 @@ def compute_averages(df):
     """
     from modules.savings_forecaster import _complete_months
 
-    out = {"daily": None, "weekly": None, "monthly": None,
-           "months_used": 0, "spend_series": [], "top_merchants": []}
+    out = {"daily": None, "weekly": None, "monthly": None, "all": None,
+           "months_used": 0, "spend_series": [], "top_merchants": [],
+           "top_categories": []}
     if df is None or df.empty:
         return out
     df = df.copy()
@@ -28,6 +29,11 @@ def compute_averages(df):
     def block(spent, income):
         return {"spent": round(spent, 2), "income": round(income, 2),
                 "saved": round(income - spent, 2)}
+
+    # True all-time totals across the whole statement (the "All" tab). Every
+    # transaction edit in any month moves these — unlike the stored per-slice
+    # metrics, which only cover the latest window.
+    out["all"] = block(total_spent, total_income)
 
     if days > 0:
         d_sp, d_in = total_spent / days, total_income / days
@@ -68,6 +74,14 @@ def compute_averages(df):
         out["top_merchants"] = [
             {"merchant": m, "total": round(float(v), 2)}
             for m, v in top.head(5).items() if v > 0
+        ]
+        # All-time category breakdown (for the all-time AI insight).
+        cat = (-exp.groupby(exp["category"].astype(str))["amount"].sum()).sort_values(ascending=False)
+        cat = cat[cat > 0]
+        tot = float(cat.sum()) or 1.0
+        out["top_categories"] = [
+            {"category": c, "amount": round(float(v), 2), "pct": round(v / tot * 100, 1)}
+            for c, v in cat.head(3).items()
         ]
     return out
 

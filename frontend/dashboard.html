@@ -242,12 +242,16 @@
 
     let inc, sp, sv, subIncome, subSpent, subSaved, labelPrefix;
     if (span === 'all') {
-      inc = m.total_income; sp = m.total_spent; sv = m.net_saved;
+      // True all-time totals (every month), not the latest stored slice — so
+      // any transaction edit anywhere moves these numbers.
+      const a = averages.all || { income: m.total_income, spent: m.total_spent, saved: m.net_saved };
+      inc = a.income; sp = a.spent; sv = a.saved;
+      const rate = inc > 0 ? Math.round((sv / inc) * 100) : null;
       labelPrefix = '';
-      subIncome = 'total received';
-      subSpent = m.daily_burn_rate ? `${formatAUD(m.daily_burn_rate)}/day burn` : '';
+      subIncome = 'total received, all time';
+      subSpent = m.daily_burn_rate ? `${formatAUD(m.daily_burn_rate)}/day burn` : 'all time';
       subSaved = sv >= 0
-        ? `Income − Spending${m.savings_rate != null ? ` · ${m.savings_rate}% saved` : ''}`
+        ? `Income − Spending${rate != null ? ` · ${rate}% saved` : ''}`
         : 'You spent more than you earned';
     } else {
       const a = averages[span];

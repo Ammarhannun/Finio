@@ -322,7 +322,12 @@ nav {
 }
 
 /* ── Layout ── */
-main { max-width: 940px; margin: 0 auto; padding: 2.25rem 1.5rem 4rem; }
+/* Wide, breathable canvas so the dashboard grids spread across the screen
+   instead of hugging a narrow centre column. Content-heavy pages get the full
+   width; single forms/chat cap their own width below so they stay readable. */
+main { max-width: 1240px; margin: 0 auto; padding: 2.25rem 2rem 4rem; }
+@media (min-width: 1500px) { main { max-width: 1340px; } }
+@media (max-width: 640px) { main { padding: 1.5rem 1.1rem 3rem; } }
 
 .page-header { margin-bottom: 2rem; }
 .page-header h1 { font-size: 1.95rem; font-weight: 700; letter-spacing: -0.03em; }
