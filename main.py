@@ -540,6 +540,31 @@ def update_profile(
     return _profile_payload(client, user)
 
 
+def _alltime_insight_context(data):
+    """Build an insight context from ALL-TIME figures so the recap matches the
+    dashboard's 'All' view (not a partial latest-month slice). Falls back to the
+    stored slice context for older snapshots without averages."""
+    avg = data.get("averages") or {}
+    alltime = avg.get("all")
+    if not alltime:
+        return data.get("context")
+    from config import MIN_INCOME_FOR_RATE
+    inc = alltime.get("income") or 0
+    saved = alltime.get("saved") or 0
+    # A savings-rate % is noise when income is near zero (e.g. income arriving as
+    # not-yet-classified transfers) — omit it rather than show -1900%.
+    rate = round(saved / inc * 100, 1) if inc >= MIN_INCOME_FOR_RATE else None
+    return {
+        "currency": "AUD",
+        "income": inc,
+        "spent": alltime.get("spent") or 0,
+        "saved": saved,
+        "savings_rate": rate,
+        "top_categories": avg.get("top_categories", []),
+        "period_label": "all time",
+    }
+
+
 @app.get("/insight")
 def insight(
     period: Optional[str] = None,
@@ -557,7 +582,7 @@ def insight(
         cached = db.get_cached_insight(client, user.user_id)
         if cached:
             return cached
-        context = data.get("context")
+        context = _alltime_insight_context(data)
         if not context:
             raise HTTPException(status_code=404, detail="No insight yet — upload a statement first")
         result = generate_insight(context)
