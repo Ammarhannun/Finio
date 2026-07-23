@@ -218,7 +218,12 @@ def upsert_goal(client, user_id, goal_amount, goal_date, current_saved):
 
 
 def upsert_budgets(client, user_id, month, budget_rows):
+    # suggested_limit is None for categories with no target/baseline yet (the
+    # honest "no budget set" state) — monthly_limit is NOT NULL, so there's
+    # nothing meaningful to persist for those; skip them rather than error.
     for row in budget_rows:
+        if row.get("suggested_limit") is None:
+            continue
         client.table("budgets").upsert(
             {
                 "user_id": user_id,
