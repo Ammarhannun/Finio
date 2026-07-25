@@ -90,7 +90,7 @@
           spendPeriod = value.startsWith('month:')
             ? { period: 'monthly', month: value.slice(6) }
             : { period: value, month: null };
-        }, getStoredPeriod());
+        }, getStoredPeriod(), 'Window');
     } catch (_) {}
   }
 

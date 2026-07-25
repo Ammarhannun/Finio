@@ -88,15 +88,18 @@ async def analyze_csv(
         user_examples = None
         saved_custom = None
         saved_llm_cache = None
+        saved_bracket = None
         if user:
             try:
                 _client = db.get_client(user.token)
                 saved_overrides = db.get_overrides(_client, user.user_id)
                 saved_custom = db.get_custom_categories(_client, user.user_id)
                 saved_llm_cache = db.get_llm_categories(_client, user.user_id)
+                saved_bracket = (db.get_user_profile(_client, user.user_id) or {}).get("income_bracket")
                 user_examples = examples_from_overrides(saved_overrides)
             except Exception:
                 saved_overrides = user_examples = saved_custom = saved_llm_cache = None
+                saved_bracket = None
 
         result = run_full_pipeline(
             tmp_path,
@@ -107,6 +110,7 @@ async def analyze_csv(
             user_examples=user_examples,
             llm_cache=saved_llm_cache,
             custom_categories=saved_custom,
+            income_bracket=saved_bracket,
             period=period,
             period_start=period_start,
             period_end=period_end,
@@ -224,6 +228,7 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
         all_tx,
         goal_amount=goal.get("target_amount"),
         goal_date=goal.get("target_date"),
+        income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
         overrides=db.get_overrides(client, user.user_id),
         period=period,
         period_anchor=f"{month}-01" if month else None,

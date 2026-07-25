@@ -49,7 +49,8 @@ def get_client():
     return OpenAI()
 
 
-def build_context(metrics, analysis, bills, budgets=None, invest=None, personality=None):
+def build_context(metrics, analysis, bills, budgets=None, invest=None, personality=None,
+                  income_bracket=None):
     saved = metrics["net_saved"]
     breakdown = analysis.get("category_breakdown", [])[:3]
     patterns = [p["message"] for p in analysis.get("patterns", [])]
@@ -75,6 +76,10 @@ def build_context(metrics, analysis, bills, budgets=None, invest=None, personali
         context["can_invest"] = invest.get("readiness", {}).get("can_invest", False)
         context["invest_readiness_reason"] = invest.get("readiness", {}).get("reason")
         context["etf_recommended"] = invest.get("etf", {}).get("recommended")
+    if income_bracket:
+        # Lets the coach tailor advice (a student and a full-time earner need
+        # different framing) instead of giving one generic answer.
+        context["situation"] = income_bracket
     if personality:
         context["personality_type"] = personality.get("personality_type")
         context["savings_rate"] = personality.get("savings_rate")
