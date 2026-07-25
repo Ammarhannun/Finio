@@ -22,6 +22,20 @@
     <div id="auth-error" class="auth-error"></div>
     <div id="auth-success" class="auth-success"></div>
 
+    <!-- Shown after signup: the account is not usable until the email link is
+         clicked, so say that plainly instead of dropping them on a login form
+         that will reject them. -->
+    <div id="verify-panel" class="verify-panel" style="display:none;">
+      <div class="verify-mark">✉</div>
+      <h2 class="verify-title">Check your email</h2>
+      <p class="verify-text">
+        We sent a confirmation link to <b id="verify-email"></b>.
+        Click it to activate your account, then come back and log in.
+      </p>
+      <p class="verify-hint">No email after a minute? Check your spam folder.</p>
+      <button type="button" class="btn btn-outline btn-full" id="verify-back">Back to log in</button>
+    </div>
+
     <form id="auth-form">
       <div class="form-group">
         <label for="email">Email</label>
@@ -29,7 +43,7 @@
       </div>
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password" minlength="6">
+        <input type="password" id="password" placeholder="Your password" required autocomplete="current-password" minlength="6">
       </div>
       <div class="form-group" id="age-group" style="display:none;">
         <label for="age">Your age <span style="color:var(--muted);font-weight:400;">(for personalised invest tips)</span></label>
@@ -77,6 +91,26 @@
     localStorage.removeItem('finio-signup-age');
   }
 
+  const verifyPanel = document.getElementById('verify-panel');
+  const authForm = document.getElementById('auth-form');
+  const tabsEl = document.querySelector('.auth-tabs');
+
+  function showVerifyPanel(email) {
+    document.getElementById('verify-email').textContent = email;
+    verifyPanel.style.display = 'block';
+    authForm.style.display = 'none';
+    tabsEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    successEl.style.display = 'none';
+  }
+
+  document.getElementById('verify-back').addEventListener('click', () => {
+    verifyPanel.style.display = 'none';
+    authForm.style.display = 'block';
+    tabsEl.style.display = '';
+    setMode('login');
+  });
+
   tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
 
   // Arriving from the landing "Get started" button → open on the signup tab.
@@ -103,9 +137,7 @@
         if (error) throw error;
         const ageVal = document.getElementById('age').value;
         if (ageVal) localStorage.setItem('finio-signup-age', ageVal);
-        successEl.textContent = 'Check your email to confirm your account, then log in here.';
-        successEl.style.display = 'block';
-        setMode('login');
+        showVerifyPanel(email);
       }
     } catch (err) {
       errorEl.textContent = err.message;
