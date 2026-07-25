@@ -562,7 +562,7 @@ def coach_chat(user_message, context, history=None, transactions=None):
 def explain_budgets(budgets_result, context):
     system = (
         f"{COACH_SYSTEM_PROMPT}\n\n"
-        "Explain these suggested monthly budgets in plain English for a young Australian. "
+        "Explain these suggested monthly budgets in plain English. "
         "Keep it under 120 words.\n\n"
         f"Context:\n{json.dumps(context)}\n\n"
         f"Budgets:\n{json.dumps(budgets_result.get('budgets', [])[:5])}"
@@ -612,7 +612,7 @@ def explain_etf_nudge(invest_result, context):
     etf = invest_result.get("etf", {})
     system = (
         f"{COACH_SYSTEM_PROMPT}\n\n"
-        "Explain why this ETF might suit a young Australian investor. "
+        "Explain why this kind of ETF might suit a long-term investor. "
         "Do not say buy or sell. Under 80 words.\n\n"
         f"Context:\n{json.dumps(context)}\n\n"
         f"ETF info:\n{json.dumps(etf)}"
