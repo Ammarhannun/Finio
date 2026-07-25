@@ -819,6 +819,29 @@ def _():
     assert_eq(qs["TRANSFER TO A FRIEND"]["suggested"], "transfer")
 
 
+@test("eval: categoriser and retrieval stay above their quality floors")
+def _():
+    # The offline half of the evaluation harness runs as a regression guard, so
+    # a change that quietly makes the AI worse fails here instead of shipping.
+    from eval.run_eval import (
+        MIN_CATEGORY_F1,
+        MIN_RETRIEVAL_HIT_RATE,
+        eval_categoriser,
+        eval_retrieval,
+    )
+
+    cat = eval_categoriser()
+    assert_true(
+        cat["f1_macro"] >= MIN_CATEGORY_F1,
+        f"categoriser macro F1 {cat['f1_macro']} below floor {MIN_CATEGORY_F1}",
+    )
+    ret = eval_retrieval()
+    assert_true(
+        ret["hit_rate"] >= MIN_RETRIEVAL_HIT_RATE,
+        f"retrieval hit-rate {ret['hit_rate']} below floor {MIN_RETRIEVAL_HIT_RATE}",
+    )
+
+
 @test("anomaly: flags an outlier charge for its category")
 def _():
     import pandas as pd

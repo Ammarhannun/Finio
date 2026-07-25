@@ -1,0 +1,21 @@
+[
+  {"query": "what is an ETF and how does diversification work", "expected_id": "etf"},
+  {"query": "should I buy index funds on the ASX", "expected_id": "etf"},
+  {"query": "what is the expense ratio on a fund", "expected_id": "etf"},
+
+  {"query": "how does superannuation work in Australia", "expected_id": "super"},
+  {"query": "my employer pays into my retirement fund", "expected_id": "super"},
+  {"query": "should I consolidate my super funds", "expected_id": "super"},
+
+  {"query": "how do I repay my student loan", "expected_id": "hecs"},
+  {"query": "what is HECS indexation", "expected_id": "hecs"},
+  {"query": "uni tuition debt repayment threshold", "expected_id": "hecs"},
+
+  {"query": "money set aside for a rainy day", "expected_id": "emergency-fund"},
+  {"query": "how much cash should I keep for surprises", "expected_id": "emergency-fund"},
+  {"query": "what if my car breaks down and I have no savings", "expected_id": "emergency-fund"},
+
+  {"query": "how should I split my paycheck", "expected_id": "budgeting"},
+  {"query": "what is the 50 30 20 rule", "expected_id": "budgeting"},
+  {"query": "planning where my money goes each month", "expected_id": "budgeting"}
+]
