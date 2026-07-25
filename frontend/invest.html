@@ -48,7 +48,7 @@
     </div>
 
     <!-- Readiness banner -->
-    <div id="readiness-banner" class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;"></div>
+    <div id="readiness-banner" class="card readiness-card"></div>
 
     <!-- 50/30/20 split -->
     <div class="section-title">50/30/20 budget rule</div>
@@ -95,7 +95,7 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
-           formatMonthYear, mountPeriodBar, periodQuery, getStoredPeriod } from './api.js';
+           formatMonthYear, mountPeriodBar, periodQuery, getStoredPeriod, escapeHtml } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('invest');
@@ -134,22 +134,47 @@
       optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No options to show yet</p>';
     }
 
-    // Readiness banner
+    // Readiness: show the whole journey, not a yes/no. Every gate, how close
+    // they are, what to fix first, and when the buffer would clear.
     const readinessEl = document.getElementById('readiness-banner');
     if (readiness) {
-      const canInvest = readiness.can_invest;
-      readinessEl.style.background = canInvest
-        ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)';
-      readinessEl.style.border = canInvest
-        ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(245,158,11,0.3)';
+      const can = readiness.can_invest;
+      const done = readiness.steps_done ?? 0;
+      const total = readiness.steps_total ?? 0;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      const checks = readiness.checks || [];
+
+      const fmt = (c) => c.unit === 'pct'
+        ? `${c.current}% of ${c.target}%`
+        : `${formatAUD(c.current)} of ${formatAUD(c.target)}`;
+
+      readinessEl.className = 'card readiness-card' + (can ? ' ready' : '');
       readinessEl.innerHTML = `
-        <span style="font-size:2rem;">${canInvest ? '✓' : '◷'}</span>
-        <div>
-          <div style="font-size:1.0625rem;font-weight:700;color:${canInvest ? 'var(--green)' : 'var(--yellow)'};">
-            ${canInvest ? "You're ready to invest!" : "Not quite ready yet"}
+        <div class="readiness-head">
+          <div>
+            <div class="readiness-title">${can ? 'You’re ready to invest' : 'Getting you ready to invest'}</div>
+            <p class="readiness-sub">${escapeHtml(readiness.reason || '')}</p>
           </div>
-          <div style="color:var(--muted);font-size:0.875rem;margin-top:0.2rem;">${readiness.reason || ''}</div>
-        </div>`;
+          <div class="readiness-score">
+            <div class="readiness-score-num">${done}<span>/${total}</span></div>
+            <div class="readiness-score-label">steps done</div>
+          </div>
+        </div>
+        <div class="progress-bar readiness-bar">
+          <div class="progress-fill ${can ? 'green' : pct >= 50 ? 'yellow' : 'red'}" style="width:${Math.max(pct, 4)}%"></div>
+        </div>
+        <ol class="readiness-steps">
+          ${checks.map((c, i) => `
+            <li class="readiness-step${c.passed ? ' done' : ''}${!c.passed && checks.slice(0, i).every(x => x.passed) ? ' next' : ''}">
+              <span class="readiness-mark">${c.passed ? '✓' : i + 1}</span>
+              <div>
+                <div class="readiness-step-label">${escapeHtml(c.label)}</div>
+                <div class="readiness-step-meta">${fmt(c)}${c.passed ? '' : ' · ' + escapeHtml(c.fix)}</div>
+              </div>
+            </li>`).join('')}
+        </ol>
+        ${readiness.ready_when
+          ? `<p class="readiness-when">✦ ${escapeHtml(readiness.ready_when.text)}</p>` : ''}`;
     }
 
     // 50/30/20 split

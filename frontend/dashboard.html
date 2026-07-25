@@ -142,6 +142,7 @@
         <div id="goal-recommend">
           <div class="goal-amount" id="goal-amount-display">—</div>
           <p id="goal-rationale" class="goal-rationale"></p>
+          <div id="goal-presets" class="goal-presets"></div>
         </div>
 
         <div id="goal-progress" class="goal-progress"></div>
@@ -395,41 +396,105 @@
   }
 
   // ── Budget bars ──
+  // Budgets are editable inline: click the amount to set your own monthly
+  // limit, or clear it to fall back to Finio's suggestion.
+  let budgetTargets = {};
+
   function renderBudgets(data) {
+    budgetTargets = data.budget_targets || budgetTargets || {};
     const budgetList = (data.budgets?.budgets || []).filter(b =>
       (b.actual_spend || 0) > 0 || b.suggested_limit != null);
     const barsEl = document.getElementById('budget-bars');
     barsEl.innerHTML = budgetList.length ? budgetList.map(b => {
       const cat = escapeHtml(b.category);
       const hasLimit = b.suggested_limit != null && b.suggested_limit > 0;
+      const isMine = b.limit_source === 'target';
       let bar, footer, amounts;
       if (hasLimit) {
         const headroom = b.headroom_pct ?? 0;
         const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
         const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
         bar = `<div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div></div>`;
-        footer = `${headroom.toFixed(0)}% headroom left`;
-        amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> ${formatAUD(b.suggested_limit)}`;
+        footer = `${headroom.toFixed(0)}% headroom left`
+          + (isMine ? ' · your limit' : ' · suggested');
+        amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> `
+          + `<button type="button" class="budget-limit" data-cat="${cat}" title="Set your own limit">${formatAUD(b.suggested_limit)}</button>`;
       } else {
         bar = `<div class="progress-bar"><div class="progress-fill neutral" style="width:100%"></div></div>`;
-        footer = 'No budget yet — set after your next month';
-        amounts = `${formatAUD(b.actual_spend)}`;
+        footer = 'No budget yet';
+        amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> `
+          + `<button type="button" class="budget-limit set" data-cat="${cat}" title="Set a monthly limit">Set limit</button>`;
       }
       return `
-        <div class="budget-row" data-category="${cat}" role="button" tabindex="0" title="Edit this category's transactions">
-          <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
-            <span style="font-weight:500;">${cat} <span class="budget-edit-hint">edit ›</span></span>
-            <span style="color:var(--muted);">${amounts}</span>
+        <div class="budget-row" data-category="${cat}">
+          <div class="budget-row-head">
+            <button type="button" class="budget-name" data-category="${cat}" title="See this category's transactions">${cat} <span class="budget-edit-hint">›</span></button>
+            <span class="budget-amounts">${amounts}</span>
           </div>
           ${bar}
-          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.3rem;text-align:right;">${footer}</div>
+          <div class="budget-foot">${footer}</div>
         </div>`;
     }).join('') : '<p style="color:var(--muted);font-size:0.875rem;">No spending yet</p>';
 
-    barsEl.querySelectorAll('.budget-row').forEach(r => {
-      const go = () => { window.location.href = 'transactions.html#cat=' + encodeURIComponent(r.dataset.category); };
-      r.addEventListener('click', go);
-      r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+    // Inline limit editing
+    barsEl.querySelectorAll('.budget-limit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBudgetEditor(btn);
+      });
+    });
+
+    barsEl.querySelectorAll('.budget-name').forEach(r => {
+      r.addEventListener('click', () => {
+        window.location.href = 'transactions.html#cat=' + encodeURIComponent(r.dataset.category);
+      });
+    });
+  }
+
+  function openBudgetEditor(btn) {
+    const category = btn.dataset.cat;
+    const current = budgetTargets[category];
+    const row = btn.closest('.budget-row');
+    if (row.querySelector('.budget-editor')) return;
+
+    const box = document.createElement('div');
+    box.className = 'budget-editor';
+    box.innerHTML = `
+      <input type="number" min="0" step="10" placeholder="Monthly limit"
+             value="${current != null ? current : ''}" aria-label="Monthly limit for ${escapeHtml(category)}">
+      <button type="button" class="btn btn-primary btn-sm" data-act="save">Save</button>
+      ${current != null ? '<button type="button" class="link-btn" data-act="clear">Clear</button>' : ''}
+      <button type="button" class="link-btn" data-act="cancel">Cancel</button>`;
+    row.appendChild(box);
+    const input = box.querySelector('input');
+    input.focus();
+    input.select();
+
+    const close = () => box.remove();
+    box.querySelector('[data-act="cancel"]').addEventListener('click', close);
+
+    async function save(value) {
+      box.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+      try {
+        await apiFetch('/budgets', { method: 'POST',
+          body: JSON.stringify({ targets: { [category]: value } }) });
+        showToast(value == null ? `Cleared the ${category} budget` : `${category} budget saved`);
+        await loadDashboard();
+      } catch (err) {
+        showToast(err.message || 'Could not save that budget');
+        box.querySelectorAll('button, input').forEach(el => { el.disabled = false; });
+      }
+    }
+    box.querySelector('[data-act="save"]').addEventListener('click', () => {
+      const v = parseFloat(input.value);
+      if (!(v >= 0)) { showToast('Enter a limit of 0 or more'); return; }
+      save(v);
+    });
+    const clearBtn = box.querySelector('[data-act="clear"]');
+    if (clearBtn) clearBtn.addEventListener('click', () => save(null));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') box.querySelector('[data-act="save"]').click();
+      if (e.key === 'Escape') close();
     });
   }
 
@@ -473,6 +538,25 @@
     document.getElementById('goal-rationale').textContent =
       rec?.rationale || 'Set a savings goal and your coach will track your progress.';
 
+    // Preset pace options — each says what it costs per month, so the choice
+    // is about pace rather than a number plucked from nowhere.
+    const presetsEl = document.getElementById('goal-presets');
+    const presets = rec?.presets || [];
+    if (presets.length) {
+      presetsEl.innerHTML = presets.map(p => `
+        <button type="button" class="goal-preset${amount && Number(amount) === p.amount ? ' active' : ''}"
+                data-amount="${p.amount}" data-date="${p.target_date}">
+          <span class="goal-preset-label">${p.label}</span>
+          <span class="goal-preset-amount">${formatAUD(p.amount)}</span>
+          <span class="goal-preset-rate">${formatAUD(p.per_month)}/mo · ${p.months} months</span>
+        </button>`).join('');
+      presetsEl.querySelectorAll('.goal-preset').forEach(btn =>
+        btn.addEventListener('click', () => saveGoal(
+          Number(btn.dataset.amount), btn.dataset.date)));
+    } else {
+      presetsEl.innerHTML = '';
+    }
+
     const progressEl = document.getElementById('goal-progress');
     if (forecast && (goal || rec)) {
       const current = forecast.current_saved ?? 0;
@@ -491,6 +575,20 @@
         </div>`;
     } else {
       progressEl.innerHTML = '';
+    }
+  }
+
+  async function saveGoal(amount, targetDate) {
+    if (!amount || !targetDate) { showToast('Pick an amount and a date'); return; }
+    try {
+      await apiFetch('/goal', { method: 'POST',
+        body: JSON.stringify({ amount, target_date: targetDate }) });
+      goalForm.style.display = 'none';
+      document.getElementById('goal-edit-toggle').textContent = 'Edit';
+      await loadDashboard();
+      showToast('Goal updated');
+    } catch (err) {
+      showToast(err.message || 'Could not save goal');
     }
   }
 
@@ -555,7 +653,8 @@
   }
 
   // Coach applied a change from the chat → refresh the numbers.
-  window.addEventListener('finio:overrides-applied', () => loadDashboard());
+  ['finio:overrides-applied','finio:budgets-applied','finio:goal-applied','finio:profile-applied']
+    .forEach(ev => window.addEventListener(ev, () => loadDashboard()));
 
   // ── Re-analyse ──
   document.getElementById('stale-reanalyze').addEventListener('click', () =>

@@ -375,6 +375,7 @@ def load_dashboard(client, user_id):
         "goal_recommendation": summary.get("goal_recommendation"),
         "streak": streak,
         "goal": goal,
+        "budget_targets": summary.get("budget_targets", {}) or {},
         # True when the stored snapshot was computed by older analysis logic —
         # the frontend nudges the user to hit Re-analyse.
         "snapshot_stale": (summary.get("snapshot_version") or 0) < _snapshot_version(),
@@ -396,6 +397,7 @@ def persist_analysis(
     income_bracket=None,
     overrides=None,
     custom_categories=None,
+    budget_targets=None,
 ):
     user = get_user(access_token)
     user_id = user.id
@@ -435,6 +437,8 @@ def persist_analysis(
     if custom_categories is not None:
         summary_json["custom_categories"] = custom_categories
     summary_json["llm_categories"] = result.get("llm_categories", {})
+    if budget_targets is not None:
+        summary_json["budget_targets"] = budget_targets
     summary_json["pending_questions"] = result.get("pending_questions", [])
     from config import SNAPSHOT_VERSION
     summary_json["snapshot_version"] = SNAPSHOT_VERSION
@@ -497,6 +501,35 @@ def get_custom_categories(client, user_id):
     if row:
         return (row.get("summary_json") or {}).get("custom_categories", [])
     return []
+
+
+def get_budget_targets(client, user_id):
+    """The user's own monthly budget limits ({category: amount}), stored in the
+    snapshot JSON like overrides so no extra table is needed."""
+    row = get_latest_snapshot(client, user_id)
+    if row:
+        return (row.get("summary_json") or {}).get("budget_targets", {}) or {}
+    return {}
+
+
+def save_budget_targets(client, user_id, targets, resliced=None):
+    """Persist edited budget limits and refresh the stored numbers so every page
+    reflects them immediately."""
+    row = get_latest_snapshot(client, user_id)
+    if not row:
+        return {}
+    summary = row.get("summary_json") or {}
+    summary["budget_targets"] = targets
+    summary.pop("insight", None)          # numbers changed
+    if resliced:
+        for key in ("metrics", "analysis", "budgets", "invest", "context",
+                    "personality", "goal_recommendation"):
+            if key in resliced:
+                summary[key] = resliced[key]
+    month = row["month"]
+    month_date = f"{month}-01" if len(str(month)) == 7 else month
+    save_snapshot(client, user_id, month_date, summary)
+    return targets
 
 
 def get_llm_categories(client, user_id):

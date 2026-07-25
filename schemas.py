@@ -41,6 +41,13 @@ class ProfileRequest(BaseModel):
     custom_categories: Optional[List[str]] = None
 
 
+class BudgetRequest(BaseModel):
+    """Set or clear monthly budget limits. `{"Groceries": 400}` sets one;
+    a null value clears it back to the suggested baseline."""
+
+    targets: dict = Field(default_factory=dict)
+
+
 class QuizRequest(BaseModel):
     """One quiz answer: categorise/flow a merchant, or skip the question."""
 

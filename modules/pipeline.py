@@ -116,7 +116,8 @@ def analyze_window(
     analysis = analyze(df, metrics, bills)
     baseline = _category_spend(prior_df) or None
     budgets = suggest_budgets(df, metrics, targets=budget_targets, baseline=baseline)
-    invest = invest_summary(df, metrics, forecast, goal_amount, age=age)
+    invest = invest_summary(df, metrics, forecast, goal_amount, age=age,
+                            monthly_saved=monthly_net_average(full))
     personality = score_personality(df, metrics, analysis, bills)
     snapshot = build_snapshot(df, metrics, analysis, bills)
     context = build_context(metrics, analysis, bills, budgets, invest, personality,
@@ -210,6 +211,7 @@ def analyze_stored(
     age=None,
     income_bracket=None,
     overrides=None,
+    budget_targets=None,
     period=None,
     period_anchor=None,
     period_start=None,
@@ -239,7 +241,7 @@ def analyze_stored(
     return analyze_window(
         full,
         goal_amount=goal_amount, goal_date=goal_date, age=age,
-        income_bracket=income_bracket, period=period,
+        income_bracket=income_bracket, budget_targets=budget_targets, period=period,
         period_anchor=period_anchor, period_start=period_start, period_end=period_end,
     )
 
@@ -296,7 +298,8 @@ def recompute_for_goal(transactions, metrics, *, goal_amount, goal_date, age):
     """
     df = _transactions_to_df(transactions)
     forecast = forecast_goal(df, goal_amount, goal_date)
-    invest = invest_summary(df, metrics, forecast, goal_amount, age=age)
+    invest = invest_summary(df, metrics, forecast, goal_amount, age=age,
+                            monthly_saved=monthly_net_average(full))
     return {"forecast": forecast, "invest": invest}
 
 
