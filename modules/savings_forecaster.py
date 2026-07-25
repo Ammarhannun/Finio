@@ -84,7 +84,16 @@ def monthly_net_average(df):
     return float(monthly.mean()) if len(monthly) else 0.0
 
 
-def recommend_goal(metrics, horizon_months=6, monthly_saved=None):
+# How many months of spending make a sensible starter buffer, by situation.
+# Someone working full time can realistically hold more; a student on little or
+# no income shouldn't be handed an intimidating target.
+_BUFFER_MONTHS = {
+    "student": 0.5, "not_earning": 0.5, "part_time": 1.0, "full_time": 1.5,
+}
+
+
+def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
+                   income_bracket=None):
     """Suggest a savings goal (amount + date) from the user's actual numbers.
 
     Scales the target to what the user really saves per month so it feels
@@ -111,12 +120,16 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None):
         return int(round(x / 100.0)) * 100
 
     if monthly_saved <= 0:
-        # One month of spending makes a meaningful first buffer; floor at $500.
+        # A starter buffer sized to the user's situation (see _BUFFER_MONTHS);
+        # floor at $500 so it's never a token amount.
+        months = _BUFFER_MONTHS.get(income_bracket, 1.0)
         monthly_spend = (metrics.get("total_spent", 0) or 0) / days * 30 if days else 0
-        amount = max(_round100(monthly_spend), 500)
+        amount = max(_round100(monthly_spend * months), 500)
+        how_long = "half a month" if months < 1 else (
+            "a month" if months == 1 else f"{months:g} months")
         rationale = (
             "You spent more than you earned this period, so start with a safety "
-            f"buffer. About ${amount:,} covers roughly a month of your spending."
+            f"buffer. About ${amount:,} covers roughly {how_long} of your spending."
         )
     else:
         amount = max(_round100(monthly_saved * horizon_months), 500)

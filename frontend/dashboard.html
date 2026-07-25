@@ -69,11 +69,14 @@
         <p id="date-range" class="dash-sub"></p>
       </div>
       <div class="dash-controls">
-        <div class="segmented" id="period-segments" title="Show your usual spending per day / week / month, or everything">
-          <button type="button" data-period="daily">Day</button>
-          <button type="button" data-period="weekly">Week</button>
-          <button type="button" data-period="monthly">Month</button>
-          <button type="button" data-period="all">All</button>
+        <div class="period-bar" title="Your usual spending per day / week / month, or all-time totals">
+          <span class="period-tag">Usual</span>
+          <div class="segmented" id="period-segments">
+            <button type="button" data-period="daily">Day</button>
+            <button type="button" data-period="weekly">Week</button>
+            <button type="button" data-period="monthly">Month</button>
+            <button type="button" data-period="all">All</button>
+          </div>
         </div>
         <button id="reanalyze-btn" class="btn btn-outline btn-sm" title="Recompute from your saved data, no re-upload needed">Re-analyse</button>
         <button id="reupload-btn" class="btn btn-outline btn-sm">Upload new statement</button>

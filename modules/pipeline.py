@@ -71,6 +71,7 @@ def analyze_window(
     goal_amount=None,
     goal_date=None,
     age=None,
+    income_bracket=None,
     budget_targets=None,
     period=None,
     period_anchor=None,
@@ -99,7 +100,8 @@ def analyze_window(
     # dashboard has something sensible to show before they confirm/edit it. Use
     # the robust monthly average over the WHOLE history (not just this slice) so
     # the suggested amount doesn't swing with a daily/weekly view.
-    recommendation = recommend_goal(metrics, monthly_saved=monthly_net_average(full))
+    recommendation = recommend_goal(metrics, monthly_saved=monthly_net_average(full),
+                                  income_bracket=income_bracket)
     if goal_amount is None:
         goal_amount = recommendation["amount"]
     if goal_date is None:
@@ -117,7 +119,8 @@ def analyze_window(
     invest = invest_summary(df, metrics, forecast, goal_amount, age=age)
     personality = score_personality(df, metrics, analysis, bills)
     snapshot = build_snapshot(df, metrics, analysis, bills)
-    context = build_context(metrics, analysis, bills, budgets, invest, personality)
+    context = build_context(metrics, analysis, bills, budgets, invest, personality,
+                           income_bracket=income_bracket)
 
     return {
         "metrics": metrics,
@@ -156,6 +159,7 @@ def run_full_pipeline(
     user_examples=None,
     llm_cache=None,
     custom_categories=None,
+    income_bracket=None,
     budget_targets=None,
     period=None,
     period_anchor=None,
@@ -182,6 +186,7 @@ def run_full_pipeline(
     result = analyze_window(
         full,
         goal_amount=goal_amount, goal_date=goal_date, age=age,
+        income_bracket=income_bracket,
         budget_targets=budget_targets, period=period,
         period_anchor=period_anchor, period_start=period_start, period_end=period_end,
     )
@@ -203,6 +208,7 @@ def analyze_stored(
     goal_amount=None,
     goal_date=None,
     age=None,
+    income_bracket=None,
     overrides=None,
     period=None,
     period_anchor=None,
@@ -232,7 +238,8 @@ def analyze_stored(
         full["is_expense"] = full["flow"] == FLOW_EXPENSE
     return analyze_window(
         full,
-        goal_amount=goal_amount, goal_date=goal_date, age=age, period=period,
+        goal_amount=goal_amount, goal_date=goal_date, age=age,
+        income_bracket=income_bracket, period=period,
         period_anchor=period_anchor, period_start=period_start, period_end=period_end,
     )
 

@@ -225,22 +225,43 @@ export function periodQuery(value) {
   return `period=${encodeURIComponent(value || 'monthly')}`;
 }
 
-// Mount a period <select> into `container`. `onChange(value)` fires on change.
-// Defaults to the platform-wide stored period and persists every change.
-export function mountPeriodBar(container, months, onChange, current = getStoredPeriod()) {
+// Short labels for the shared segmented control (same widget the dashboard
+// uses, so the whole platform looks and behaves alike).
+const SEGMENTS = [
+  { value: 'daily', label: 'Day' },
+  { value: 'weekly', label: 'Week' },
+  { value: 'monthly', label: 'Month' },
+  { value: 'all', label: 'All' },
+];
+
+/**
+ * Mount the platform period control.
+ *
+ * The dashboard asks "what do I USUALLY spend per day/week/month", while
+ * Patterns / Invest / Spend Check analyse ONE window of transactions. Same
+ * control, same stored value — the `tag` spells out which question this page
+ * is answering so the numbers are never ambiguous.
+ */
+export function mountPeriodBar(container, months, onChange,
+                               current = getStoredPeriod(), tag = 'Window') {
   if (!container) return;
   container.innerHTML = `
     <div class="period-bar">
-      <span class="period-tag">Period</span>
-      <select aria-label="Time period">
-        ${BASE_PERIODS.map(p =>
-          `<option value="${p.value}"${p.value === current ? ' selected' : ''}>${p.label}</option>`
+      <span class="period-tag">${tag}</span>
+      <div class="segmented" role="group" aria-label="Time period">
+        ${SEGMENTS.map(p =>
+          `<button type="button" data-period="${p.value}"${p.value === current ? ' class="active"' : ''}>${p.label}</button>`
         ).join('')}
-      </select>
+      </div>
     </div>`;
-  container.querySelector('select').addEventListener('change', (e) => {
-    setStoredPeriod(e.target.value);   // platform-wide
-    onChange(e.target.value);
+  container.querySelectorAll('.segmented button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const value = btn.dataset.period;
+      container.querySelectorAll('.segmented button').forEach(b =>
+        b.classList.toggle('active', b === btn));
+      setStoredPeriod(value);   // platform-wide
+      onChange(value);
+    });
   });
 }
 
