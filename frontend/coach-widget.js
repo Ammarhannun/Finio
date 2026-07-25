@@ -6,7 +6,7 @@
 // - Renders the coach's proposed transaction edits as cards with an Apply
 //   button (human-confirmed writes through POST /overrides).
 
-import { apiFetch, escapeHtml, showToast, storedPeriodParts } from './api.js';
+import { apiFetch, escapeHtml, formatAUD, showToast, storedPeriodParts } from './api.js';
 
 let mounted = false;
 
@@ -368,24 +368,23 @@ export function mountCoachWidget(page) {
   }
 
   // The coach proposed a reclassification → show it as a confirm card.
-  function addProposal(p) {
-    const what = [
-      p.category ? `category → <b>${escapeHtml(p.category)}</b>` : '',
-      p.flow ? `counted as <b>${escapeHtml(p.flow)}</b>` : '',
-    ].filter(Boolean).join(', ');
-    const card = document.createElement('div');
-    card.className = 'cw-proposal';
-    card.innerHTML = `
-      <div class="cw-prop-text">Change transactions matching
-        “<b>${escapeHtml(p.match)}</b>” — ${what}
-        <span class="cw-prop-count">(${p.affected_count} match${p.affected_count === 1 ? '' : 'es'})</span>
-      </div>
-      <button class="cw-apply">Apply</button>`;
-    card.querySelector('.cw-apply').addEventListener('click', async (e) => {
-      const btn = e.target;
-      btn.disabled = true; btn.textContent = 'Applying…';
-      try {
-        const existing = await apiFetch('/overrides').catch(() => ({ overrides: [], custom_categories: [] }));
+  // The coach can propose changes across the platform (reclassify transactions,
+  // set a budget, move the savings goal, update the profile). Nothing is ever
+  // written without the user clicking Apply — that confirmation IS the guardrail.
+  const PROPOSALS = {
+    reclassify: {
+      describe: p => {
+        const what = [
+          p.category ? `category to <b>${escapeHtml(p.category)}</b>` : '',
+          p.flow ? `counted as <b>${escapeHtml(p.flow)}</b>` : '',
+        ].filter(Boolean).join(', ');
+        const n = p.affected_count;
+        return `Change transactions matching “<b>${escapeHtml(p.match)}</b>” — ${what}`
+          + `<span class="cw-prop-count">${n} match${n === 1 ? '' : 'es'}</span>`;
+      },
+      apply: async (p) => {
+        const existing = await apiFetch('/overrides')
+          .catch(() => ({ overrides: [], custom_categories: [] }));
         const rules = (existing.overrides || []).filter(r =>
           !(r.match && r.match.toLowerCase() === p.match.toLowerCase()));
         const rule = { match: p.match };
@@ -394,9 +393,73 @@ export function mountCoachWidget(page) {
         rules.push(rule);
         await apiFetch('/overrides', { method: 'POST', body: JSON.stringify({
           rules, custom_categories: existing.custom_categories || [] }) });
+      },
+      event: 'finio:overrides-applied',
+    },
+    budget: {
+      describe: p => `Set a <b>${escapeHtml(p.category)}</b> budget of `
+        + `<b>${formatAUD(p.amount)}</b> a month`
+        + (p.why ? `<span class="cw-prop-count">${escapeHtml(p.why)}</span>` : ''),
+      apply: (p) => apiFetch('/budgets', { method: 'POST',
+        body: JSON.stringify({ targets: { [p.category]: p.amount } }) }),
+      event: 'finio:budgets-applied',
+    },
+    goal: {
+      describe: p => {
+        const bits = [
+          p.amount != null ? `target <b>${formatAUD(p.amount)}</b>` : '',
+          p.target_date ? `by <b>${escapeHtml(p.target_date)}</b>` : '',
+        ].filter(Boolean).join(' ');
+        return `Update your savings goal — ${bits}`
+          + (p.why ? `<span class="cw-prop-count">${escapeHtml(p.why)}</span>` : '');
+      },
+      apply: async (p) => {
+        // /goal needs both fields; fill the missing one from the current goal.
+        const dash = await apiFetch('/dashboard').catch(() => ({}));
+        const cur = dash.goal || {};
+        const rec = dash.goal_recommendation || {};
+        const amount = p.amount != null ? p.amount : (cur.target_amount ?? rec.amount);
+        const date = (p.target_date || cur.target_date || rec.target_date || '').slice(0, 10);
+        if (!amount || !date) throw new Error('Need an amount and a date for the goal');
+        await apiFetch('/goal', { method: 'POST',
+          body: JSON.stringify({ amount, target_date: date }) });
+      },
+      event: 'finio:goal-applied',
+    },
+    profile: {
+      describe: p => {
+        const bits = [
+          p.age != null ? `age <b>${p.age}</b>` : '',
+          p.income_bracket ? `situation <b>${escapeHtml(p.income_bracket.replace('_', ' '))}</b>` : '',
+        ].filter(Boolean).join(', ');
+        return `Update your profile — ${bits}`;
+      },
+      apply: (p) => {
+        const body = {};
+        if (p.age != null) body.age = p.age;
+        if (p.income_bracket) body.income_bracket = p.income_bracket;
+        return apiFetch('/profile', { method: 'POST', body: JSON.stringify(body) });
+      },
+      event: 'finio:profile-applied',
+    },
+  };
+
+  function addProposal(p) {
+    const kind = PROPOSALS[p.kind] || PROPOSALS.reclassify;
+    const card = document.createElement('div');
+    card.className = 'cw-proposal';
+    card.innerHTML = `
+      <div class="cw-prop-text">${kind.describe(p)}</div>
+      <button class="cw-apply">Apply</button>`;
+    card.querySelector('.cw-apply').addEventListener('click', async (e) => {
+      const btn = e.target;
+      btn.disabled = true; btn.textContent = 'Applying…';
+      try {
+        await kind.apply(p);
         btn.textContent = 'Applied ✓';
-        showToast('Updated your numbers');
-        window.dispatchEvent(new CustomEvent('finio:overrides-applied'));
+        showToast('Done — your numbers are updated');
+        window.dispatchEvent(new CustomEvent(kind.event));
+        window.dispatchEvent(new CustomEvent('finio:data-changed'));
       } catch (err) {
         btn.disabled = false; btn.textContent = 'Apply';
         showToast(err.message || 'Could not apply that change');

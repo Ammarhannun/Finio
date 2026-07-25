@@ -214,6 +214,59 @@ COACH_TOOLS = [
         },
     }},
     {"type": "function", "function": {
+        "name": "propose_budget",
+        "description": (
+            "Propose a monthly spending limit for a category when the user asks "
+            "(e.g. 'cap my takeaway at 200 a month', 'set a groceries budget'). "
+            "Not applied directly — the user confirms with one click. If they "
+            "ask you to pick a sensible number, base it on what they actually "
+            "spend and say why."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "exact category name"},
+                "amount": {"type": "number", "description": "monthly limit in AUD"},
+                "why": {"type": "string", "description": "one short line of reasoning"},
+            },
+            "required": ["category", "amount"],
+        },
+    }},
+    {"type": "function", "function": {
+        "name": "propose_goal",
+        "description": (
+            "Propose a savings goal (amount and/or target date) when the user "
+            "asks to set, raise, lower or move their goal. Not applied directly "
+            "— the user confirms with one click."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "amount": {"type": "number", "description": "target amount in AUD"},
+                "target_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "why": {"type": "string"},
+            },
+            "required": [],
+        },
+    }},
+    {"type": "function", "function": {
+        "name": "propose_profile",
+        "description": (
+            "Propose updating the user's profile when they mention it in chat "
+            "(e.g. 'I'm 23', 'I work full time now'). Not applied directly — the "
+            "user confirms with one click."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "age": {"type": "integer"},
+                "income_bracket": {"type": "string",
+                                   "enum": ["student", "part_time", "full_time", "not_earning"]},
+            },
+            "required": [],
+        },
+    }},
+    {"type": "function", "function": {
         "name": "lookup_concept",
         "description": (
             "Look up a personal-finance concept (ETFs, superannuation, HECS, "
@@ -282,6 +335,54 @@ def run_tool(name, args, transactions, context):
         hits = search(args.get("query", ""), k=2)
         return {"results": [{"title": h["title"], "text": h["text"]} for h in hits]}
 
+    if name == "propose_budget":
+        category = str(args.get("category", "")).strip()
+        try:
+            amount = round(float(args.get("amount")), 2)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "amount must be a number"}
+        if not category or amount < 0:
+            return {"ok": False, "error": "need a category and a non-negative amount"}
+        spent = sum(abs(float(r["amount"])) for r in _expense_rows(transactions)
+                    if str(r.get("category", "")).lower() == category.lower())
+        return {"ok": True, "kind": "budget",
+                "proposal": {"kind": "budget", "category": category, "amount": amount,
+                             "why": args.get("why"), "recent_spend": round(spent, 2)},
+                "note": "Shown to the user for one-click confirmation — not applied yet."}
+
+    if name == "propose_goal":
+        amount = args.get("amount")
+        target_date = args.get("target_date")
+        if amount is None and not target_date:
+            return {"ok": False, "error": "need an amount or a target_date"}
+        proposal = {"kind": "goal", "why": args.get("why")}
+        if amount is not None:
+            try:
+                proposal["amount"] = round(float(amount), 2)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "amount must be a number"}
+        if target_date:
+            proposal["target_date"] = str(target_date)[:10]
+        return {"ok": True, "kind": "goal", "proposal": proposal,
+                "note": "Shown to the user for one-click confirmation — not applied yet."}
+
+    if name == "propose_profile":
+        proposal = {"kind": "profile"}
+        if args.get("age") is not None:
+            try:
+                age = int(args["age"])
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "age must be a whole number"}
+            if not 16 <= age <= 100:
+                return {"ok": False, "error": "age must be between 16 and 100"}
+            proposal["age"] = age
+        if args.get("income_bracket"):
+            proposal["income_bracket"] = args["income_bracket"]
+        if len(proposal) == 1:
+            return {"ok": False, "error": "nothing to update"}
+        return {"ok": True, "kind": "profile", "proposal": proposal,
+                "note": "Shown to the user for one-click confirmation — not applied yet."}
+
     if name == "propose_reclassification":
         match = str(args.get("match", "")).strip()
         category = (args.get("category") or "").strip() or None
@@ -289,8 +390,8 @@ def run_tool(name, args, transactions, context):
         if not match or not (category or flow):
             return {"ok": False, "error": "need match plus a category or flow"}
         affected = [r for r in (transactions or []) if match.lower() in str(r.get("merchant", "")).lower()]
-        proposal = {"match": match, "category": category, "flow": flow,
-                    "affected_count": len(affected)}
+        proposal = {"kind": "reclassify", "match": match, "category": category,
+                    "flow": flow, "affected_count": len(affected)}
         return {"ok": True, "proposal": proposal,
                 "note": "Proposed to the user for one-click confirmation — do not claim it is applied yet."}
 
@@ -443,7 +544,7 @@ def coach_chat(user_message, context, history=None, transactions=None):
                 except json.JSONDecodeError:
                     args = {}
                 result = run_tool(tc.function.name, args, transactions, context)
-                if tc.function.name == "propose_reclassification" and result.get("ok"):
+                if result.get("ok") and result.get("proposal"):
                     proposals.append(result["proposal"])
                 messages.append({
                     "role": "tool", "tool_call_id": tc.id,

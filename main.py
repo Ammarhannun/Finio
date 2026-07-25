@@ -14,6 +14,7 @@ from modules.categoriser import examples_from_overrides
 from modules.pipeline import analyze_stored, recompute_for_goal, run_full_pipeline
 from modules.spend_check import check_purchase
 from schemas import (
+    BudgetRequest,
     CoachRequest,
     GoalRequest,
     OverrideRequest,
@@ -230,6 +231,7 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
         goal_date=goal.get("target_date"),
         income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
         overrides=db.get_overrides(client, user.user_id),
+        budget_targets=db.get_budget_targets(client, user.user_id),
         period=period,
         period_anchor=f"{month}-01" if month else None,
         period_start=start,
@@ -266,6 +268,7 @@ def dashboard(
         "bills": resliced["bills"],
         "anomalies": resliced.get("anomalies", []),
         "averages": resliced.get("averages"),
+        "budget_targets": db.get_budget_targets(client, user.user_id),
         "forecast": resliced["forecast"],
         "spend_forecast": resliced.get("spend_forecast"),
         "budgets": resliced["budgets"],
@@ -358,6 +361,55 @@ def transactions(
         "custom_categories": custom,
         "pending_questions": db.get_pending_questions(client, user.user_id),
         "period": resliced["period"],
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.get("/budgets")
+def list_budgets(user: AuthUser = Depends(get_current_user)):
+    """Current budget rows plus whichever limits the user set themselves."""
+    client, data = _require_snapshot(user)
+    return {
+        "budgets": (data.get("budgets") or {}).get("budgets", []),
+        "targets": db.get_budget_targets(client, user.user_id),
+        "categories": _all_categories(db.get_custom_categories(client, user.user_id)),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.post("/budgets")
+def set_budgets(body: BudgetRequest, user: AuthUser = Depends(get_current_user)):
+    """Set your own monthly limit for one or more categories (null clears one).
+    Recomputes immediately so the bars and invest advice reflect it."""
+    client, data = _require_snapshot(user)
+    targets = dict(db.get_budget_targets(client, user.user_id))
+    for category, amount in (body.targets or {}).items():
+        if amount is None:
+            targets.pop(category, None)
+            continue
+        try:
+            value = float(amount)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Bad amount for {category}")
+        if value < 0:
+            raise HTTPException(status_code=400, detail="Budgets cannot be negative")
+        targets[category] = round(value, 2)
+
+    all_tx = db.get_all_transactions(client, user.user_id)
+    goal = data.get("goal") or {}
+    resliced = analyze_stored(
+        all_tx,
+        goal_amount=goal.get("target_amount"),
+        goal_date=goal.get("target_date"),
+        overrides=db.get_overrides(client, user.user_id),
+        budget_targets=targets,
+        income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
+    ) if all_tx else None
+    db.save_budget_targets(client, user.user_id, targets, resliced)
+    _cache_clear_user(user.user_id)
+    return {
+        "targets": targets,
+        "budgets": (resliced or {}).get("budgets", data.get("budgets")),
         "disclaimer": DISCLAIMER,
     }
 

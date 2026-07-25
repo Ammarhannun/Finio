@@ -2091,3 +2091,98 @@ body.coach-splitting canvas {
   .quiz-chip { flex: 1 1 calc(50% - 0.5rem); }
   .quiz-secondary, .quiz-select { max-width: none; }
 }
+
+/* ══ Consistent rhythm ═══════════════════════════════════════════════════
+   Every card grid used its own gap and every card its own inline margin,
+   which made the page look randomly spaced. One spacing scale, applied to
+   the grids, keeps columns aligned and gaps even. */
+:root { --gap: 1.25rem; --gap-lg: 1.5rem; }
+.cards-row,
+.dash-chart-row,
+.dash-two-col,
+.dash-col,
+.profile-grid { gap: var(--gap); }
+.cards-row, .dash-chart-row, .dash-two-col { margin-bottom: var(--gap); }
+/* Cards inside a column are spaced by the column's gap, never their own
+   margin — mixing the two was the source of the uneven gutters. */
+.dash-col > .card { margin-bottom: 0 !important; }
+.dash-two-col { align-items: start; }
+.dash-col { align-content: start; }
+
+/* ══ Editable budgets ════════════════════════════════════════════════════ */
+.budget-row { cursor: default; }
+.budget-row-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.4rem; font-size: 0.875rem;
+}
+.budget-name {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--text); text-align: left;
+}
+.budget-name:hover { color: var(--accent); }
+.budget-amounts { color: var(--muted); white-space: nowrap; }
+.budget-limit {
+  background: none; border: 1px dashed var(--border-strong); border-radius: 7px;
+  padding: 0.1rem 0.45rem; cursor: pointer; font: inherit; font-size: 0.8125rem;
+  color: var(--text); transition: border-color 0.15s, color 0.15s;
+}
+.budget-limit:hover { border-color: var(--accent); color: var(--accent); }
+.budget-limit.set { color: var(--accent); border-style: dashed; }
+.budget-foot { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; text-align: right; }
+.budget-editor {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin-top: 0.6rem; padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+}
+.budget-editor input { width: 130px; padding: 0.45rem 0.7rem; font-size: 0.8125rem; }
+
+/* ══ Invest readiness journey ════════════════════════════════════════════ */
+.readiness-card { margin-bottom: var(--gap); border: 1px solid var(--border-strong); }
+.readiness-card.ready { border-color: var(--accent-border); background:
+  linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--bg-card)) 0%, var(--bg-card) 46%); }
+.readiness-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 0.85rem;
+}
+.readiness-title { font-family: 'Space Mono', monospace; font-size: 1.15rem; font-weight: 700; }
+.readiness-sub { color: var(--muted); font-size: 0.875rem; margin-top: 0.25rem; max-width: 52ch; }
+.readiness-score { text-align: right; }
+.readiness-score-num { font-family: 'Space Mono', monospace; font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+.readiness-score-num span { font-size: 0.95rem; color: var(--muted); }
+.readiness-score-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.readiness-bar { margin-bottom: 1.1rem; }
+.readiness-steps { list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+.readiness-step { display: flex; align-items: flex-start; gap: 0.7rem; }
+.readiness-mark {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700;
+  background: var(--bg-input); border: 1px solid var(--border-strong); color: var(--muted);
+}
+.readiness-step.done .readiness-mark { background: var(--accent); border-color: var(--accent); color: #fff; }
+.readiness-step.next .readiness-mark { border-color: var(--accent); color: var(--accent); }
+.readiness-step-label { font-size: 0.875rem; font-weight: 600; }
+.readiness-step.done .readiness-step-label { color: var(--muted); text-decoration: line-through; }
+.readiness-step-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+.readiness-when {
+  margin-top: 0.95rem; padding-top: 0.8rem; border-top: 1px dashed var(--border);
+  font-size: 0.85rem; color: var(--accent); font-weight: 500;
+}
+
+/* ══ Savings-goal pace presets ═══════════════════════════════════════════ */
+.goal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.85rem 0 0.25rem; }
+.goal-preset {
+  display: flex; flex-direction: column; gap: 0.15rem; text-align: left;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.6rem 0.7rem;
+  cursor: pointer; font: inherit; transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.goal-preset:hover { border-color: var(--accent); transform: translateY(-1px); }
+.goal-preset.active { border-color: var(--accent); background: var(--accent-dim); }
+.goal-preset-label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); font-weight: 700;
+}
+.goal-preset-amount { font-family: 'Space Mono', monospace; font-weight: 700; font-size: 0.95rem; }
+.goal-preset-rate { font-size: 0.7rem; color: var(--muted); }
+@media (max-width: 520px) { .goal-presets { grid-template-columns: 1fr; } }

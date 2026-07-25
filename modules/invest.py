@@ -1,4 +1,6 @@
 import pandas as pd
+import math
+
 from config import CRYPTO_OPTIONS, DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
 
 NEEDS_PCT = 50
@@ -108,42 +110,100 @@ def first_1000_plan(current_saved):
     }
 
 
-def invest_readiness(metrics, compare, forecast_result):
-    saved = metrics["net_saved"]
-    # Single source of truth (may be None when income is negligible → treat as 0%).
-    savings_rate = metrics.get("savings_rate") or 0
+def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
+    """Are they ready to invest, and if not, WHAT is missing and WHEN will it
+    clear?
 
-    if saved < MIN_BUFFER_TO_INVEST:
-        return {
-            "can_invest": False,
-            "reason": f"Build a cash buffer first (aim for at least ${MIN_BUFFER_TO_INVEST}).",
-            "priority": "emergency_fund",
-        }
-    if savings_rate < MIN_SAVINGS_RATE_PCT:
-        return {
-            "can_invest": False,
-            "reason": (
-                f"You're saving less than {MIN_SAVINGS_RATE_PCT}% of income. "
-                "Focus on spending and bills first."
-            ),
-            "priority": "stabilise_spending",
-        }
-    if compare["savings_gap"] > 0:
-        return {
-            "can_invest": False,
-            "reason": "You're below the 20% savings target for this period. Prioritise saving.",
-            "priority": "close_savings_gap",
-        }
-    if not forecast_result.get("on_track", False):
-        return {
-            "can_invest": False,
-            "reason": "You're not on track for your savings goal yet.",
-            "priority": "savings_goal",
-        }
+    Returns a transparent checklist instead of a single verdict, so the user can
+    see every gate, how close they are, and the first thing to fix. `saved` is
+    the accumulated running total (forecast.current_saved), not one period's
+    net — someone with months of savings shouldn't look broke because this
+    month was quiet.
+    """
+    saved = forecast_result.get("current_saved")
+    if saved is None:
+        saved = metrics.get("net_saved", 0) or 0
+    # Single source of truth (may be None when income is negligible → treat as 0%).
+    # Cast out of numpy: numpy.bool_/float leak into the JSON response and
+    # FastAPI cannot serialise them.
+    saved = float(saved)
+    savings_rate = float(metrics.get("savings_rate") or 0)
+    gap = float(compare.get("savings_gap", 0) or 0)
+    on_track = bool(forecast_result.get("on_track", False))
+
+    checks = [
+        {
+            "id": "emergency_fund",
+            "label": f"Cash buffer of ${MIN_BUFFER_TO_INVEST:,}",
+            "passed": bool(saved >= MIN_BUFFER_TO_INVEST),
+            "current": round(float(saved), 2),
+            "target": float(MIN_BUFFER_TO_INVEST),
+            "unit": "aud",
+            "fix": f"Save ${max(MIN_BUFFER_TO_INVEST - saved, 0):,.0f} more before investing.",
+        },
+        {
+            "id": "stabilise_spending",
+            "label": f"Saving at least {MIN_SAVINGS_RATE_PCT}% of income",
+            "passed": bool(savings_rate >= MIN_SAVINGS_RATE_PCT),
+            "current": round(float(savings_rate), 1),
+            "target": float(MIN_SAVINGS_RATE_PCT),
+            "unit": "pct",
+            "fix": "Trim your biggest category or a subscription to lift your savings rate.",
+        },
+        {
+            "id": "close_savings_gap",
+            "label": "Meeting the 20% savings target",
+            "passed": bool(gap <= 0),
+            # Show what they saved against the target, not the raw gap, so the
+            # UI can render "current / target" consistently with the others.
+            "current": round(float(compare.get("actual_saved", 0) or 0), 2),
+            "target": round(float(compare.get("savings_target", 0) or 0), 2),
+            "unit": "aud",
+            "fix": f"You're ${gap:,.0f} short of the 20% savings target this period.",
+        },
+        {
+            "id": "savings_goal",
+            "label": "On track for your savings goal",
+            "passed": on_track,
+            "current": round(float(forecast_result.get("projected_total", 0) or 0), 2),
+            "target": round(float(forecast_result.get("target_amount", 0) or 0), 2),
+            "unit": "aud",
+            "fix": "Raise your monthly saving or push the goal date back.",
+        },
+    ]
+
+    blockers = [c for c in checks if not c["passed"]]
+    can_invest = not blockers
+    done = len(checks) - len(blockers)
+
+    # When could the FIRST blocker clear? Only the cash buffer has an honest,
+    # arithmetic answer (money needed ÷ money saved per month).
+    ready_when = None
+    if blockers and blockers[0]["id"] == "emergency_fund" and (monthly_saved or 0) > 0:
+        months = math.ceil((MIN_BUFFER_TO_INVEST - saved) / monthly_saved)
+        if 0 < months <= 60:
+            ready_when = {
+                "months": months,
+                "text": (f"At about ${monthly_saved:,.0f} saved a month, you'd clear "
+                         f"the buffer in roughly {months} month{'s' if months > 1 else ''}."),
+            }
+
+    if can_invest:
+        reason = "You have savings headroom. Investing may be an option after research."
+        priority = "consider_etfs"
+    else:
+        reason = blockers[0]["fix"]
+        priority = blockers[0]["id"]
+
     return {
-        "can_invest": True,
-        "reason": "You have savings headroom. Investing may be an option after research.",
-        "priority": "consider_etfs",
+        "can_invest": can_invest,
+        "reason": reason,
+        "priority": priority,
+        "checks": checks,
+        "steps_done": done,
+        "steps_total": len(checks),
+        "next_step": blockers[0]["label"] if blockers else None,
+        "ready_when": ready_when,
     }
 
 
@@ -206,11 +266,13 @@ def investment_menu(can_invest, age=None):
     ]
 
 
-def invest_summary(df, metrics, forecast_result, target_amount, age=None):
+def invest_summary(df, metrics, forecast_result, target_amount, age=None,
+                   monthly_saved=None):
     income = metrics["total_income"]
     split = split_income_503020(income)
     actual_vs_target = compare_to_actual(df, metrics, split)
-    readiness = invest_readiness(metrics, actual_vs_target, forecast_result)
+    readiness = invest_readiness(metrics, actual_vs_target, forecast_result,
+                                monthly_saved=monthly_saved)
 
     if readiness["can_invest"]:
         etf = etf_nudge(age)

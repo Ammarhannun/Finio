@@ -138,12 +138,44 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
             f"${amount:,} in {horizon_months} months is realistic."
         )
 
+    # Offer three honest options instead of one number. A goal you can't reach
+    # is demotivating, so each preset states what it costs PER MONTH and whether
+    # the user's current saving covers it.
+    presets = []
+    if monthly_saved > 0:
+        for label, months in (("Sooner", max(horizon_months // 2, 1)),
+                              ("Balanced", horizon_months),
+                              ("Relaxed", horizon_months * 2)):
+            preset_amount = max(_round100(monthly_saved * months), 500)
+            presets.append({
+                "label": label,
+                "amount": preset_amount,
+                "months": months,
+                "per_month": round(preset_amount / months, 2),
+                "target_date": (base + pd.DateOffset(months=months)).strftime("%Y-%m-%d"),
+                "achievable": True,   # built from what they already save
+            })
+    else:
+        # Not saving yet: frame the buffer by how fast they want to build it,
+        # and be explicit that it needs money freed up first.
+        for label, months in (("Sooner", 3), ("Balanced", 6), ("Relaxed", 12)):
+            presets.append({
+                "label": label,
+                "amount": amount,
+                "months": months,
+                "per_month": round(amount / months, 2),
+                "target_date": (base + pd.DateOffset(months=months)).strftime("%Y-%m-%d"),
+                "achievable": False,
+            })
+
     return {
         "amount": amount,
         "target_date": target_date,
         "horizon_months": horizon_months,
         "monthly_saved": round(monthly_saved, 2),
+        "monthly_needed": round(amount / horizon_months, 2) if horizon_months else None,
         "rationale": rationale,
+        "presets": presets,
         "disclaimer": DISCLAIMER,
     }
 
