@@ -400,7 +400,8 @@
     if (bar) bar.style.width = `${Math.round((step / totalN) * 100)}%`;
     document.getElementById('quiz-merchant').textContent = q.merchant;
     document.getElementById('quiz-meta').textContent =
-      `appears ${q.count}× · ${formatAUD(q.total)} total`;
+      `appears ${q.count}× · ${formatAUD(q.total)} total`
+      + (q.hint ? ` · ${q.hint}` : '');
     document.getElementById('quiz-prompt').textContent = q.kind === 'flow'
       ? 'Is this money moving between your own accounts, income, or spending?'
       : 'Which category should Finio use for this?';

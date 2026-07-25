@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.deps import AuthUser, get_current_user, get_optional_user
 from config import CATEGORIES, DISCLAIMER
 from modules import db
-from modules.ai_coach import QUICK_QUESTIONS, coach_chat, generate_insight
+from modules.ai_coach import QUICK_QUESTIONS, coach_chat, generate_insight, title_chat
 from modules.categoriser import examples_from_overrides
 from modules.pipeline import analyze_stored, recompute_for_goal, run_full_pipeline
 from modules.spend_check import check_purchase
@@ -640,7 +640,11 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
 
     chat_id = body.chat_id or "default"
     history_rows = db.get_chat_history(client, user.user_id, chat_id=chat_id)
-    history = [{"role": row["role"], "content": row["message"]} for row in history_rows]
+    history = [
+        {"role": row["role"], "content": row["message"]}
+        for row in history_rows
+        if row.get("role") in ("user", "assistant")
+    ]
 
     # Give the coach the user's real transactions so its tools can compute
     # exact figures ("how much did I spend on coffee") instead of guessing.
@@ -654,7 +658,19 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
     db.append_chat(client, user.user_id, "user", body.message, chat_id=chat_id)
     db.append_chat(client, user.user_id, "assistant", response["text"], chat_id=chat_id)
 
+    # Name the thread once — after the first exchange — so the sidebar shows a
+    # short AI title instead of the raw first question.
+    chat_title = db.get_chat_title(client, user.user_id, chat_id)
+    if not chat_title:
+        chat_title = title_chat(body.message, response.get("text"))
+        try:
+            db.set_chat_title(client, user.user_id, chat_id, chat_title)
+        except Exception:
+            pass
+
     return {
         **response,
+        "chat_id": chat_id,
+        "chat_title": chat_title,
         "quick_questions": QUICK_QUESTIONS,
     }

@@ -592,14 +592,49 @@ def append_chat(client, user_id, role, message, chat_id="default"):
         client.table("chat_history").insert(row).execute()
 
 
+def get_chat_title(client, user_id, chat_id="default"):
+    """Stored AI title for a chat (role='title'), or None."""
+    try:
+        result = (
+            client.table("chat_history")
+            .select("message")
+            .eq("user_id", user_id)
+            .eq("chat_id", chat_id)
+            .eq("role", "title")
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = result.data or []
+    return (rows[0].get("message") or "").strip() or None if rows else None
+
+
+def set_chat_title(client, user_id, chat_id, title):
+    """Persist an AI title as a special chat_history row (role='title')."""
+    title = (title or "").strip()
+    if not title:
+        return
+    # Keep a single title row per chat — drop older ones when we can.
+    try:
+        client.table("chat_history").delete().eq(
+            "user_id", user_id
+        ).eq("chat_id", chat_id).eq("role", "title").execute()
+    except Exception:
+        pass
+    append_chat(client, user_id, "title", title[:80], chat_id=chat_id)
+
+
 def get_chat_history(client, user_id, limit=20, chat_id=None):
     """Messages for one chat (or the legacy single stream when chat_id is None
-    or the 002 migration hasn't been run)."""
+    or the 002 migration hasn't been run). Title rows are excluded."""
     def _q(with_chat):
         q = (
             client.table("chat_history")
             .select("role, message, timestamp" + (", chat_id" if with_chat else ""))
             .eq("user_id", user_id)
+            .neq("role", "title")
         )
         if with_chat and chat_id:
             q = q.eq("chat_id", chat_id)
@@ -608,14 +643,27 @@ def get_chat_history(client, user_id, limit=20, chat_id=None):
     try:
         result = _q(True)
     except Exception:
-        result = _q(False)
+        try:
+            result = _q(False)
+        except Exception:
+            # Older DBs may not support neq on role the same way — fall back.
+            q = (
+                client.table("chat_history")
+                .select("role, message, timestamp")
+                .eq("user_id", user_id)
+                .order("timestamp", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            rows = [r for r in (q.data or []) if r.get("role") != "title"]
+            return list(reversed(rows))
     return list(reversed(result.data or []))
 
 
 def list_chats(client, user_id, limit=200):
     """The user's chats, newest activity first: [{chat_id, title, last_ts, count}].
-    Title = first user message in the chat. Falls back to one 'default' chat
-    when the 002 migration hasn't been run."""
+    Prefers a stored AI title (role='title'); otherwise the first user message.
+    Falls back to one 'default' chat when the 002 migration hasn't been run."""
     try:
         result = (
             client.table("chat_history")
@@ -631,13 +679,18 @@ def list_chats(client, user_id, limit=200):
     chats = {}
     for row in result.data or []:
         cid = row.get("chat_id") or "default"
-        c = chats.setdefault(cid, {"chat_id": cid, "title": None, "last_ts": None, "count": 0})
+        c = chats.setdefault(
+            cid, {"chat_id": cid, "title": None, "ai_title": None, "last_ts": None, "count": 0}
+        )
+        if row.get("role") == "title":
+            c["ai_title"] = (row.get("message") or "").strip() or c["ai_title"]
+            continue
         c["count"] += 1
         c["last_ts"] = row["timestamp"]
         if c["title"] is None and row["role"] == "user":
             c["title"] = (row["message"] or "")[:48]
     out = list(chats.values())
     for c in out:
-        c["title"] = c["title"] or "New chat"
+        c["title"] = c.pop("ai_title", None) or c["title"] or "New chat"
     out.sort(key=lambda c: c["last_ts"] or "", reverse=True)
     return out

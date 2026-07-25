@@ -10,7 +10,7 @@ NEW merchants. Returns None without a key so callers fall back gracefully.
 import json
 import os
 
-from config import OPENAI_MODEL
+from config import OPENAI_MODEL, OWN_ACCOUNT_HINTS
 
 CHUNK = 120          # merchants per API call (keeps responses well-formed)
 CONFIDENCES = {"high", "medium", "low"}
@@ -103,7 +103,7 @@ def build_questions(df, llm_results, overrides=None, limit=6):
     name_col = "merchant_clean" if "merchant_clean" in df.columns else "description"
     questions = {}
 
-    def add(merchant, kind, suggested, rows):
+    def add(merchant, kind, suggested, rows, hint=None):
         key = merchant.strip().upper()
         if not merchant or key in known or key in questions:
             return
@@ -111,7 +111,8 @@ def build_questions(df, llm_results, overrides=None, limit=6):
         questions[key] = {
             "merchant": merchant,
             "kind": kind,                      # 'category' or 'flow'
-            "suggested": suggested,            # model's best guess (may be None)
+            "suggested": suggested,            # best guess (may be None)
+            "hint": hint,                      # why we're suggesting it
             "count": int(len(rows)),
             "total": round(total, 2),
         }
@@ -126,12 +127,31 @@ def build_questions(df, llm_results, overrides=None, limit=6):
                     add(merchant, "category", res.get("category"), rows)
 
     # Money-moving transfers (only the user knows what these really are).
+    # A RECURRING INCOMING transfer from the same sender is usually real income
+    # (family support, a housemate's share, cash work) rather than the user
+    # shuffling their own money — so suggest "income" for those instead of
+    # blindly defaulting to "transfer".
     if "flow" in df.columns:
         tr = df[df["flow"] == "transfer"]
         if not tr.empty:
             for merchant, rows in tr.groupby(tr[name_col].astype(str)):
-                if rows["amount"].abs().sum() >= 100:
-                    add(merchant, "flow", "transfer", rows)
+                if rows["amount"].abs().sum() < 100:
+                    continue
+                incoming = rows[rows["amount"] > 0]
+                mostly_in = len(incoming) >= max(1, int(len(rows) * 0.8))
+                # Your own savings/app transfers are NOT income, however often
+                # money comes back in.
+                own = any(h in str(merchant).upper() for h in OWN_ACCOUNT_HINTS)
+                if own:
+                    add(merchant, "flow", "transfer", rows,
+                        hint="looks like your own account")
+                elif mostly_in and len(incoming) >= 3:
+                    add(merchant, "flow", "income", rows,
+                        hint=f"money in {len(incoming)} times — looks like income")
+                elif mostly_in:
+                    add(merchant, "flow", "transfer", rows, hint="money coming in")
+                else:
+                    add(merchant, "flow", "transfer", rows, hint="money going out")
 
     ranked = sorted(questions.values(), key=lambda q: q["total"], reverse=True)
     return ranked[:limit]
