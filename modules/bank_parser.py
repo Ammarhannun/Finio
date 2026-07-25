@@ -172,6 +172,15 @@ def normalize(df):
 
 _STORE_NUMBER_RE = re.compile(r"\b(?:STORE|ST|#)?\s?\d{3,}\b")  # store/card numbers
 _XX_REF_RE = re.compile(r"\bXX\w+\b")  # masked account refs e.g. XX0642
+# Legal/corporate suffix noise, matched as WHOLE WORDS only. A plain substring
+# replace here would eat real names (" CO" inside "COFFEE" -> "FFEE",
+# "COMMBANK" -> "MMBANK"), so every entry is anchored with word boundaries.
+_MERCHANT_NOISE_RE = re.compile(
+    r"\s+(?:" + "|".join(
+        re.escape(n.strip()).replace(r"\ ", r"\s+")
+        for n in sorted(MERCHANT_NOISE, key=len, reverse=True)
+    ) + r")\b"
+)
 
 
 def clean_descriptions(df):
@@ -205,12 +214,19 @@ def clean_merchant_name(name):
         if text.startswith(prefix):
             text = text[len(prefix):]
             break
+    # Processors also write "SQ *NAME" / "PAYPAL *NAME" — drop a leading star
+    # left behind (or one that came with the prefix).
+    text = text.lstrip("* ").strip()
 
     text = text.replace(".", " ")
     text = _XX_REF_RE.sub(" ", text)
 
-    for noise in MERCHANT_NOISE:
-        text = text.replace(noise, " ")
+    # Whole-word only (see _MERCHANT_NOISE_RE) — repeated so "X PTY LTD" loses
+    # both tokens.
+    for _ in range(3):
+        text, n = _MERCHANT_NOISE_RE.subn(" ", text)
+        if not n:
+            break
 
     text = _STORE_NUMBER_RE.sub(" ", text)
 

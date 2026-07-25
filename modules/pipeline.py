@@ -41,14 +41,24 @@ def _category_spend(df):
 
 
 def _records(df):
-    """Serialise a transaction DataFrame to JSON-safe rows (merchant = description).
+    """Serialise a transaction DataFrame to JSON-safe rows.
 
-    Each row carries a stable `key` (tx_key) so the frontend can ask to
-    reclassify exactly that transaction via an override rule. Uses the shared
-    occurrence-aware key_series so duplicate transactions get distinct keys."""
+    `merchant` is the CLEANED trading name (merchant_clean) when available, not
+    the raw bank description. Storing the clean name means a later re-slice
+    rebuilds identical names — so dashboards show "ENGIE" rather than
+    "ENGIE 138808 AU AUS", and `tx_key` (derived from the name) stays stable
+    between the upload and every re-slice.
+
+    Each row carries that stable `key` so the frontend can reclassify exactly
+    one transaction; key_series makes duplicates distinct.
+    """
     from modules.data_processor import key_series
 
-    tx = df[["date", "amount", "description", "category", "is_expense", "flow"]].copy()
+    cols = ["date", "amount", "description", "category", "is_expense", "flow"]
+    tx = df[cols].copy()
+    if "merchant_clean" in df.columns:
+        clean = df["merchant_clean"].astype(str).str.strip()
+        tx["description"] = clean.where(clean != "", tx["description"])
     tx["key"] = key_series(tx)
     tx["date"] = tx["date"].dt.strftime("%Y-%m-%d")
     tx = tx.rename(columns={"description": "merchant"})

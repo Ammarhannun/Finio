@@ -768,6 +768,57 @@ def _():
     assert_true("MYSTERY SHOP" not in [q["merchant"] for q in qs2])
 
 
+@test("bank_parser: noise words are stripped whole-word only")
+def _():
+    from modules.bank_parser import clean_merchant_name
+
+    # " CO" must not be torn out of the middle of a word.
+    assert_eq(clean_merchant_name("SQ *THE COFFEE SHOP SYDNEY"), "THE COFFEE SHOP")
+    assert_eq(clean_merchant_name("TRANSFER TO XX0642 COMMBANK APP"),
+              "TRANSFER TO COMMBANK APP")
+    # Real legal suffixes still go.
+    assert_eq(clean_merchant_name("JC CHICKEN PTY. LTD RYDE NSWAU"), "JC CHICKEN")
+    assert_eq(clean_merchant_name("PAYPAL *SPOTIFY"), "SPOTIFY")
+
+
+@test("pipeline: stored merchant is the CLEAN name and tx_keys survive a re-slice")
+def _():
+    from modules.pipeline import analyze_stored, run_full_pipeline
+
+    r = run_full_pipeline(SAMPLE_CSV)
+    full = r["all_transactions"]
+    res = analyze_stored(full, period="all")
+    # Same identity on both sides → single-row edits keep working after upload.
+    assert_eq({t["key"] for t in full}, {t["key"] for t in res["transactions"]})
+    # And merchant names don't change shape between upload and re-slice.
+    assert_eq(
+        [m["merchant"] for m in r["averages"]["top_merchants"]],
+        [m["merchant"] for m in res["averages"]["top_merchants"]],
+    )
+
+
+@test("llm_categoriser: recurring money IN suggests income, own account does not")
+def _():
+    import pandas as pd
+
+    from modules.llm_categoriser import build_questions
+
+    rows = []
+    for i in range(5):          # a person paying you repeatedly → income
+        rows.append({"date": f"2026-03-0{i+1}", "amount": 400.0, "flow": "transfer",
+                     "merchant_clean": "FAST TRANSFER FROM SAM", "description": "x"})
+    for i in range(5):          # your own banking-app top-ups → still a transfer
+        rows.append({"date": f"2026-03-1{i}", "amount": 300.0, "flow": "transfer",
+                     "merchant_clean": "TRANSFER FROM COMMBANK APP", "description": "y"})
+    rows.append({"date": "2026-03-20", "amount": -900.0, "flow": "transfer",
+                 "merchant_clean": "TRANSFER TO A FRIEND", "description": "z"})
+
+    qs = {q["merchant"]: q for q in build_questions(pd.DataFrame(rows), {}, overrides=[])}
+    assert_eq(qs["FAST TRANSFER FROM SAM"]["suggested"], "income")
+    assert_eq(qs["TRANSFER FROM COMMBANK APP"]["suggested"], "transfer")
+    assert_eq(qs["TRANSFER TO A FRIEND"]["suggested"], "transfer")
+
+
 @test("anomaly: flags an outlier charge for its category")
 def _():
     import pandas as pd

@@ -57,6 +57,16 @@ TRANSFER_KEYWORDS = [
     "PAYID", "OSKO", "PAY ANYONE", "INTERNAL TRANSFER", "INTER-ACCOUNT",
 ]
 
+# Markers that a "transfer" is the user moving their OWN money between accounts
+# (banking-app / netbank references) rather than someone paying them. Used by
+# the categorisation quiz so it doesn't suggest "income" for your own savings
+# top-ups.
+OWN_ACCOUNT_HINTS = [
+    "COMMBANK APP", "NETBANK", "BANK APP", "INTERNET BANKING", "MOBILE BANKING",
+    "SAVINGS", "SMART ACCESS", "NETSAVER", "GOALSAVER", "INTERNAL TRANSFER",
+    "INTER-ACCOUNT", "OWN ACCOUNT",
+]
+
 # --- Merchant-name cleaning (categoriser input) ---------------------------
 # Card-network / payment-processor prefixes banks bolt onto the front.
 MERCHANT_PREFIXES = ["SQ ", "SQ*", "SP ", "SP*", "PAYPAL ", "PAYPAL*", "PP ", "TPV ", "EFTPOS "]
@@ -176,8 +186,9 @@ COACH_SYSTEM_PROMPT = (
     "than guessing. Currency is AUD. Keep replies friendly and concise. "
     "Give general information only, never personal financial advice, and never tell "
     "the user to buy or sell a specific investment. "
-    "Write in PLAIN TEXT only: no markdown, no asterisks, no headings, no bullet "
-    "symbols. Short paragraphs and simple sentences. "
+    "No headings, no bullet symbols, no italics. You MAY wrap key amounts, merchant "
+    "names, or short phrases in **double asterisks** for bold emphasis — nothing else. "
+    "Short paragraphs and simple sentences. "
     "If can_invest is false, steer toward saving and building a buffer instead of investing. "
     "Never use hyphens in your replies."
 )

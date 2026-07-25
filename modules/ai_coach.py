@@ -18,19 +18,24 @@ import re as _re
 
 
 def _plain(text):
-    """Strip the markdown the model sneaks in despite the plain-text prompt —
-    **bold**, *italic*, `code`, ### headings, bullet symbols — so chat bubbles
-    never show raw asterisks."""
+    """Clean coach text for the UI: keep **bold**, strip other markdown noise."""
     if not text:
         return text
     t = str(text)
-    t = _re.sub(r"\*\*([^*]+)\*\*", r"\1", t)     # **bold**
+    # Protect bold spans, strip other markdown, then restore bold markers.
+    bold = []
+    def _keep_bold(m):
+        bold.append(m.group(1))
+        return f"\x00B{len(bold) - 1}\x00"
+    t = _re.sub(r"\*\*([^*]+)\*\*", _keep_bold, t)
     t = _re.sub(r"(?<!\w)\*([^*\n]+)\*(?!\w)", r"\1", t)  # *italic*
     t = _re.sub(r"__([^_]+)__", r"\1", t)
     t = _re.sub(r"`([^`]+)`", r"\1", t)
-    t = _re.sub(r"^#{1,6}\s*", "", t, flags=_re.M)  # headings
-    t = _re.sub(r"^\s*[-•]\s+", "- ", t, flags=_re.M)
-    t = t.replace("**", "").replace("*", "")
+    t = _re.sub(r"^#{1,6}\s*", "", t, flags=_re.M)
+    t = _re.sub(r"^\s*[-•]\s+", "", t, flags=_re.M)
+    t = t.replace("*", "")
+    for i, inner in enumerate(bold):
+        t = t.replace(f"\x00B{i}\x00", f"**{inner}**")
     return t.strip()
 
 
@@ -97,6 +102,34 @@ def call_llm(system, messages, max_tokens=1024):
         global last_llm_error
         last_llm_error = f"{type(exc).__name__}: {exc}"
         return None
+
+
+def title_chat(user_message, assistant_reply=None):
+    """Short 3–6 word title for a coach conversation.
+
+    Uses the LLM when a key is set; otherwise a plain truncate of the first
+    user message so the sidebar still has something readable.
+    """
+    fallback = (user_message or "New chat").strip().replace("\n", " ")
+    if len(fallback) > 42:
+        fallback = fallback[:41].rstrip() + "…"
+    fallback = fallback or "New chat"
+
+    snippet = (assistant_reply or "")[:220]
+    text = call_llm(
+        "You name personal-finance chat threads. Reply with a short title only: "
+        "3 to 6 words, Title Case, no quotes, no emoji, no trailing punctuation.",
+        [{"role": "user", "content":
+          f"User asked: {user_message}\nCoach replied: {snippet}"}],
+        max_tokens=24,
+    )
+    if not text:
+        return fallback
+    title = _plain(text).strip().strip("\"'`").rstrip(".!?:;")
+    title = " ".join(title.split())
+    if not title or len(title) > 60:
+        return fallback
+    return title
 
 
 # ── Tool use ──────────────────────────────────────────────────────────────────
