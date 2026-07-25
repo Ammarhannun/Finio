@@ -85,6 +85,19 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* Tell the browser which palette to paint NATIVE controls in. Without this,
+   checkboxes, search inputs, buttons, date pickers and scrollbars stay in
+   light mode on the dark theme — the white boxes. */
+:root, [data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+/* Buttons carry no chrome unless a class gives them some, so a bare <button>
+   never renders as a grey/white box on top of a card. */
+button { background: none; border: none; color: inherit; font: inherit; }
+
+/* Checkboxes in the app's accent colour rather than the OS default. */
+input[type="checkbox"] { accent-color: var(--accent); }
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -416,6 +429,7 @@ input[type="password"],
 input[type="number"],
 input[type="date"],
 input[type="file"],
+input[type="search"],
 select,
 textarea {
   width: 100%;
@@ -2221,3 +2235,28 @@ body.coach-splitting canvas {
 .trust-mark { color: var(--accent); flex-shrink: 0; font-size: 0.7rem; line-height: 1.7; }
 .trust-cta { margin-top: 1.9rem; }
 @media (max-width: 820px) { .trust-grid { grid-template-columns: 1fr; } }
+
+/* ══ Signup: check-your-email panel ══════════════════════════════════════ */
+.verify-panel { text-align: center; padding: 0.5rem 0 0.25rem; }
+.verify-mark {
+  width: 54px; height: 54px; margin: 0 auto 1rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 1.5rem;
+  background: var(--accent-dim); border: 1px solid var(--accent-border); color: var(--accent);
+}
+.verify-title { font-size: 1.25rem; margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+.verify-text { color: var(--muted); font-size: 0.9rem; line-height: 1.6; margin-bottom: 0.75rem; }
+.verify-text b { color: var(--text); word-break: break-all; }
+.verify-hint { color: var(--muted); font-size: 0.8rem; margin-bottom: 1.4rem; }
+
+/* ══ Invest: first $1,000 plan ═══════════════════════════════════════════ */
+.f1k-head { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem; }
+.f1k-saved { font-family: 'Space Mono', monospace; font-size: 1.35rem; font-weight: 700; }
+.f1k-of { color: var(--muted); font-size: 0.875rem; }
+.f1k-remaining { font-size: 0.8125rem; color: var(--muted); margin-top: 0.4rem; }
+.f1k-steps {
+  margin: 1rem 0 0; padding-left: 1.15rem;
+  display: flex; flex-direction: column; gap: 0.45rem;
+  font-size: 0.9rem; line-height: 1.55;
+}
+.f1k-steps li::marker { color: var(--accent); font-weight: 700; }

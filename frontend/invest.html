@@ -254,27 +254,33 @@
       etfEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No ETF recommendation available yet</p>';
     }
 
-    // First $1000
+    // First $1000 — a progress bar plus numbered steps. The old version dumped
+    // every field into a value cell, which flattened the steps ARRAY into one
+    // comma-joined line of monospace text.
     const f1El = document.getElementById('first1000-content');
-    if (first_1000) {
-      if (typeof first_1000 === 'string') {
-        f1El.innerHTML = `<p style="font-size:0.9375rem;line-height:1.7;">${first_1000}</p>`;
-      } else if (Array.isArray(first_1000)) {
-        f1El.innerHTML = first_1000.map((step, i) =>
-          `<div class="action-plan-item">
-            <span class="action-bullet" style="min-width:20px;">${i + 1}.</span>
-            <span>${step}</span>
-          </div>`
-        ).join('');
-      } else if (typeof first_1000 === 'object') {
-        f1El.innerHTML = Object.entries(first_1000).map(([k, v]) => `
-          <div class="info-row">
-            <span class="info-label" style="text-transform:capitalize;">${k.replace(/_/g,' ')}</span>
-            <span class="info-value">${typeof v === 'number' ? formatAUD(v) : v}</span>
-          </div>`).join('');
-      } else {
-        f1El.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No first $1,000 plan available</p>';
-      }
+    if (first_1000 && typeof first_1000 === 'object' && !Array.isArray(first_1000)) {
+      const target = Number(first_1000.target) || 1000;
+      const saved = Number(first_1000.current_saved) || 0;
+      const remaining = Number(first_1000.remaining) || 0;
+      const pct = Math.max(0, Math.min(100, Math.round((saved / target) * 100)));
+      const steps = Array.isArray(first_1000.steps) ? first_1000.steps : [];
+      f1El.innerHTML = `
+        <div class="f1k-head">
+          <span class="f1k-saved">${formatAUD(saved)}</span>
+          <span class="f1k-of">of ${formatAUD(target)}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'green' : pct >= 50 ? 'yellow' : 'red'}"
+             style="width:${Math.max(pct, 2)}%"></div></div>
+        <div class="f1k-remaining">${remaining > 0
+          ? `${formatAUD(remaining)} to go` : 'Target reached'}</div>
+        <ol class="f1k-steps">
+          ${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+        </ol>`;
+    } else if (Array.isArray(first_1000)) {
+      f1El.innerHTML = `<ol class="f1k-steps">${
+        first_1000.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>`;
+    } else if (typeof first_1000 === 'string') {
+      f1El.innerHTML = `<p style="font-size:0.9375rem;line-height:1.7;">${escapeHtml(first_1000)}</p>`;
     } else {
       f1El.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Build your emergency fund first, then come back here</p>';
     }
