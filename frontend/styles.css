@@ -1709,11 +1709,14 @@ body.coach-splitting canvas {
 .cw-msg-body { min-width: 0; }
 .cw-msg-body strong { font-weight: 700; }
 /* User bubble shrink-wraps to the text (actions sit underneath, outside) */
+/* Tinted rather than filled: a translucent wash of the accent with a border in
+   the same colour, so the bubble reads as "yours" without a heavy solid slab. */
 .cw-msg.user {
   width: fit-content;
   max-width: min(85%, 22rem);
-  background: var(--accent);
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--text);
 }
 .cw-msg.assistant {
   max-width: 100%;

@@ -11,6 +11,10 @@ import { apiFetch, escapeHtml, formatAUD, showToast, storedPeriodParts } from '.
 let mounted = false;
 
 const CHAT_KEY = 'finio-chat-id';
+// The app is a set of separate HTML pages, so navigating destroys the widget.
+// Remembering whether the coach was open (and in split mode) lets it come back
+// exactly as it was, which makes it feel like one persistent assistant.
+const OPEN_KEY = 'finio-coach-open';
 const SPLIT_KEY = 'finio-coach-split-pct';
 const FAB_POS_KEY = 'finio-coach-fab-pos';
 const RAIL_KEY = 'finio-coach-rail-px';
@@ -24,6 +28,13 @@ function currentChat() {
 }
 function setCurrentChat(id) {
   try { localStorage.setItem(CHAT_KEY, id); } catch (e) { /* ignore */ }
+}
+
+function loadOpenState() {
+  try { return localStorage.getItem(OPEN_KEY) || 'closed'; } catch (e) { return 'closed'; }
+}
+function saveOpenState(state) {
+  try { localStorage.setItem(OPEN_KEY, state); } catch (e) { /* ignore */ }
 }
 
 function loadSplitPct() {
@@ -629,6 +640,7 @@ export function mountCoachWidget(page) {
     document.body.classList.add('coach-split');
     const saved = setSplitPct(pct < 12 ? SPLIT_DEFAULT : pct);
     saveSplitPct(saved);
+    saveOpenState('split');
     splitter.hidden = false;
     syncExpandBtn(true);
     fab.classList.add('hidden');
@@ -646,6 +658,7 @@ export function mountCoachWidget(page) {
     if (!keepOpen) {
       panel.classList.remove('open');
       fab.classList.remove('hidden');
+      saveOpenState('closed');
       placeFloatingPanel();
     } else {
       placeFloatingPanel();
@@ -752,6 +765,7 @@ export function mountCoachWidget(page) {
     placeFloatingPanel();
     panel.classList.add('open');
     fab.classList.add('hidden');
+    saveOpenState('open');
     loadHistory();
     setTimeout(() => input.focus(), 150);
   }
@@ -800,4 +814,15 @@ export function mountCoachWidget(page) {
       await typeAssistant(fallback);
     }
   });
+
+  // Reopen exactly as the user left it on the previous page. Deferred with a
+  // timer rather than requestAnimationFrame: rAF is suspended in background
+  // tabs, so a page opened in one would never restore the coach.
+  const restore = loadOpenState();
+  if (restore === 'split' || restore === 'open') {
+    setTimeout(() => {
+      if (restore === 'split' && !isNarrow()) enterSplit();
+      else setOpen(true);
+    }, 0);
+  }
 }
