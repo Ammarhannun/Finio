@@ -1759,20 +1759,28 @@ body.coach-splitting canvas {
   .cw-turn:hover .cw-msg-actions,
   .cw-turn:focus-within .cw-msg-actions { opacity: 1; }
 }
+/* Icon-only actions: square, borderless until hovered, so they sit quietly
+   under a message instead of reading as a row of labelled buttons. */
 .cw-act {
-  background: none;
-  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--muted);
-  font-family: inherit;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 0.15rem 0.45rem;
-  border-radius: 6px;
   cursor: pointer;
-  line-height: 1.3;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
-.cw-act:hover { color: var(--text); border-color: var(--accent-border); }
+.cw-act svg { width: 15px; height: 15px; display: block; }
+.cw-act:hover {
+  color: var(--text);
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+.cw-act.copied { color: var(--accent); }
 
 /* Thinking — simple accent coin */
 .cw-coin {
