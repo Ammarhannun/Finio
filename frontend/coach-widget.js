@@ -270,9 +270,12 @@ export function mountCoachWidget(page) {
     try {
       await navigator.clipboard.writeText(text);
       if (btn) {
-        const prev = btn.textContent;
-        btn.textContent = 'Copied';
-        setTimeout(() => { btn.textContent = prev; }, 1200);
+        // Flash a tick in place of the icon so there's feedback without the
+        // button changing width.
+        const prev = btn.innerHTML;
+        btn.innerHTML = ICONS.check;
+        btn.classList.add('copied');
+        setTimeout(() => { btn.innerHTML = prev; btn.classList.remove('copied'); }, 1200);
       } else {
         showToast('Copied');
       }
@@ -285,6 +288,24 @@ export function mountCoachWidget(page) {
     return el?.dataset?.plain || el?.querySelector('.cw-msg-body')?.innerText || '';
   }
 
+  // Outlined icons (same family as the reference) rather than text labels, so
+  // the actions sit quietly under the message.
+  const ICONS = {
+    copy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+             <rect x="9" y="9" width="11" height="11" rx="2.5"/>
+             <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>
+           </svg>`,
+    check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 12.5 9 17.5 20 6.5"/>
+            </svg>`,
+    edit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+             <path d="M4 20h4L19.5 8.5a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"/>
+           </svg>`,
+  };
+
   function attachActions(turn, role, plain) {
     turn.dataset.plain = plain;
     const actions = document.createElement('div');
@@ -292,14 +313,18 @@ export function mountCoachWidget(page) {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'cw-act';
-    copyBtn.textContent = 'Copy';
+    copyBtn.innerHTML = ICONS.copy;
+    copyBtn.title = 'Copy';
+    copyBtn.setAttribute('aria-label', 'Copy message');
     copyBtn.addEventListener('click', () => copyText(plainFromEl(turn), copyBtn));
     actions.appendChild(copyBtn);
     if (role === 'user') {
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.className = 'cw-act';
-      editBtn.textContent = 'Edit';
+      editBtn.innerHTML = ICONS.edit;
+      editBtn.title = 'Edit';
+      editBtn.setAttribute('aria-label', 'Edit message');
       editBtn.addEventListener('click', () => startEdit(turn));
       actions.appendChild(editBtn);
     }
