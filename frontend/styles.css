@@ -1467,8 +1467,9 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 
 #coach-panel {
   position: fixed; right: 1.4rem; bottom: 1.4rem; z-index: 310;
-  width: min(400px, calc(100vw - 2rem));
-  height: min(560px, calc(100vh - 4rem));
+  /* Roomier floating panel — 400x560 made long answers feel cramped. */
+  width: min(520px, calc(100vw - 2rem));
+  height: min(680px, calc(100vh - 4rem));
   background: var(--bg-card-solid);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -1713,7 +1714,9 @@ body.coach-splitting canvas {
    the same colour, so the bubble reads as "yours" without a heavy solid slab. */
 .cw-msg.user {
   width: fit-content;
-  max-width: min(85%, 22rem);
+  /* Was capped at 22rem, so a long message wrapped into a narrow column even
+     when the panel was wide. Let it use the available width instead. */
+  max-width: 92%;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
   color: var(--text);
