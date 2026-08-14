@@ -347,6 +347,8 @@ export function mountCoachWidget(page) {
   }
 
   function addMsg(role, html, plainText) {
+    // First real message replaces the welcome screen.
+    messagesEl.querySelector('.cw-empty')?.remove();
     const baseRole = role.split(/\s+/)[0];
     const turn = document.createElement('div');
     turn.className = `cw-turn ${baseRole}${role.includes('typing') ? ' typing' : ''}`;
@@ -397,10 +399,45 @@ export function mountCoachWidget(page) {
     return turn;
   }
 
+  // Openers offered on an empty chat. Page-specific ones first so the coach
+  // picks up whatever the user is looking at, then the evergreen ones.
+  const STARTERS_BY_PAGE = {
+    dashboard: ['Where is my money actually going?', 'Am I on track to save?'],
+    transactions: ['What did I spend at Uber Eats?', 'Count transfers from family as income'],
+    patterns: ['What habit is costing me most?', 'Which bills repeat every month?'],
+    invest: ['What do I need before I can invest?', 'What is an ETF?'],
+    spend: ['Can I afford a $900 laptop?', 'How much can I safely spend this week?'],
+    profile: ['How much do I usually spend a month?', 'Am I on track to save?'],
+  };
+  const STARTERS_GENERAL = [
+    'How much did I spend last month?',
+    'What is my biggest category?',
+    'Set a $200 takeaway budget',
+  ];
+
+  // A chat is never blank: an empty thread shows a welcome with one-tap
+  // openers, the way a fresh conversation should look.
   function greet() {
-    messagesEl.innerHTML = '';
-    addMsg('assistant', 'Hey! Ask me anything about your money — or about this page.',
-      'Hey! Ask me anything about your money — or about this page.');
+    const starters = [...(STARTERS_BY_PAGE[page] || []), ...STARTERS_GENERAL].slice(0, 4);
+    messagesEl.innerHTML = `
+      <div class="cw-empty">
+        <div class="cw-empty-mark" aria-hidden="true">✦</div>
+        <h2 class="cw-empty-title">Start chatting with Finio</h2>
+        <p class="cw-empty-sub">
+          Ask about your spending, your goals, or anything money.
+          I can also make changes for you — just say what you want.
+        </p>
+        <div class="cw-starters">
+          ${starters.map(s =>
+            `<button type="button" class="cw-starter">${escapeHtml(s)}</button>`).join('')}
+        </div>
+      </div>`;
+    messagesEl.querySelectorAll('.cw-starter').forEach(b =>
+      b.addEventListener('click', () => {
+        input.value = b.textContent;
+        document.getElementById('cw-form')
+          .dispatchEvent(new Event('submit', { cancelable: true }));
+      }));
   }
 
   // The coach proposed a reclassification → show it as a confirm card.

@@ -2303,3 +2303,45 @@ body.coach-splitting canvas {
   font-size: 0.9rem; line-height: 1.55;
 }
 .f1k-steps li::marker { color: var(--accent); font-weight: 700; }
+
+/* ══ Coach: empty-chat welcome ═══════════════════════════════════════════
+   A blank thread looked broken. This fills it with a greeting and one-tap
+   openers, and it is removed the moment a real message arrives. */
+.cw-empty {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1.5rem 0.5rem;
+  gap: 0.5rem;
+}
+.cw-empty-mark {
+  width: 46px; height: 46px; margin-bottom: 0.25rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 1.25rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.cw-empty-title {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em;
+}
+.cw-empty-sub {
+  color: var(--muted); font-size: 0.85rem; line-height: 1.55;
+  max-width: 34ch; margin-bottom: 0.4rem;
+}
+.cw-starters { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; max-width: 22rem; }
+.cw-starter {
+  text-align: left; cursor: pointer;
+  padding: 0.55rem 0.8rem; border-radius: var(--radius-sm);
+  font-size: 0.8125rem; color: var(--text);
+  background: var(--bg-input); border: 1px solid var(--border);
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.cw-starter:hover {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  transform: translateY(-1px);
+}
