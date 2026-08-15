@@ -1154,6 +1154,59 @@ def _():
     assert_true(len(TRAINING_CSV.read_text().strip().splitlines()) >= 31)
 
 
+@test("anomaly: blowouts are caught in small categories (no z-score ceiling)")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    # A plain (x-mean)/std score is capped at (n-1)/sqrt(n), so with a 2.5
+    # threshold nothing in a category of <=8 rows could EVER be flagged.
+    rows = [{"date": f"2026-01-{i + 1:02d}", "amount": -25.0, "flow": "expense",
+             "category": "Food & Dining", "description": "CAFE"} for i in range(4)]
+    rows.append({"date": "2026-01-28", "amount": -5000.0, "flow": "expense",
+                 "category": "Food & Dining", "description": "BLOWOUT"})
+    found = detect_anomalies(pd.DataFrame(rows))
+    assert_eq(len(found), 1, "a $5000 charge among $25 meals must be flagged")
+    assert_eq(found[0]["merchant"], "BLOWOUT")
+
+
+@test("anomaly: steady spending produces no false positives")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    rows = [{"date": f"2026-01-{i + 1:02d}", "amount": -(20 + (i % 11)),
+             "flow": "expense", "category": "Food & Dining",
+             "description": "CAFE"} for i in range(28)]
+    assert_eq(detect_anomalies(pd.DataFrame(rows)), [])
+
+
+@test("anomaly: identical amounts (MAD=0) still detect a spike")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    rows = [{"date": f"2026-01-{i + 1:02d}", "amount": -25.0, "flow": "expense",
+             "category": "Food & Dining", "description": "CAFE"} for i in range(10)]
+    rows.append({"date": "2026-01-28", "amount": -900.0, "flow": "expense",
+                 "category": "Food & Dining", "description": "SPIKE"})
+    found = detect_anomalies(pd.DataFrame(rows))
+    assert_eq(len(found), 1, "MAD=0 must fall back, not skip the category")
+    assert_eq(found[0]["merchant"], "SPIKE")
+
+
+@test("anomaly: an unusually CHEAP charge is never flagged")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    rows = [{"date": f"2026-01-{i + 1:02d}", "amount": -500.0, "flow": "expense",
+             "category": "Rent", "description": "RENT"} for i in range(10)]
+    rows.append({"date": "2026-01-28", "amount": -21.0, "flow": "expense",
+                 "category": "Rent", "description": "TINY"})
+    assert_eq(detect_anomalies(pd.DataFrame(rows)), [])
+
+
 # ── Persistence-layer regressions (audit fixes) ─────────────────────────────
 # These use a fake Supabase client so they run offline and assert on the exact
 # bugs found in the audit, not on incidental behaviour.

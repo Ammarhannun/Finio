@@ -154,7 +154,8 @@
     const catDisabled = t.flow !== 'expense';
     return `
       <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
-        <input type="checkbox" class="tx-check" data-key="${t.key}"${selected.has(t.key) ? ' checked' : ''}>
+        <input type="checkbox" class="tx-check" data-key="${t.key}"${selected.has(t.key) ? ' checked' : ''}
+               aria-label="Select ${escapeHtml(t.merchant)} on ${formatDay(t.date)}">
         <span class="tx-date">${formatDay(t.date)}</span>
         <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
         <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>

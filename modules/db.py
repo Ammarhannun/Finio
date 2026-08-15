@@ -45,6 +45,21 @@ def upsert_merchant_embeddings(client, user_id, rows):
         ).execute()
 
 
+def get_embedded_merchants(client, user_id):
+    """Merchant names that already have a stored embedding, so a re-upload only
+    pays to embed what's genuinely new."""
+    try:
+        result = (
+            client.table("merchant_embeddings")
+            .select("merchant")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        return set()
+    return {r["merchant"] for r in (result.data or []) if r.get("merchant")}
+
+
 def match_merchants(client, user_id, embedding, k=5):
     res = client.rpc(
         "match_merchants",
