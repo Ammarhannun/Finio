@@ -203,14 +203,17 @@ async def analyze_csv(
                     m = (t.get("merchant") or "").strip()
                     if m and m not in seen:
                         seen[m] = t.get("category")
-                merchants = list(seen.keys())
+                # Only embed merchants we haven't embedded before — a re-upload
+                # of a mostly-overlapping statement used to pay for the whole
+                # list again on every single upload.
+                _client = db.get_client(user.token)
+                known = db.get_embedded_merchants(_client, user.user_id)
+                merchants = [m for m in seen if m not in known]
                 vectors = embed_texts(merchants)
                 if vectors:
                     rows = [{"merchant": m, "category": seen[m], "embedding": v}
                             for m, v in zip(merchants, vectors)]
-                    db.upsert_merchant_embeddings(
-                        db.get_client(user.token), user.user_id, rows
-                    )
+                    db.upsert_merchant_embeddings(_client, user.user_id, rows)
             except Exception:
                 pass
 
