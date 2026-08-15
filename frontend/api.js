@@ -1,9 +1,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, API_BASE_URL } from './config.js';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const API_BASE = 'http://127.0.0.1:8000';
+// Local dev talks to the backend on :8000; anywhere else (a deployed frontend)
+// must point at the deployed API, so the host is config, not a constant.
+const API_BASE = API_BASE_URL
+  || (['localhost', '127.0.0.1', '[::1]', ''].includes(location.hostname)
+        ? 'http://127.0.0.1:8000'
+        : `${location.origin}/api`);
 
 export async function getSession() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -101,9 +106,9 @@ export async function setupNav(activePage) {
     wrap.className = 'nav-profile';
     if (activePage === 'profile') wrap.classList.add('active');
     wrap.innerHTML = `
-      <button class="nav-avatar" id="nav-avatar" aria-haspopup="true" aria-expanded="false" title="Account">${initial}</button>
+      <button class="nav-avatar" id="nav-avatar" aria-haspopup="true" aria-expanded="false" title="Account">${escapeHtml(initial)}</button>
       <div class="nav-menu" id="nav-menu" role="menu">
-        <div class="nav-menu-email">${email}</div>
+        <div class="nav-menu-email">${escapeHtml(email)}</div>
         <a href="profile.html" role="menuitem">Profile</a>
         <button class="nav-menu-item" id="nav-logout-item" role="menuitem">Log out</button>
       </div>`;

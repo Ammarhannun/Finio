@@ -4,6 +4,7 @@ Full Finio test suite — run from project root:
 """
 
 import io
+import time
 import os
 import sys
 import tempfile
@@ -1151,6 +1152,192 @@ def _():
 def _():
     assert_true(TRAINING_CSV.exists())
     assert_true(len(TRAINING_CSV.read_text().strip().splitlines()) >= 31)
+
+
+# ── Persistence-layer regressions (audit fixes) ─────────────────────────────
+# These use a fake Supabase client so they run offline and assert on the exact
+# bugs found in the audit, not on incidental behaviour.
+
+class _FakeQuery:
+    def __init__(self, rows, log=None, table=None):
+        self.rows, self.log, self.table_name = list(rows), log, table
+
+    def select(self, *a, **k): return self
+    def eq(self, *a, **k): return self
+    def neq(self, *a, **k): return self
+    def gte(self, *a, **k): return self
+    def lt(self, *a, **k): return self
+
+    def order(self, field, desc=False):
+        self.rows = sorted(self.rows, key=lambda r: r.get(field) or "", reverse=desc)
+        return self
+
+    def limit(self, n):
+        self.rows = self.rows[:n]
+        return self
+
+    # Writes are no-ops by default; individual tests patch these to record calls.
+    def upsert(self, *a, **k): return self
+    def insert(self, *a, **k): return self
+    def delete(self, *a, **k): return self
+
+    def execute(self):
+        return self
+
+    @property
+    def data(self):
+        return self.rows
+
+
+class _FakeClient:
+    """Counts table touches so we can assert on read amplification."""
+
+    def __init__(self, tables):
+        self.tables, self.reads = tables, {}
+
+    def table(self, name):
+        self.reads[name] = self.reads.get(name, 0) + 1
+        return _FakeQuery(self.tables.get(name, []), table=name)
+
+
+@test("db: newest chats survive the row cap in list_chats")
+def _():
+    from modules import db
+
+    rows = [
+        {"chat_id": "old", "role": "user", "message": f"m{i}",
+         "timestamp": f"2026-01-01T00:{i // 60:02d}:{i % 60:02d}"}
+        for i in range(2400)
+    ]
+    rows += [
+        {"chat_id": "newest", "role": "user", "message": "today",
+         "timestamp": f"2026-08-16T10:0{i}:00"} for i in range(3)
+    ]
+    chats = db.list_chats(_FakeClient({"chat_history": rows}), "u1")
+    ids = [c["chat_id"] for c in chats]
+    # An oldest-first fetch with a cap used to hide the user's recent chats.
+    assert_true("newest" in ids, f"newest chat missing from sidebar: {ids}")
+    assert_eq(ids[0], "newest")
+
+
+@test("db: snapshot + history are read once per request, not re-fetched")
+def _():
+    from modules import db
+
+    snap = [{"month": "2026-06-01", "summary_json": {
+        "metrics": {}, "overrides": [], "budget_targets": {}, "custom_categories": []}}]
+    txs = [{"date": "2026-06-01", "amount": -5.0, "merchant": "A",
+            "category": "food", "is_expense": True}] * 50
+    client = _FakeClient({"snapshots": snap, "transactions": txs})
+
+    db.load_dashboard(client, "u1")
+    db.get_all_transactions(client, "u1")
+    db.get_all_transactions(client, "u1")
+    db.get_overrides(client, "u1")
+    db.get_budget_targets(client, "u1")
+    db.get_custom_categories(client, "u1")
+
+    assert_eq(client.reads["snapshots"], 1)
+    assert_eq(client.reads["transactions"], 1)
+
+
+@test("db: a write invalidates the per-request read memo")
+def _():
+    from modules import db
+
+    snap = [{"month": "2026-06-01", "summary_json": {"overrides": ["before"]}}]
+    client = _FakeClient({"snapshots": snap})
+    assert_eq(db.get_overrides(client, "u1"), ["before"])
+
+    # save_snapshot must drop the memo so a later read sees the new row.
+    client.tables["snapshots"] = [
+        {"month": "2026-06-01", "summary_json": {"overrides": ["after"]}}]
+    db.save_snapshot(client, "u1", "2026-06-01", {"overrides": ["after"]})
+    assert_eq(db.get_overrides(client, "u1"), ["after"])
+
+
+@test("db: an empty parse can never wipe stored history")
+def _():
+    from modules import db
+
+    deletes = []
+
+    class Guard(_FakeClient):
+        def table(self, name):
+            q = super().table(name)
+            q.delete = lambda *a, **k: (deletes.append(name), q)[1]
+            return q
+
+    client = Guard({"transactions": [{"date": "2026-01-01", "amount": -1.0,
+                                      "merchant": "A", "category": "food",
+                                      "is_expense": True}]})
+    db.replace_all_transactions(client, "u1", [])
+    assert_eq(deletes, [], "empty replacement must not delete anything")
+
+
+@test("db: budgets upsert in one round-trip, skipping unset limits")
+def _():
+    from modules import db
+
+    calls = []
+
+    class Rec(_FakeClient):
+        def table(self, name):
+            q = super().table(name)
+            q.upsert = lambda payload, **k: (calls.append(payload), q)[1]
+            return q
+
+    rows = [{"category": "food", "suggested_limit": 300.0},
+            {"category": "transport", "suggested_limit": None},
+            {"category": "fun", "suggested_limit": 120.0}]
+    db.upsert_budgets(Rec({}), "u1", "2026-06-01", rows)
+    assert_eq(len(calls), 1, "should be one batched upsert")
+    assert_eq(len(calls[0]), 2, "rows with no limit must be skipped")
+
+
+@test("api: paid endpoints are rate limited per user")
+def _():
+    import main as app_main
+
+    app_main._RATE.clear()
+    limit, _window = app_main.RATE_LIMITS["/coach"]
+    for _ in range(limit):
+        app_main._rate_limit("user-a", "/coach")
+    try:
+        app_main._rate_limit("user-a", "/coach")
+        raise AssertionError("expected a 429 once over the limit")
+    except app_main.HTTPException as exc:
+        assert_eq(exc.status_code, 429)
+    # A different user is unaffected.
+    app_main._rate_limit("user-b", "/coach")
+    app_main._RATE.clear()
+
+
+@test("api: profile updates invalidate cached period views")
+def _():
+    import main as app_main
+
+    app_main._VIEW_CACHE.clear()
+    app_main._VIEW_CACHE["u1|monthly|None|None|None"] = (9e9, {"stale": True})
+    app_main._VIEW_CACHE["u2|monthly|None|None|None"] = (9e9, {"keep": True})
+    app_main._cache_clear_user("u1")
+    assert_true("u1|monthly|None|None|None" not in app_main._VIEW_CACHE)
+    assert_true("u2|monthly|None|None|None" in app_main._VIEW_CACHE)
+    app_main._VIEW_CACHE.clear()
+
+
+@test("api: view cache evicts expired entries and stays bounded")
+def _():
+    import main as app_main
+
+    app_main._VIEW_CACHE.clear()
+    app_main._VIEW_CACHE["old|monthly|None|None|None"] = (0.0, {"expired": True})
+    for i in range(app_main._VIEW_CACHE_MAX + 50):
+        app_main._VIEW_CACHE[f"u{i}|monthly|None|None|None"] = (time.time(), {"i": i})
+    app_main._cache_evict()
+    assert_true("old|monthly|None|None|None" not in app_main._VIEW_CACHE)
+    assert_true(len(app_main._VIEW_CACHE) <= app_main._VIEW_CACHE_MAX)
+    app_main._VIEW_CACHE.clear()
 
 
 def main():

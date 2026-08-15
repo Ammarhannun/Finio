@@ -7,7 +7,13 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.deps import AuthUser, get_current_user, get_optional_user
-from config import CATEGORIES, DISCLAIMER
+from config import (
+    CATEGORIES,
+    DISCLAIMER,
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_MB,
+    RATE_LIMITS,
+)
 from modules import db
 from modules.ai_coach import QUICK_QUESTIONS, coach_chat, generate_insight, title_chat
 from modules.categoriser import examples_from_overrides
@@ -59,6 +65,35 @@ def health():
     return {"status": "ok", "app": "Finio", "db_configured": db.is_configured()}
 
 
+# ── Per-user rate limiting on the paid endpoints ────────────────────────────
+# In-process sliding window. Single-process deployments only — behind multiple
+# workers this limits per worker, which is still enough to stop a runaway loop.
+_RATE: dict = {}
+
+
+def _rate_limit(user_id: str, endpoint: str):
+    import time as _t
+
+    limit = RATE_LIMITS.get(endpoint)
+    if not limit or not user_id:
+        return
+    max_calls, window = limit
+    now = _t.monotonic()
+    key = f"{user_id}|{endpoint}"
+    hits = [t for t in _RATE.get(key, []) if now - t < window]
+    if len(hits) >= max_calls:
+        raise HTTPException(
+            status_code=429,
+            detail="That's a lot of requests in a short time — give it a minute.",
+        )
+    hits.append(now)
+    _RATE[key] = hits
+    # Keep the dict from growing forever in a long-lived process.
+    if len(_RATE) > 5000:
+        for k in [k for k, v in _RATE.items() if not v or now - v[-1] > 3600]:
+            _RATE.pop(k, None)
+
+
 @app.post("/analyze")
 async def analyze_csv(
     file: UploadFile = File(...),
@@ -70,6 +105,9 @@ async def analyze_csv(
     period_end: Optional[str] = Form(None),
     user: Optional[AuthUser] = Depends(get_optional_user),
 ):
+    if user:
+        _rate_limit(user.user_id, "/analyze")
+
     filename = (file.filename or "").lower()
     if not (filename.endswith(".csv") or filename.endswith(".pdf")):
         raise HTTPException(status_code=400, detail="Please upload a .csv or .pdf file")
@@ -79,8 +117,20 @@ async def analyze_csv(
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp_path = tmp.name
-            content = await file.read()
-            tmp.write(content)
+            # Stream to disk with a hard ceiling. Reading the whole upload into
+            # memory first meant one oversized file could exhaust the server's
+            # RAM before any validation ran.
+            written = 0
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large — the limit is {MAX_UPLOAD_MB} MB",
+                    )
+                tmp.write(chunk)
+        if written == 0:
+            raise HTTPException(status_code=400, detail="That file is empty")
 
         # Carry a returning user's past corrections onto the new statement:
         # their saved overrides re-apply by text-match, and become training
@@ -206,6 +256,25 @@ def _cache_clear_user(user_id):
         _VIEW_CACHE.pop(k, None)
 
 
+_VIEW_CACHE_MAX = 256
+
+
+def _cache_evict():
+    """Drop expired entries, then trim to a hard ceiling (oldest first).
+
+    Without this the cache only ever shrank when a user wrote something, so an
+    idle multi-user process grew a full analysis result per user per window and
+    never gave the memory back."""
+    now = time.time()
+    for k in [k for k, v in _VIEW_CACHE.items() if now - v[0] >= _VIEW_TTL]:
+        _VIEW_CACHE.pop(k, None)
+    if len(_VIEW_CACHE) > _VIEW_CACHE_MAX:
+        for k, _ in sorted(_VIEW_CACHE.items(), key=lambda kv: kv[1][0])[
+            : len(_VIEW_CACHE) - _VIEW_CACHE_MAX
+        ]:
+            _VIEW_CACHE.pop(k, None)
+
+
 def _period_view(client, user, data, *, period=None, month=None, start=None, end=None):
     """Re-slice the user's whole stored history into the requested window,
     honouring any saved flow overrides and keeping their goal. Returns None when
@@ -220,6 +289,7 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
     hit = _VIEW_CACHE.get(key)
     if hit and (time.time() - hit[0]) < _VIEW_TTL:
         return hit[1]
+    _cache_evict()
 
     all_tx = db.get_all_transactions(client, user.user_id)
     if not all_tx:
@@ -594,6 +664,9 @@ def update_profile(
     )
     if body.custom_categories is not None:
         db.save_custom_categories(client, user.user_id, body.custom_categories)
+    # income_bracket feeds the goal recommendation and buffer sizing that
+    # _period_view computes, so cached views are now wrong — drop them.
+    _cache_clear_user(user.user_id)
     return _profile_payload(client, user)
 
 
@@ -633,6 +706,7 @@ def insight(
     """A short natural-language recap of the user's finances (LLM when a key is
     set, template otherwise). The default (no-period) insight is CACHED in the
     snapshot — one LLM call per analysis, not one per dashboard load."""
+    _rate_limit(user.user_id, "/insight")
     client, data = _require_snapshot(user)
 
     if not any([period, month, start, end]):
@@ -682,6 +756,7 @@ def chats(user: AuthUser = Depends(get_current_user)):
 
 @app.post("/coach")
 def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
+    _rate_limit(user.user_id, "/coach")
     client, data = _require_snapshot(user)
 
     # If the user is viewing a specific period, ground the coach in that same
