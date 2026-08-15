@@ -173,6 +173,21 @@ CRYPTO_OPTIONS = ["BTC", "ETH"]
 # misleading numbers; the dashboard then prompts the user to hit Re-analyse.
 SNAPSHOT_VERSION = 3
 
+# ── Abuse / cost limits ─────────────────────────────────────────────────────
+# A bank statement is a small text file; anything far above this is a mistake or
+# an attack, and parsing it would tie up the server's memory.
+MAX_UPLOAD_MB = 10
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+# Per-user ceilings on the endpoints that cost money (each call is one or more
+# OpenAI requests). Generous for real use, but they stop a stuck retry loop or a
+# stolen token from running up an unbounded bill.
+RATE_LIMITS = {
+    "/coach": (30, 60),      # (max calls, window seconds)
+    "/analyze": (10, 60),
+    "/insight": (20, 60),
+}
+
 # ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
 OPENAI_MODEL = "gpt-4o-mini"
 # embeddings.py — semantic search (RAG + merchant search). 1536 dims.

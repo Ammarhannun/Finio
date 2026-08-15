@@ -57,6 +57,36 @@ def is_configured():
     return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_ANON_KEY"))
 
 
+# ── Per-request read memo ────────────────────────────────────────────────────
+# One /dashboard load used to fetch the snapshot blob 4x and the whole
+# transaction history 2x, because get_overrides / get_budget_targets /
+# get_custom_categories each re-read the same row. get_client() builds a FRESH
+# client per request, so a cache attached to the client object lives exactly one
+# request — it removes the duplicate reads without ever serving a stale row
+# across requests. Writes clear it so read-after-write inside one request is
+# still correct.
+def _memo(client):
+    memo = getattr(client, "_finio_memo", None)
+    if memo is None:
+        memo = {}
+        try:
+            client._finio_memo = memo
+        except Exception:
+            return None  # exotic client object → just skip caching
+    return memo
+
+
+def _memo_clear(client, *keys):
+    memo = getattr(client, "_finio_memo", None)
+    if not memo:
+        return
+    if keys:
+        for k in keys:
+            memo.pop(k, None)
+    else:
+        memo.clear()
+
+
 def _month_bounds(month):
     """Return (first_day, first_day_of_next_month) for a 'YYYY-MM' string.
 
@@ -151,17 +181,51 @@ def replace_transactions(client, user_id, transactions, month):
     client.table("transactions").insert(_tx_rows(user_id, transactions)).execute()
 
 
+_INSERT_CHUNK = 500
+
+
 def replace_all_transactions(client, user_id, transactions):
     """Replace the user's ENTIRE stored history (used so the dashboard can
-    re-slice into any period later without a re-upload)."""
-    client.table("transactions").delete().eq("user_id", user_id).execute()
+    re-slice into any period later without a re-upload).
+
+    Supabase gives us no multi-statement transaction, so this is written to fail
+    safe instead: never delete for an empty replacement, and if the re-insert
+    fails part-way, put the old rows back rather than leaving the user with a
+    wiped history.
+    """
     if not transactions:
+        # An empty parse must never be able to erase a real history.
         return
-    client.table("transactions").insert(_tx_rows(user_id, transactions)).execute()
+
+    rows = _tx_rows(user_id, transactions)
+    previous = get_all_transactions(client, user_id)
+
+    client.table("transactions").delete().eq("user_id", user_id).execute()
+    _memo_clear(client, ("all_tx", user_id))
+    try:
+        for i in range(0, len(rows), _INSERT_CHUNK):
+            client.table("transactions").insert(rows[i:i + _INSERT_CHUNK]).execute()
+    except Exception:
+        # Roll back to what was there before, then surface the original error.
+        try:
+            client.table("transactions").delete().eq("user_id", user_id).execute()
+            restore = _tx_rows(user_id, previous)
+            for i in range(0, len(restore), _INSERT_CHUNK):
+                client.table("transactions").insert(restore[i:i + _INSERT_CHUNK]).execute()
+        except Exception:
+            pass
+        raise
+    finally:
+        _memo_clear(client, ("all_tx", user_id))
 
 
 def get_all_transactions(client, user_id):
     """Every stored transaction for the user, oldest first."""
+    memo = _memo(client)
+    key = ("all_tx", user_id)
+    if memo is not None and key in memo:
+        return memo[key]
+
     result = (
         client.table("transactions")
         .select("date, amount, merchant, category, is_expense")
@@ -169,7 +233,10 @@ def get_all_transactions(client, user_id):
         .order("date")
         .execute()
     )
-    return result.data or []
+    rows = result.data or []
+    if memo is not None:
+        memo[key] = rows
+    return rows
 
 
 def save_snapshot(client, user_id, month, summary_json):
@@ -177,6 +244,9 @@ def save_snapshot(client, user_id, month, summary_json):
         {"user_id": user_id, "month": month, "summary_json": summary_json},
         on_conflict="user_id,month",
     ).execute()
+    # The row just changed — drop the memo so a later read in this same request
+    # sees the write, not the pre-write copy.
+    _memo_clear(client, ("snapshot", user_id))
 
 
 def get_streak(client, user_id):
@@ -221,18 +291,20 @@ def upsert_budgets(client, user_id, month, budget_rows):
     # suggested_limit is None for categories with no target/baseline yet (the
     # honest "no budget set" state) — monthly_limit is NOT NULL, so there's
     # nothing meaningful to persist for those; skip them rather than error.
-    for row in budget_rows:
-        if row.get("suggested_limit") is None:
-            continue
-        client.table("budgets").upsert(
-            {
-                "user_id": user_id,
-                "category": row["category"],
-                "monthly_limit": row["suggested_limit"],
-                "month": month,
-            },
-            on_conflict="user_id,category,month",
-        ).execute()
+    payload = [
+        {
+            "user_id": user_id,
+            "category": row["category"],
+            "monthly_limit": row["suggested_limit"],
+            "month": month,
+        }
+        for row in budget_rows
+        if row.get("suggested_limit") is not None
+    ]
+    if not payload:
+        return
+    # One round-trip for every category, not one per category.
+    client.table("budgets").upsert(payload, on_conflict="user_id,category,month").execute()
 
 
 def upsert_user_profile(client, user_id, email=None, age=None, income_bracket=None):
@@ -260,6 +332,11 @@ def get_user_profile(client, user_id):
 
 
 def get_latest_snapshot(client, user_id):
+    memo = _memo(client)
+    key = ("snapshot", user_id)
+    if memo is not None and key in memo:
+        return memo[key]
+
     result = (
         client.table("snapshots")
         .select("month, summary_json")
@@ -268,13 +345,15 @@ def get_latest_snapshot(client, user_id):
         .limit(1)
         .execute()
     )
+    row = None
     if result.data:
         row = result.data[0]
         # Normalise month back to "YYYY-MM" for internal use
         if row.get("month") and len(str(row["month"])) == 10:
             row["month"] = str(row["month"])[:7]
-        return row
-    return None
+    if memo is not None:
+        memo[key] = row
+    return row
 
 
 def get_transactions(client, user_id, month):
@@ -693,16 +772,21 @@ def get_chat_history(client, user_id, limit=20, chat_id=None):
     return list(reversed(result.data or []))
 
 
-def list_chats(client, user_id, limit=200):
+def list_chats(client, user_id, limit=2000):
     """The user's chats, newest activity first: [{chat_id, title, last_ts, count}].
     Prefers a stored AI title (role='title'); otherwise the first user message.
-    Falls back to one 'default' chat when the 002 migration hasn't been run."""
+    Falls back to one 'default' chat when the 002 migration hasn't been run.
+
+    Rows are fetched NEWEST-first: an oldest-first fetch with a row cap silently
+    dropped the user's most recent conversations once their total message count
+    passed the cap — the sidebar would stop showing new chats entirely.
+    """
     try:
         result = (
             client.table("chat_history")
             .select("chat_id, role, message, timestamp")
             .eq("user_id", user_id)
-            .order("timestamp", desc=False)
+            .order("timestamp", desc=True)
             .limit(limit)
             .execute()
         )
@@ -710,7 +794,9 @@ def list_chats(client, user_id, limit=200):
         return [{"chat_id": "default", "title": "Chat", "last_ts": None, "count": 0}]
 
     chats = {}
-    for row in result.data or []:
+    # Walk oldest→newest within the fetched window so "first user message"
+    # (the fallback title) and last_ts both come out right.
+    for row in reversed(result.data or []):
         cid = row.get("chat_id") or "default"
         c = chats.setdefault(
             cid, {"chat_id": cid, "title": None, "ai_title": None, "last_ts": None, "count": 0}
