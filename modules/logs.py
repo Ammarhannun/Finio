@@ -21,6 +21,11 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+# Third-party libraries log every HTTP call at INFO, which buries our own
+# messages and spams the test output. We only want to hear from them on trouble.
+for _noisy in ("httpx", "httpcore", "openai", "urllib3", "watchfiles"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 log = logging.getLogger("finio")
 
 

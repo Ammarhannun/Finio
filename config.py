@@ -204,6 +204,7 @@ RATE_LIMITS = {
     "/coach": (30, 60),      # (max calls, window seconds)
     "/analyze": (10, 60),
     "/insight": (20, 60),
+    "/reclassify": (6, 60),   # a full re-run of the categoriser
 }
 
 # ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
