@@ -304,32 +304,60 @@
       return;
     }
     card.style.display = 'block';
-    document.getElementById('chart-note').textContent = 'spent vs kept, each month';
+
+    const anyPartial = series.some(s => s.partial);
+    document.getElementById('chart-note').textContent = anyPartial
+      ? 'spent vs kept each month · faded = part-month'
+      : 'spent vs kept, each month';
+
     const ctx = document.getElementById('spend-chart').getContext('2d');
     if (chart) chart.destroy();
+
+    const accent = cssVar('--accent');
+    const red = cssVar('--red');
+    // A part-month is drawn faded: it holds fewer days than the others, so
+    // reading it as a real drop in spending would be wrong.
+    const fade = (hex, partial) => hex + (partial ? '55' : 'cc');
+
+    // Grouped bars, NOT a line.
+    //   * A line between monthly points implies values in between that do not
+    //     exist, and with tension it overshot past the real high and low —
+    //     drawing savings figures that never happened.
+    //   * Both series are monthly dollar totals, so side-by-side bars on one
+    //     baseline compare them directly, and a month that overspent simply
+    //     drops below the zero line instead of needing to be decoded.
     chart = new Chart(ctx, {
+      type: 'bar',
       data: {
         labels: series.map(s => formatMonthYear(s.month)),
         datasets: [
           {
-            type: 'bar', label: 'Spent',
+            label: 'Spent',
             data: series.map(s => s.spent),
-            backgroundColor: cssVar('--red') + 'cc',
-            borderRadius: 6, maxBarThickness: 42,
+            backgroundColor: series.map(s => fade(red, s.partial)),
+            borderRadius: 6, maxBarThickness: 34,
           },
           {
-            type: 'line', label: 'Saved',
+            label: 'Kept',
             data: series.map(s => s.saved),
-            borderColor: cssVar('--accent'),
-            backgroundColor: cssVar('--accent'),
-            tension: 0.35, pointRadius: 3,
+            // Red when the month went backwards, so the sign reads instantly.
+            backgroundColor: series.map(s => fade(s.saved < 0 ? red : accent, s.partial)),
+            borderRadius: 6, maxBarThickness: 34,
           },
         ],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         scales: {
-          y: { grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted'), callback: v => '$' + Number(v).toLocaleString() } },
+          y: {
+            grid: {
+              // Zero matters — "kept" can go negative.
+              color: c => (c.tick.value === 0 ? cssVar('--border-strong') : cssVar('--border')),
+              lineWidth: c => (c.tick.value === 0 ? 2 : 1),
+            },
+            ticks: { color: cssVar('--muted'), callback: v => '$' + Number(v).toLocaleString() },
+          },
           x: { grid: { display: false }, ticks: { color: cssVar('--muted') } },
         },
         plugins: {
@@ -337,7 +365,17 @@
           tooltip: {
             backgroundColor: cssVar('--bg-elev'), borderColor: cssVar('--border-strong'),
             borderWidth: 1, titleColor: cssVar('--text'), bodyColor: cssVar('--muted'),
-            callbacks: { label: c => ` ${c.dataset.label}: ${formatAUD(c.raw)}` },
+            callbacks: {
+              label: c => ` ${c.dataset.label}: ${formatAUD(c.raw)}`,
+              // Show what "kept" is made of, and never let a part-month be
+              // read as a like-for-like comparison.
+              afterBody: (items) => {
+                const s = series[items[0].dataIndex];
+                const lines = [`Money in: ${formatAUD(s.income)}`];
+                if (s.partial) lines.push('Part month — not a full month of data');
+                return lines;
+              },
+            },
           },
         },
       },
