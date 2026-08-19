@@ -450,6 +450,21 @@ def fallback_coach_response(user_message, context, transactions=None):
     return f"{text} {DISCLAIMER}"
 
 
+def strip_disclaimer(insight):
+    """Drop a disclaimer that older cached insights had appended to the text.
+
+    Insights are cached inside the snapshot, so recaps generated before the
+    disclaimer was split out would keep rendering as a run-on until the user
+    re-analysed. Cleaning on read means they fix themselves.
+    """
+    if not insight:
+        return insight
+    text = (insight.get("text") or "").strip()
+    if text.endswith(DISCLAIMER):
+        text = text[: -len(DISCLAIMER)].strip()
+    return {**insight, "text": text}
+
+
 def generate_insight(context):
     """A short, friendly recap of the user's finances. Uses the LLM when a key is
     present; otherwise a deterministic template built from the same context, so
@@ -478,9 +493,11 @@ def generate_insight(context):
             parts.append(f"Your biggest area was {top['category']} at ${top.get('amount', 0):,.0f}.")
         text = " ".join(parts)
         source = "fallback"
-    if DISCLAIMER not in text:
-        text = f"{text} {DISCLAIMER}"
-    return {"text": text, "source": source, "disclaimer": DISCLAIMER}
+    # The disclaimer is returned as its own field and every page renders it in
+    # its own line, so gluing it onto the end of the sentence produced both a
+    # run-on ("...savings buffer! General information only, not financial
+    # advice") and a duplicate of the text already on screen.
+    return {"text": text.strip(), "source": source, "disclaimer": DISCLAIMER}
 
 
 def coach_chat(user_message, context, history=None, transactions=None):

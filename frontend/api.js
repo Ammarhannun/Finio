@@ -167,6 +167,23 @@ export function escapeHtml(value) {
 
 // Currency and locale come from config so they're set in ONE place. The old
 // name is kept as an alias because it's used across every page.
+/**
+ * Render the coach's light markdown as safe HTML.
+ *
+ * The model is asked to keep **bold** and the backend deliberately preserves
+ * those markers, so anything printing the text with textContent shows the
+ * asterisks raw. Escaping happens FIRST, so merchant names and model output
+ * can never inject markup.
+ */
+export function renderMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/^#+\s*/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$)/g, '$1$2')
+    .replace(/\*\*/g, '')
+    .replace(/\n/g, '<br>');
+}
+
 export function formatMoney(amount) {
   if (amount == null || isNaN(Number(amount))) return '—';
   return new Intl.NumberFormat(LOCALE, {

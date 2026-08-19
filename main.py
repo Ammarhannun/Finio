@@ -18,7 +18,9 @@ from config import (
 )
 from modules import db
 from modules.logs import log, warn
-from modules.ai_coach import QUICK_QUESTIONS, coach_chat, generate_insight, title_chat
+from modules.ai_coach import (
+    QUICK_QUESTIONS, coach_chat, generate_insight, strip_disclaimer, title_chat,
+)
 from modules.categoriser import examples_from_overrides
 from modules.pipeline import analyze_stored, recompute_for_goal, run_full_pipeline
 from modules.spend_check import check_purchase
@@ -744,7 +746,7 @@ def insight(
     if not any([period, month, start, end]):
         cached = db.get_cached_insight(client, user.user_id)
         if cached:
-            return cached
+            return strip_disclaimer(cached)
         context = _alltime_insight_context(data)
         if not context:
             raise HTTPException(status_code=404, detail="No insight yet — upload a statement first")

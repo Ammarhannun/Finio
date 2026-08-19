@@ -891,7 +891,7 @@ def _():
     assert_in("super", out.lower())
 
 
-@test("ai_coach: generate_insight returns text with the disclaimer")
+@test("ai_coach: generate_insight returns text plus a separate disclaimer")
 def _():
     from modules.ai_coach import generate_insight
 
@@ -901,7 +901,11 @@ def _():
     }
     out = generate_insight(ctx)
     assert_true(out["text"])
-    assert_in("not financial advice", out["text"].lower())
+    assert_in("not financial advice", out["disclaimer"].lower())
+    # The disclaimer is its own field and its own line on every page — gluing it
+    # onto the sentence made a run-on AND duplicated what was already on screen.
+    assert_true("not financial advice" not in out["text"].lower(),
+                f"disclaimer leaked into the insight text: {out['text']!r}")
 
 
 @test("invest: menu lists crypto and more than just ETFs")

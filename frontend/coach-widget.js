@@ -6,7 +6,8 @@
 // - Renders the coach's proposed transaction edits as cards with an Apply
 //   button (human-confirmed writes through POST /overrides).
 
-import { apiFetch, escapeHtml, formatAUD, showToast, storedPeriodParts } from './api.js';
+import { apiFetch, escapeHtml, formatAUD, renderMarkdown, showToast,
+         storedPeriodParts } from './api.js';
 
 let mounted = false;
 
@@ -78,16 +79,8 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function fmtMsg(text) {
-  // Escape first (XSS), keep **bold** as <strong>, drop other markdown noise.
-  let t = escapeHtml(text)
-    .replace(/^#+\s*/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$)/g, '$1$2')
-    .replace(/\*\*/g, '')
-    .replace(/\n/g, '<br>');
-  return t;
-}
+// Shared with the dashboard insight so there is ONE markdown renderer.
+const fmtMsg = renderMarkdown;
 
 export function mountCoachWidget(page) {
   if (mounted || document.getElementById('coach-fab')) return;
