@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, API_BASE_URL } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, API_BASE_URL,
+         CURRENCY, LOCALE } from './config.js';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -154,15 +155,18 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-export function formatAUD(amount) {
+// Currency and locale come from config so they're set in ONE place. The old
+// name is kept as an alias because it's used across every page.
+export function formatMoney(amount) {
   if (amount == null || isNaN(Number(amount))) return '—';
-  return new Intl.NumberFormat('en-AU', {
+  return new Intl.NumberFormat(LOCALE, {
     style: 'currency',
-    currency: 'AUD',
+    currency: CURRENCY,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
 }
+export const formatAUD = formatMoney;
 
 // ── Dates: always shown as "June 2026" for easy reading ──
 const MONTHS = ['January','February','March','April','May','June',
@@ -198,14 +202,6 @@ export function dateRangeLabel(dr) {
 }
 
 // ── Shared period selector ──
-// The same window control on every page so the whole platform moves together.
-const BASE_PERIODS = [
-  { value: 'monthly', label: 'Latest month' },
-  { value: 'weekly', label: 'Latest week' },
-  { value: 'daily', label: 'Latest day' },
-  { value: 'all', label: 'All time' },
-];
-
 // The selected period is platform-wide: one value persisted in localStorage so
 // changing it on ANY page (dashboard, patterns, invest, coach, spend) carries
 // to every other page. Format: 'monthly'|'weekly'|'daily'|'all'|'month:YYYY-MM'.
@@ -282,4 +278,54 @@ export function showToast(msg) {
 export function severityClass(s) {
   const map = { high: 'red', medium: 'yellow', low: 'green', good: 'green', info: 'yellow' };
   return map[(s || '').toLowerCase()] || 'yellow';
+}
+
+/**
+ * Boot a period-driven page (Invest, Patterns, …).
+ *
+ * Every one of these pages did the same four things — auth, fetch for the
+ * stored period, render, mount the period bar — plus an identical error ladder
+ * distinguishing "no analysis yet" from a real failure. That block was copied
+ * per page, so a fix to the error handling had to be made in each one.
+ *
+ * @param {string}   endpoint  API path, e.g. '/invest'
+ * @param {Function} render    called with the response payload
+ * @param {object}   opts      { loadingId, noDataId, mountId, tag }
+ * @returns {Function} the period-change handler, for callers that need it
+ */
+export async function bootstrapPeriodPage(endpoint, render, opts = {}) {
+  const {
+    loadingId = 'loading',
+    noDataId = 'no-data',
+    mountId = 'period-mount',
+    tag = 'Window',
+  } = opts;
+
+  const load = async (value) => {
+    try {
+      render(await apiFetch(`${endpoint}?${periodQuery(value)}`));
+    } catch (err) {
+      showToast(err.message || 'Could not load that period');
+    }
+  };
+
+  try {
+    await requireAuth();
+    const data = await apiFetch(`${endpoint}?${periodQuery(getStoredPeriod())}`);
+    render(data);
+    mountPeriodBar(document.getElementById(mountId),
+      data.available_months || [], load, getStoredPeriod(), tag);
+  } catch (err) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.style.display = 'none';
+    // A redirect to login is already in flight for these two — say nothing.
+    const redirecting = err.message === 'Not authenticated'
+                     || err.message === 'session_expired';
+    if (!redirecting) {
+      const noData = document.getElementById(noDataId);
+      if (noData) noData.style.display = 'block';
+      if (err.message !== 'no_analysis' && err.status !== 404) showToast(err.message);
+    }
+  }
+  return load;
 }

@@ -9,12 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.deps import AuthUser, get_current_user, get_optional_user
 from config import (
     CATEGORIES,
+    CURRENCY,
+    COACH_CONTEXT_MESSAGES,
     DISCLAIMER,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_MB,
     RATE_LIMITS,
 )
 from modules import db
+from modules.logs import log, warn
 from modules.ai_coach import QUICK_QUESTIONS, coach_chat, generate_insight, title_chat
 from modules.categoriser import examples_from_overrides
 from modules.pipeline import analyze_stored, recompute_for_goal, run_full_pipeline
@@ -66,9 +69,28 @@ def health():
 
 
 # ── Per-user rate limiting on the paid endpoints ────────────────────────────
-# In-process sliding window. Single-process deployments only — behind multiple
-# workers this limits per worker, which is still enough to stop a runaway loop.
+# In-process sliding window, deliberately dependency-free. The state lives in
+# THIS process, so N uvicorn workers each enforce the limit independently and
+# the effective ceiling becomes N x the configured value. That is a safe
+# degradation (it still stops a runaway retry loop) but it must not be a
+# surprise, so startup says so out loud when it detects more than one worker.
 _RATE: dict = {}
+
+
+@app.on_event("startup")
+def _warn_if_multi_worker():
+    workers = os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS")
+    try:
+        count = int(workers) if workers else 1
+    except ValueError:
+        count = 1
+    if count > 1:
+        log.warning(
+            "Running %s workers: rate limits and the period-view cache are "
+            "per-process, so the effective limit is %sx the configured value. "
+            "Run a single worker, or move both to a shared store.",
+            count, count,
+        )
 
 
 def _rate_limit(user_id: str, endpoint: str):
@@ -148,7 +170,11 @@ async def analyze_csv(
                 saved_llm_cache = db.get_llm_categories(_client, user.user_id)
                 saved_bracket = (db.get_user_profile(_client, user.user_id) or {}).get("income_bracket")
                 user_examples = examples_from_overrides(saved_overrides)
-            except Exception:
+            except Exception as exc:
+                # Losing saved corrections silently would make the categoriser
+                # look like it had regressed for no reason.
+                warn("saved corrections lookup", exc,
+                     hint="this upload will categorise without your past edits")
                 saved_overrides = user_examples = saved_custom = saved_llm_cache = None
                 saved_bracket = None
 
@@ -214,8 +240,11 @@ async def analyze_csv(
                     rows = [{"merchant": m, "category": seen[m], "embedding": v}
                             for m, v in zip(merchants, vectors)]
                     db.upsert_merchant_embeddings(_client, user.user_id, rows)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Never block an upload on this, but say so — a bad key or an
+                # unrun pgvector migration used to look identical to success.
+                warn("merchant embeddings", exc,
+                     hint="semantic merchant search will fall back to text match")
 
         return result
     finally:
@@ -659,8 +688,8 @@ def update_profile(
     email = None
     try:
         email = db.get_user(user.token).email
-    except Exception:
-        pass
+    except Exception as exc:
+        warn("profile email lookup", exc)
     db.upsert_user_profile(
         client, user.user_id, email=email,
         age=body.age, income_bracket=body.income_bracket,
@@ -688,7 +717,7 @@ def _alltime_insight_context(data):
     # not-yet-classified transfers) — omit it rather than show -1900%.
     rate = round(saved / inc * 100, 1) if inc >= MIN_INCOME_FOR_RATE else None
     return {
-        "currency": "AUD",
+        "currency": CURRENCY,
         "income": inc,
         "spent": alltime.get("spent") or 0,
         "saved": saved,
@@ -780,6 +809,9 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
         for row in history_rows
         if row.get("role") in ("user", "assistant")
     ]
+    # The full thread is kept for the UI, but only the most recent slice is
+    # replayed to the model so a long chat doesn't grow the cost of every turn.
+    history = history[-COACH_CONTEXT_MESSAGES:]
 
     # Give the coach the user's real transactions so its tools can compute
     # exact figures ("how much did I spend on coffee") instead of guessing.
@@ -800,8 +832,8 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
         chat_title = title_chat(body.message, response.get("text"))
         try:
             db.set_chat_title(client, user.user_id, chat_id, chat_title)
-        except Exception:
-            pass
+        except Exception as exc:
+            warn("chat title save", exc, hint="run migrations/002_chats.sql")
 
     return {
         **response,

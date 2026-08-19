@@ -94,14 +94,13 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
-           formatMonthYear, mountPeriodBar, periodQuery, getStoredPeriod, escapeHtml } from './api.js';
+  import { setupNav, formatAUD, formatMonthYear,
+           bootstrapPeriodPage, escapeHtml } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('invest');
   mountCoachWidget('invest');
 
-  let currentPeriod = 'monthly';
   const RISK_CLASS = (risk) => {
     const r = (risk || '').toLowerCase();
     if (r.includes('high')) return 'risk-high';
@@ -286,32 +285,8 @@
     }
   }
 
-  async function loadPeriod(value) {
-    currentPeriod = value;
-    try {
-      renderInvest(await apiFetch('/invest?' + periodQuery(value)));
-    } catch (err) {
-      showToast(err.message || 'Could not load that period');
-    }
-  }
-
-  async function init() {
-    try {
-      await requireAuth();
-      const data = await apiFetch('/invest?' + periodQuery(getStoredPeriod()));
-      renderInvest(data);
-      mountPeriodBar(document.getElementById('period-mount'),
-        data.available_months || [], loadPeriod, getStoredPeriod(), 'Window');
-    } catch (err) {
-      document.getElementById('loading').style.display = 'none';
-      if (err.message === 'no_analysis' || err.status === 404) {
-        document.getElementById('no-data').style.display = 'block';
-      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
-        document.getElementById('no-data').style.display = 'block';
-        showToast(err.message);
-      }
-    }
-  }
+  // Auth, fetch, render and the period bar all come from the shared helper.
+  const init = () => bootstrapPeriodPage('/invest', renderInvest);
 
   init();
 </script>
