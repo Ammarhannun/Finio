@@ -388,14 +388,22 @@
     btn.disabled = true;
     btn.textContent = 'Saving…';
     try {
-      await apiFetch('/overrides', {
+      const res = await apiFetch('/overrides', {
         method: 'POST',
         body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
       });
       staged.clear();
       customDirty = false;
       await load();
-      showToast('Updated your numbers');
+      // Money that LEFT the account cannot be income. Finio counts those as
+      // transfers instead of letting them corrupt the totals — say so.
+      const w = res.flow_warnings || [];
+      if (w.length) {
+        const first = w[0];
+        showToast(`"${first.match}" is money going out, so Finio counted it as a transfer, not income.`);
+      } else {
+        showToast('Updated your numbers');
+      }
     } catch (err) {
       errEl.textContent = err.message || 'Could not save changes';
       errEl.style.display = 'block';

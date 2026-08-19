@@ -1296,6 +1296,96 @@ def _():
     assert_true("KMART" not in ctx, "only requested merchants are described")
 
 
+# ── Flow contradictions (found on real data) ────────────────────────────────
+
+def _flow_df(rows):
+    import pandas as pd
+    return pd.DataFrame(rows)
+
+
+@test("flow: money going OUT can never be counted as income")
+def _():
+    from modules.data_processor import reconcile_flow_contradictions
+
+    # A -$4,800 row labelled income silently SUBTRACTED $4,800 from reported
+    # income, because compute_metrics sums the income rows.
+    df, mask = reconcile_flow_contradictions(_flow_df([
+        {"amount": -4800.0, "flow": "income", "category": "Transfers"},
+        {"amount": 3200.0, "flow": "income", "category": None},
+    ]))
+    assert_eq(df["flow"].iloc[0], "transfer", "outgoing money must not be income")
+    assert_eq(df["flow"].iloc[1], "income", "real income is untouched")
+    assert_eq(int(mask.sum()), 1)
+
+
+@test("flow: a Transfers row is never counted as spending")
+def _():
+    from modules.data_processor import reconcile_flow_contradictions
+
+    # This made "Transfers" the single biggest spending category on a real
+    # statement ($14,071), which is exactly what config says must never happen.
+    df, _ = reconcile_flow_contradictions(_flow_df([
+        {"amount": -1500.0, "flow": "expense", "category": "Transfers"},
+        {"amount": -42.0, "flow": "expense", "category": "Groceries"},
+    ]))
+    assert_eq(df["flow"].iloc[0], "transfer")
+    assert_eq(df["flow"].iloc[1], "expense", "real spending is untouched")
+
+
+@test("flow: a refund stays an expense offset, not a transfer")
+def _():
+    from modules.data_processor import reconcile_flow_contradictions
+
+    # expense + POSITIVE amount is legitimate (a refund reducing spend), so the
+    # reconciliation must be asymmetric and leave it alone.
+    df, mask = reconcile_flow_contradictions(_flow_df([
+        {"amount": 54.99, "flow": "expense", "category": "Shopping"},
+    ]))
+    assert_eq(df["flow"].iloc[0], "expense")
+    assert_eq(int(mask.sum()), 0)
+
+
+@test("flow: transfers stay out of total_spent and the breakdown")
+def _():
+    from modules.data_processor import add_flags, compute_metrics
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "date": pd.to_datetime(["2026-06-01", "2026-06-02", "2026-06-03"]),
+        "amount": [-9211.0, -100.0, 3000.0],
+        "description": ["TRANSFER TO LAITH HUSSEIN", "WOOLWORTHS RYDE", "SALARY"],
+    })
+    # The user marked the transfer row as spending; the category still says it
+    # is a transfer, and the category is authoritative.
+    flagged = add_flags(df, overrides=[
+        {"match": "TRANSFER TO LAITH HUSSEIN", "flow": "expense"}])
+    flagged["category"] = ["Transfers", "Groceries", None]
+    from modules.data_processor import reconcile_flow_contradictions
+    flagged, _ = reconcile_flow_contradictions(flagged)
+
+    m = compute_metrics(flagged)
+    assert_eq(m["total_spent"], 100.0, "the $9,211 transfer must not be spending")
+    assert_eq(m["total_income"], 3000.0)
+
+
+@test("flow: contradictory rules are reported so the user can fix them")
+def _():
+    from modules.data_processor import contradictory_flow_rules
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "amount": [-4800.0, -1500.0, -42.0],
+        "description": ["TRANSFER TO LAITH", "TRANSFER TO LAITH", "WOOLWORTHS"],
+    })
+    warned = contradictory_flow_rules(df, [
+        {"match": "TRANSFER TO LAITH", "flow": "income"},
+        {"match": "WOOLWORTHS", "flow": "expense"},
+    ])
+    assert_eq(len(warned), 1)
+    assert_eq(warned[0]["count"], 2)
+    assert_eq(warned[0]["total"], 6300.0)
+
+
 # ── Re-classify (propose, then the user confirms) ───────────────────────────
 
 def _reclassify_client(transactions, overrides, proposal):

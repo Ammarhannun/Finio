@@ -228,6 +228,7 @@ def analyze_stored(
         from modules.data_processor import (
             apply_category_overrides,
             apply_flow_overrides,
+            reconcile_flow_contradictions,
         )
 
         # Apply only the user's rules on top of the restored flow, then keep the
@@ -235,7 +236,13 @@ def analyze_stored(
         # lose the transfer classification decided at upload time). Category
         # overrides apply to the already-stored categories.
         full = apply_flow_overrides(full, overrides)
+        # A saved rule can contradict the direction of the money (money out
+        # labelled "income"); neutralise it here too, not just at upload.
+        full, _ = reconcile_flow_contradictions(full)
         full = apply_category_overrides(full, overrides)
+        # Category rules can (re)introduce the "Transfers but spending"
+        # contradiction, so settle it after they land as well.
+        full, _ = reconcile_flow_contradictions(full)
         full["is_transfer"] = full["flow"] == FLOW_TRANSFER
         full["is_expense"] = full["flow"] == FLOW_EXPENSE
     return analyze_window(
