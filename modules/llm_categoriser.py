@@ -17,16 +17,84 @@ CONFIDENCES = {"high", "medium", "low"}
 
 
 def has_llm():
+    """True when the model layer should run.
+
+    FINIO_DISABLE_LLM forces the offline path (keyword rules + Naive Bayes).
+    The test suite sets it so tests stay fast, deterministic and free — now
+    that the model classifies EVERY merchant rather than only the ones the
+    rules missed, leaving it on turned the suite into a network-bound job.
+    """
+    if os.getenv("FINIO_DISABLE_LLM"):
+        return False
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-def categorise_merchants(merchants, categories):
+# Guidance for the cases a keyword list gets wrong. These are the failure
+# modes that actually showed up on real statements: a merchant's NAME often
+# points at the wrong category (fuel stations sell food, supermarkets sell
+# fuel, clothing shops carry suburb names that look like other categories).
+_DISAMBIGUATION = (
+    "Judge what was actually BOUGHT, not what words appear in the name:\n"
+    "- Fuel and service stations (Ampol, Caltex, BP, 7-Eleven, Shell, United) "
+    "are Transport even when the name mentions food or a supermarket brand.\n"
+    "- Supermarket-branded fuel (e.g. 'CALTEX WOOLWORTHS FUEL', "
+    "'COLES EXPRESS') is Transport, not Groceries.\n"
+    "- Independent grocers and small supermarkets (Foodworks, Supabarn, IGA, "
+    "Harris Farm) are Groceries even if you do not recognise the name.\n"
+    "- Cafes, bakeries and restaurants with place-style names "
+    "('The Grounds of Alexandria') are Food & Dining.\n"
+    "- Suburb and state words (BONDI, RYDE, NSW, PARRAMATTA) are location "
+    "noise. Never categorise from them.\n"
+    "- Parking and tolls are Transport even when the name contains a shop or "
+    "market word.\n"
+    "- Pharmacies are Health; supermarkets that also sell medicine are "
+    "Groceries.\n"
+    "- Gyms and fitness memberships are Subscriptions, not Health — they are "
+    "a recurring membership fee, which is how this app groups them.\n"
+    "- Car parts, servicing and repairs (Supercheap Auto, Repco, mechanics) "
+    "are Transport, because they are costs of running a vehicle.\n"
+    "- Phone, mobile and internet bills (Telstra, Optus, Vodafone, TPG, "
+    "Belong) are Subscriptions — they are recurring plans.\n"
+    "- Never answer \"Other\" as a way of hedging. \"Other\" is a real "
+    "category for genuine miscellaneous spending. If you are unsure what a "
+    "merchant is, answer null with conf low so a keyword fallback can try.\n"
+)
+
+
+def _format_input(merchants, context):
+    """One line per merchant, with the spending signal we have.
+
+    The merchant name alone is often ambiguous. Amount and frequency
+    disambiguate a lot: a $9 charge at a fuel station is a snack, a $75 one is
+    fuel; a fixed amount every month is a subscription. The raw bank
+    description is included too because cleaning can strip useful words.
+    """
+    rows = []
+    for m in merchants:
+        c = (context or {}).get(m) or {}
+        bits = [f'"{m}"']
+        if c.get("count"):
+            bits.append(f"seen {c['count']}x")
+        if c.get("avg") is not None:
+            bits.append(f"avg ${c['avg']:,.2f}")
+        if c.get("total") is not None:
+            bits.append(f"total ${c['total']:,.2f}")
+        if c.get("samples"):
+            bits.append("raw: " + " | ".join(c["samples"][:2]))
+        rows.append(" — ".join(bits))
+    return "\n".join(rows)
+
+
+def categorise_merchants(merchants, categories, context=None):
     """Classify merchant names → {merchant: {"category": str|None, "confidence": str}}.
 
     `categories` is the allowed spend-category list (built-ins + the user's
-    custom ones). A merchant the model can't place gets category None and
-    confidence "low" — those become quiz questions. Returns None when there is
-    no key or every call fails (caller falls back to the local model).
+    custom ones). `context` optionally maps merchant → {count, total, avg,
+    samples} so the model can use spending behaviour, not just the name.
+
+    A merchant the model can't place gets category None and confidence "low" —
+    those become quiz questions. Returns None when there is no key or every
+    call fails (caller falls back to rules, then the local model).
     """
     merchants = [m for m in dict.fromkeys(merchants) if str(m).strip()]
     if not merchants or not has_llm():
@@ -36,15 +104,16 @@ def categorise_merchants(merchants, categories):
     client = OpenAI()
 
     system = (
-        "You classify Australian bank-statement merchant names into spending "
+        "You classify Australian bank-statement merchants into spending "
         "categories. Categories (use EXACTLY these strings): "
         + json.dumps(list(categories))
-        + '. Respond with JSON: {"results": [{"m": merchant, "c": category-or-null, '
-        '"conf": "high"|"medium"|"low"}]}. Rules: use null for c when you '
-        "genuinely cannot tell (person-to-person payments, opaque references, "
-        "unknown acronyms) and set conf to low. Do not guess wildly; medium "
-        "means plausible, high means certain. Every input merchant must appear "
-        "exactly once in results."
+        + ".\n\n" + _DISAMBIGUATION
+        + '\nRespond with JSON: {"results": [{"m": merchant, "c": category-or-null, '
+        '"conf": "high"|"medium"|"low"}]}. Copy "m" back EXACTLY as given. '
+        "Use null for c only when you genuinely cannot tell (person-to-person "
+        "payments, opaque references, unknown acronyms) and set conf to low. "
+        "Do not guess wildly; medium means plausible, high means certain. "
+        "Every input merchant must appear exactly once in results."
     )
 
     out = {}
@@ -57,7 +126,7 @@ def categorise_merchants(merchants, categories):
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps(batch)},
+                    {"role": "user", "content": _format_input(batch, context)},
                 ],
             )
             data = json.loads(resp.choices[0].message.content or "{}")
