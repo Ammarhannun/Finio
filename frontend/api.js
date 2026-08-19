@@ -1,6 +1,16 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, API_BASE_URL,
-         CURRENCY, LOCALE } from './config.js';
+import * as cfg from './config.js';
+
+// config.js is a file the USER edits (it holds their Supabase keys), so this
+// module must never hard-require a key that an older copy might not have.
+// A named import of a missing export is a fatal module error — api.js would
+// fail to load and every page would silently lose its event handlers, so the
+// login button would just do nothing. A namespace import degrades instead.
+const SUPABASE_URL = cfg.SUPABASE_URL;
+const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
+const API_BASE_URL = cfg.API_BASE_URL || '';
+const CURRENCY = cfg.CURRENCY || 'AUD';
+const LOCALE = cfg.LOCALE || 'en-AU';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
