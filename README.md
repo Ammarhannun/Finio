@@ -16,7 +16,7 @@
 ## Features
 
 - **Statement parsing** — CSV and text-based PDF statements, normalised across bank export formats, with merchant-name cleaning (`ENGIE 138808 AU AUS` → `ENGIE`).
-- **Categorisation that actually works** — keyword rules → **LLM** → Naive Bayes fallback, with every merchant classification cached. On a real 733-transaction statement the uncategorised "Other" pile is **under 1%**.
+- **Categorisation that actually works** — an **LLM classifies every merchant**, with keyword rules and Naive Bayes as offline fallbacks, and every classification cached. Measured on 57 labelled Australian merchants: **100% accuracy with the model, 87.7% offline** (`python -m eval.run_eval`). On a real 733-transaction statement the uncategorised "Other" pile is **under 1%**.
 - **Quick questions** — when Finio genuinely can't tell (a person-to-person transfer, an opaque reference) it asks you up to **6 short questions**, ranked by money at stake. Recurring incoming transfers are recognised as likely income; your own banking-app transfers are not. Every answer becomes a permanent rule.
 - **"What I usually spend"** — Day / Week / Month show your real averages over your whole history (complete calendar months only), not a partial latest slice. "All" shows true all-time totals.
 - **Spending over time** — a month-by-month chart of what you spent versus kept, plus your top merchants.
@@ -41,7 +41,7 @@
 
 ## AI / ML highlights
 
-- **Layered categoriser** — deterministic rules first (free, exact), an LLM for everything else (it already knows what `TALABAT JORDAN` is), Naive Bayes only as an offline fallback. Your corrections outrank all three and are fed back as training examples, so the model personalises to you.
+- **Layered categoriser, model first** — the LLM decides every merchant, given its amount, frequency and raw bank description, because a keyword list cannot tell that `CALTEX WOOLWORTHS FUEL` is fuel rather than groceries. Keyword rules and Naive Bayes catch what it is unsure about and carry the whole job offline. An unconfident answer never sets a category — it becomes a quiz question. Your corrections outrank all three and are fed back as training examples, so it personalises to you.
 - **Human-in-the-loop by design** — the model reports a confidence per merchant; low-confidence cases become the quiz instead of silent wrong guesses.
 - **RAG with graceful degradation** — semantic search (embeddings → pgvector) when configured, automatically falling back to TF-IDF, so retrieval always works.
 - **Tool-using coach** — the LLM calls typed tools (`category_total`, `filter_transactions`, `spend_check`, `lookup_concept`, `propose_reclassification`) to compute on real data rather than hallucinate figures. Write actions are always confirmed by the user.
@@ -100,7 +100,7 @@ main/
 ├── main.py                    # FastAPI app + endpoints
 ├── modules/
 │   ├── pipeline.py            # parse → flag → categorise → analyse → persist
-│   ├── categoriser.py         # rules + LLM + Naive Bayes + active learning
+│   ├── categoriser.py         # LLM-first + rules + Naive Bayes + active learning
 │   ├── llm_categoriser.py     # batched LLM classification + the quiz
 │   ├── analytics.py           # breakdowns, patterns, averages, top merchants
 │   ├── anomaly.py             # z-score unusual-spend detection

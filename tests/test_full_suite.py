@@ -16,6 +16,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# The categoriser sends every merchant to the model now, so leaving that on
+# would make this suite slow, costly and dependent on the network. Tests cover
+# the offline path (keyword rules + Naive Bayes); eval/run_eval.py measures the
+# model path against labelled data.
+os.environ.setdefault("FINIO_DISABLE_LLM", "1")
+
 from config import CATEGORIES, DISCLAIMER, SAMPLE_CSV, TRAINING_CSV
 
 passed = 0
@@ -1209,6 +1215,85 @@ def _():
     rows.append({"date": "2026-01-28", "amount": -21.0, "flow": "expense",
                  "category": "Rent", "description": "TINY"})
     assert_eq(detect_anomalies(pd.DataFrame(rows)), [])
+
+
+@test("categoriser: keyword rules match whole words, not substrings")
+def _():
+    from modules.categoriser import rule_category
+
+    # Plain substring matching made these confidently wrong: "BOND" fired
+    # inside "BONDI", "SUPER" inside "SUPERCHEAP", "MARKET" inside
+    # "MARKETPLACE" — and the rules layer used to outrank everything.
+    assert_eq(rule_category("COTTON ON BONDI JUNCTION"), "Shopping")
+    assert_eq(rule_category("SUPERCHEAP AUTO ALEXANDRIA"), "Shopping")
+    assert_true(rule_category("PETSTOCK MARKETPLACE") != "Groceries")
+    # Genuine whole-word matches still work.
+    assert_eq(rule_category("WOOLWORTHS METRO EASTWOOD"), "Groceries")
+    assert_eq(rule_category("UBER EATS SYDNEY"), "Food & Dining")
+    assert_eq(rule_category("NETFLIX.COM"), "Subscriptions")
+
+
+def _expense_df(names):
+    import pandas as pd
+    return pd.DataFrame({
+        "description": names,
+        "merchant_clean": names,
+        "amount": [-40.0] * len(names),
+        "flow": ["expense"] * len(names),
+    })
+
+
+@test("categoriser: a confident model answer beats a conflicting keyword rule")
+def _():
+    import modules.categoriser as cat
+
+    # The keyword rules call this Groceries (WOOLWORTHS); it is a petrol
+    # station. The model must win — that ordering is the whole point.
+    assert_eq(cat.rule_category("CALTEX WOOLWORTHS FUEL"), "Groceries")
+
+    df = cat.categorise_data(
+        _expense_df(["CALTEX WOOLWORTHS FUEL"]),
+        llm_cache={"CALTEX WOOLWORTHS FUEL":
+                   {"category": "Transport", "confidence": "high"}},
+    )
+    assert_eq(df["category"].iloc[0], "Transport")
+
+
+@test("categoriser: a low-confidence model answer falls through to the rules")
+def _():
+    import modules.categoriser as cat
+
+    # An unsure guess must never silently set a category — it falls back and
+    # becomes a quiz question instead.
+    df = cat.categorise_data(
+        _expense_df(["UBER EATS SYDNEY"]),
+        llm_cache={"UBER EATS SYDNEY":
+                   {"category": "Shopping", "confidence": "low"}},
+    )
+    assert_eq(df["category"].iloc[0], "Food & Dining")
+
+
+@test("categoriser: works with no model available (offline path)")
+def _():
+    import modules.categoriser as cat
+
+    df = cat.categorise_data(_expense_df(["WOOLWORTHS METRO", "NETFLIX.COM"]))
+    assert_eq(list(df["category"]), ["Groceries", "Subscriptions"])
+
+
+@test("categoriser: merchant context carries amount and frequency signal")
+def _():
+    from modules.categoriser import _merchant_context
+
+    df = _expense_df(["CALTEX RYDE", "CALTEX RYDE", "KMART"])
+    df.loc[0, "amount"] = -70.0
+    df.loc[1, "amount"] = -80.0
+    ctx = _merchant_context(df, df["flow"] == "expense", "merchant_clean",
+                            ["CALTEX RYDE"])
+    assert_eq(ctx["CALTEX RYDE"]["count"], 2)
+    assert_eq(ctx["CALTEX RYDE"]["total"], 150.0)
+    assert_eq(ctx["CALTEX RYDE"]["avg"], 75.0)
+    assert_true("KMART" not in ctx, "only requested merchants are described")
 
 
 # ── Persistence-layer regressions (audit fixes) ─────────────────────────────

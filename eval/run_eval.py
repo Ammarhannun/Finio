@@ -34,7 +34,12 @@ RESULTS = ROOT / "results"
 
 # Quality floors — the regression test in tests/test_full_suite.py asserts
 # against these, so a change that makes the AI worse fails CI.
-MIN_CATEGORY_F1 = 0.70
+# Quality floors. These guard the OFFLINE path too (the test suite runs the
+# harness with FINIO_DISABLE_LLM set), so the floor sits just under what the
+# keyword+NaiveBayes path scores — high enough to catch a real regression,
+# low enough not to fail on model nondeterminism. Measured on 57 labelled
+# merchants: offline macro F1 ~0.89, model-first ~1.00.
+MIN_CATEGORY_F1 = 0.85
 MIN_RETRIEVAL_HIT_RATE = 0.80
 
 
