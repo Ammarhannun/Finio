@@ -55,16 +55,28 @@ def compute_averages(df):
     elif days > 0:
         out["monthly"] = block(total_spent / days * 30.44, total_income / days * 30.44)
 
-    # Month-by-month spending (every month incl. partial edges — it's a chart,
-    # the shape matters more than perfection; saved uses income of same month).
+    # Month-by-month spending. Partial EDGE months are flagged rather than
+    # silently mixed in: a statement ending on the 12th makes that month's bar
+    # look like a collapse in spending when it is just a short month, which
+    # misreads the whole chart. The frontend renders flagged months as
+    # incomplete instead of comparing them like-for-like.
     if len(m_spent):
         inc_by_m = m_income.to_dict() if len(m_income) else {}
+        first_day, last_day = df["date"].min(), df["date"].max()
         for ts, spent in m_spent.items():
             income = float(inc_by_m.get(ts, 0.0))
+            same_first = (ts.year, ts.month) == (first_day.year, first_day.month)
+            same_last = (ts.year, ts.month) == (last_day.year, last_day.month)
+            partial = bool(
+                (same_first and first_day.day != 1)
+                or (same_last and last_day != (last_day + pd.offsets.MonthEnd(0)))
+            )
             out["spend_series"].append({
                 "month": ts.strftime("%Y-%m"),
                 "spent": round(float(spent), 2),
+                "income": round(income, 2),
                 "saved": round(income - float(spent), 2),
+                "partial": partial,
             })
 
     # Where the money actually goes: top merchants by total spend.

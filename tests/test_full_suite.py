@@ -1296,6 +1296,31 @@ def _():
     assert_true("KMART" not in ctx, "only requested merchants are described")
 
 
+@test("analytics: the chart series flags part-months instead of hiding them")
+def _():
+    from modules.analytics import compute_averages
+    import pandas as pd
+
+    # Statement runs 1 Mar to 12 Apr: March is whole, April is not. Plotting
+    # April's smaller total beside March reads as a collapse in spending when
+    # it is only 12 days of data.
+    dates = pd.to_datetime(["2026-03-01", "2026-03-20", "2026-03-31",
+                            "2026-04-01", "2026-04-12"])
+    df = pd.DataFrame({
+        "date": dates,
+        "amount": [-500.0, -400.0, -100.0, -80.0, -60.0],
+        "description": ["A", "B", "C", "D", "E"],
+        "flow": ["expense"] * 5,
+        "category": ["Groceries"] * 5,
+    })
+    series = compute_averages(df)["spend_series"]
+    by_month = {s["month"]: s for s in series}
+    assert_eq(by_month["2026-03"]["partial"], False, "March is a whole month")
+    assert_eq(by_month["2026-04"]["partial"], True, "April is only 12 days")
+    # income is exposed so the tooltip can show what "kept" is made of.
+    assert_true("income" in by_month["2026-03"])
+
+
 # ── Flow contradictions (found on real data) ────────────────────────────────
 
 def _flow_df(rows):
