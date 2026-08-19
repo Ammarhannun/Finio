@@ -86,14 +86,13 @@
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, severityClass,
-           mountPeriodBar, periodQuery, getStoredPeriod, escapeHtml } from './api.js';
+  import { setupNav, formatAUD, severityClass,
+           bootstrapPeriodPage, escapeHtml } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('patterns');
   mountCoachWidget('patterns');
 
-  let currentPeriod = 'monthly';
 
   const CHART_COLORS = [
     '#7c6fff','#22c55e','#f59e0b','#ef4444','#06b6d4',
@@ -165,7 +164,7 @@
               callbacks: {
                 label: ctx => {
                   const c = categories[ctx.dataIndex];
-                  return ` ${new Intl.NumberFormat('en-AU',{style:'currency',currency:'AUD'}).format(c.amount)} (${c.pct?.toFixed(1)}%)`;
+                  return ` ${formatAUD(c.amount)} (${c.pct?.toFixed(1)}%)`;
                 },
               },
               backgroundColor: cssVar('--bg-elev'),
@@ -234,33 +233,8 @@
     }
   }
 
-  async function loadPeriod(value) {
-    currentPeriod = value;
-    try {
-      const data = await apiFetch('/dashboard?' + periodQuery(value));
-      renderPatterns(data);
-    } catch (err) {
-      showToast(err.message || 'Could not load that period');
-    }
-  }
-
-  async function init() {
-    try {
-      await requireAuth();
-      const data = await apiFetch('/dashboard?' + periodQuery(getStoredPeriod()));
-      renderPatterns(data);
-      mountPeriodBar(document.getElementById('period-mount'),
-        data.available_months || [], loadPeriod, getStoredPeriod(), 'Window');
-    } catch (err) {
-      document.getElementById('loading').style.display = 'none';
-      if (err.message === 'no_analysis' || err.status === 404) {
-        document.getElementById('no-data').style.display = 'block';
-      } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
-        document.getElementById('no-data').style.display = 'block';
-        showToast(err.message);
-      }
-    }
-  }
+  // Auth, fetch, render and the period bar all come from the shared helper.
+  const init = () => bootstrapPeriodPage('/dashboard', renderPatterns);
 
   init();
 </script>

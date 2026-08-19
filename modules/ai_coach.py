@@ -5,7 +5,7 @@ load_dotenv()
 
 from openai import OpenAI
 
-from config import COACH_SYSTEM_PROMPT, DISCLAIMER, OPENAI_MODEL
+from config import COACH_SYSTEM_PROMPT, CURRENCY, DISCLAIMER, OPENAI_MODEL
 
 QUICK_QUESTIONS = [
     "How much did I spend?",
@@ -56,7 +56,7 @@ def build_context(metrics, analysis, bills, budgets=None, invest=None, personali
     patterns = [p["message"] for p in analysis.get("patterns", [])]
 
     context = {
-        "currency": "AUD",
+        "currency": CURRENCY,
         "income": metrics["total_income"],
         "spent": metrics["total_spent"],
         "saved": saved,
@@ -297,13 +297,13 @@ def _matches(row, query):
 def run_tool(name, args, transactions, context):
     """Execute one coach tool call and return a JSON-serialisable result."""
     if name == "get_income":
-        return {"income": context.get("income"), "currency": "AUD"}
+        return {"income": context.get("income"), "currency": CURRENCY}
 
     if name == "category_total":
         query = args.get("query", "")
         rows = [r for r in _expense_rows(transactions) if _matches(r, query)]
         total = round(sum(abs(float(r["amount"])) for r in rows), 2)
-        return {"query": query, "total": total, "count": len(rows), "currency": "AUD"}
+        return {"query": query, "total": total, "count": len(rows), "currency": CURRENCY}
 
     if name == "filter_transactions":
         query = args.get("query", "")

@@ -6,6 +6,7 @@ sourced text instead of the model's memory. No embeddings service, no API key.
 """
 
 from config import PROJECT_ROOT
+from modules.logs import warn
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -75,6 +76,6 @@ def search(query, k=2, min_score=0.05):
             ]
             if results:
                 return results
-        except Exception:
-            pass  # pgvector not set up / unreachable → fall back
+        except Exception as exc:
+            warn("pgvector retrieval", exc, hint="falling back to TF-IDF search")
     return _tfidf_search(query, k, min_score)

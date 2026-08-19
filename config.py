@@ -1,5 +1,6 @@
 """Finio constants — categories, keywords, colours, disclaimers."""
 
+import os
 from pathlib import Path
 
 # Paths
@@ -141,8 +142,14 @@ CATEGORY_RULES = [
     ]),
 ]
 
-# Australian context
-CURRENCY = "AUD"
+# ── Locale ──────────────────────────────────────────────────────────────────
+# Finio's analysis is currency-agnostic, but its defaults (day-first dates, the
+# merchant keyword rules, the ETF list) were built around Australian statements.
+# The currency is the one piece users elsewhere will want to change, so it is
+# read from the environment rather than hardcoded in nine different places —
+# CURRENCY existed before but nothing actually used it.
+CURRENCY = os.getenv("FINIO_CURRENCY", "AUD")
+LOCALE = os.getenv("FINIO_LOCALE", "en-AU")
 DISCLAIMER = "General information only, not financial advice"
 
 # Savings-rate guard: below this much real (non-transfer) income, a percentage
@@ -172,6 +179,17 @@ CRYPTO_OPTIONS = ["BTC", "ETH"]
 # Bump when analysis logic changes enough that old stored snapshots would show
 # misleading numbers; the dashboard then prompts the user to hit Re-analyse.
 SNAPSHOT_VERSION = 3
+
+# ── Chat history ────────────────────────────────────────────────────────────
+# How many messages a chat keeps on screen. The old value (20) was shared with
+# the coach's LLM context, so a long conversation silently lost its own
+# scrollback just to keep the prompt small.
+CHAT_HISTORY_LIMIT = 200
+
+# How many of those messages are actually replayed to the model. Bounded
+# separately so a long thread costs no more per turn than a short one.
+COACH_CONTEXT_MESSAGES = 20
+
 
 # ── Abuse / cost limits ─────────────────────────────────────────────────────
 # A bank statement is a small text file; anything far above this is a mistake or

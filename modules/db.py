@@ -5,6 +5,7 @@ import os
 from datetime import date, datetime, timezone
 
 from modules.history import update_streak
+from modules.logs import debug, log, warn
 
 
 def _vec(embedding):
@@ -165,8 +166,8 @@ def get_user_id(access_token):
             )
             if payload.get("sub"):
                 return payload["sub"]
-        except Exception:
-            pass  # fall back to the authoritative network check
+        except Exception as exc:
+            debug("local JWT verify", exc)  # fall back to the network check
     return get_user(access_token).id
 
 
@@ -227,8 +228,12 @@ def replace_all_transactions(client, user_id, transactions):
             restore = _tx_rows(user_id, previous)
             for i in range(0, len(restore), _INSERT_CHUNK):
                 client.table("transactions").insert(restore[i:i + _INSERT_CHUNK]).execute()
-        except Exception:
-            pass
+        except Exception as restore_exc:
+            # The history is now genuinely lost — this must be loud.
+            log.error(
+                "ROLLBACK FAILED for user %s — stored transactions may be "
+                "incomplete: %s", user_id, restore_exc,
+            )
         raise
     finally:
         _memo_clear(client, ("all_tx", user_id))
@@ -748,14 +753,19 @@ def set_chat_title(client, user_id, chat_id, title):
         client.table("chat_history").delete().eq(
             "user_id", user_id
         ).eq("chat_id", chat_id).eq("role", "title").execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        debug("chat title cleanup", exc)
     append_chat(client, user_id, "title", title[:80], chat_id=chat_id)
 
 
-def get_chat_history(client, user_id, limit=20, chat_id=None):
+def get_chat_history(client, user_id, limit=None, chat_id=None):
     """Messages for one chat (or the legacy single stream when chat_id is None
-    or the 002 migration hasn't been run). Title rows are excluded."""
+    or the 002 migration hasn't been run). Title rows are excluded.
+
+    Returns the NEWEST `limit` messages in chronological order."""
+    if limit is None:
+        from config import CHAT_HISTORY_LIMIT
+        limit = CHAT_HISTORY_LIMIT
     def _q(with_chat):
         q = (
             client.table("chat_history")
