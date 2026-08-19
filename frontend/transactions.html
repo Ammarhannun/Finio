@@ -68,9 +68,30 @@
           <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
           <button type="button" class="btn btn-outline btn-sm" id="add-category-btn">Add</button>
         </div>
+        <button type="button" class="btn btn-outline btn-sm" id="tx-reclassify"
+                title="Ask Finio to categorise your merchants again">Re-classify with AI</button>
         <button type="button" class="btn btn-primary btn-sm" id="tx-save" disabled>Save changes</button>
       </div>
       <div id="custom-cat-chips" class="cat-chips"></div>
+
+      <!-- Nothing here is written until the user confirms. -->
+      <div class="reclass-panel" id="reclass-panel" style="display:none;">
+        <div class="reclass-head">
+          <div>
+            <div class="reclass-title">Finio suggests these changes</div>
+            <div class="reclass-sub" id="reclass-sub"></div>
+          </div>
+          <div class="reclass-head-actions">
+            <button type="button" class="btn btn-outline btn-sm" id="reclass-none">Clear all</button>
+            <button type="button" class="btn btn-outline btn-sm" id="reclass-all">Select all</button>
+          </div>
+        </div>
+        <div class="reclass-list" id="reclass-list"></div>
+        <div class="reclass-foot">
+          <button type="button" class="btn btn-outline btn-sm" id="reclass-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" id="reclass-apply">Apply selected</button>
+        </div>
+      </div>
 
       <div class="bulk-bar" id="bulk-bar" style="display:none;">
         <span id="bulk-count">0 selected</span>
@@ -381,6 +402,135 @@
     } finally {
       btn.textContent = 'Save changes';
       updateSaveBtn();
+    }
+  });
+
+  // ── Re-classify with AI ────────────────────────────────────────────────
+  // Asks the model for a fresh opinion on every merchant, then shows what it
+  // would change. NOTHING is written until the user ticks the ones they want
+  // and presses Apply — the confirmation IS the guardrail, same as the coach's
+  // proposal cards.
+  let reclassChanges = [];
+  const reclassChosen = new Set();
+
+  const panel = () => document.getElementById('reclass-panel');
+
+  function renderReclass() {
+    const list = document.getElementById('reclass-list');
+    const sub = document.getElementById('reclass-sub');
+    if (!reclassChanges.length) { panel().style.display = 'none'; return; }
+    panel().style.display = 'block';
+
+    list.innerHTML = reclassChanges.map((c, i) => `
+      <label class="reclass-row">
+        <input type="checkbox" class="reclass-check" data-i="${i}"${reclassChosen.has(i) ? ' checked' : ''}>
+        <span class="reclass-merchant" title="${escapeHtml(c.merchant)}">${escapeHtml(c.merchant)}</span>
+        <span class="reclass-move">
+          <span class="reclass-from">${escapeHtml(c.from || 'Uncategorised')}</span>
+          <span class="reclass-arrow">→</span>
+          <span class="reclass-to">${escapeHtml(c.to)}</span>
+        </span>
+        <span class="reclass-meta">${c.count}× · ${formatAUD(c.total)}</span>
+        <span class="reclass-conf reclass-conf-${escapeHtml(c.confidence)}">${escapeHtml(c.confidence)}</span>
+      </label>`).join('');
+
+    list.querySelectorAll('.reclass-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const i = Number(cb.dataset.i);
+        cb.checked ? reclassChosen.add(i) : reclassChosen.delete(i);
+        updateReclassBtn();
+      });
+    });
+    sub.textContent = `${reclassChanges.length} merchant${reclassChanges.length === 1 ? '' : 's'} would change. Tick the ones you agree with.`;
+    updateReclassBtn();
+  }
+
+  function updateReclassBtn() {
+    const btn = document.getElementById('reclass-apply');
+    btn.disabled = reclassChosen.size === 0;
+    btn.textContent = reclassChosen.size
+      ? `Apply ${reclassChosen.size} change${reclassChosen.size === 1 ? '' : 's'}`
+      : 'Apply selected';
+  }
+
+  document.getElementById('tx-reclassify').addEventListener('click', async () => {
+    const btn = document.getElementById('tx-reclassify');
+    const errEl = document.getElementById('tx-error');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Asking Finio…';
+    try {
+      const r = await apiFetch('/reclassify', { method: 'POST' });
+      reclassChanges = r.changes || [];
+      reclassChosen.clear();
+      // Pre-tick everything: the common case is agreeing, and each row is
+      // still individually reviewable before anything is written.
+      reclassChanges.forEach((_, i) => reclassChosen.add(i));
+      if (!reclassChanges.length) {
+        panel().style.display = 'none';
+        const pinned = r.skipped_pinned
+          ? ` (${r.skipped_pinned} left alone because you set them yourself)` : '';
+        showToast(`Finio agrees with your current categories${pinned}`);
+      } else {
+        renderReclass();
+        panel().scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not re-classify right now';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Re-classify with AI';
+    }
+  });
+
+  document.getElementById('reclass-all').addEventListener('click', () => {
+    reclassChanges.forEach((_, i) => reclassChosen.add(i));
+    renderReclass();
+  });
+  document.getElementById('reclass-none').addEventListener('click', () => {
+    reclassChosen.clear();
+    renderReclass();
+  });
+  document.getElementById('reclass-cancel').addEventListener('click', () => {
+    reclassChanges = [];
+    reclassChosen.clear();
+    panel().style.display = 'none';
+  });
+
+  document.getElementById('reclass-apply').addEventListener('click', async () => {
+    const btn = document.getElementById('reclass-apply');
+    const errEl = document.getElementById('tx-error');
+    errEl.style.display = 'none';
+    const picked = [...reclassChosen].map(i => reclassChanges[i]).filter(Boolean);
+    if (!picked.length) return;
+
+    // Merchant-name rules, so the decision also applies to future statements.
+    // Drop any existing rule for the same merchant first so we replace rather
+    // than stack conflicting rules.
+    const touched = new Set(picked.map(c => c.merchant.trim().toUpperCase()));
+    const rules = savedRules.filter(
+      r => !(r.match && touched.has(String(r.match).trim().toUpperCase())));
+    picked.forEach(c => rules.push({ match: c.merchant, category: c.to }));
+
+    btn.disabled = true;
+    btn.textContent = 'Applying…';
+    try {
+      await apiFetch('/overrides', {
+        method: 'POST',
+        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
+      });
+      reclassChanges = [];
+      reclassChosen.clear();
+      panel().style.display = 'none';
+      await load();
+      showToast(`Applied ${picked.length} change${picked.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not apply those changes';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      updateReclassBtn();
     }
   });
 

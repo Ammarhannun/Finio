@@ -22,6 +22,7 @@ from modules.ai_coach import (
     QUICK_QUESTIONS, coach_chat, generate_insight, strip_disclaimer, title_chat,
 )
 from modules.categoriser import examples_from_overrides
+from modules.llm_categoriser import categorise_merchants, has_llm as llm_available
 from modules.pipeline import analyze_stored, recompute_for_goal, run_full_pipeline
 from modules.spend_check import check_purchase
 from schemas import (
@@ -465,6 +466,112 @@ def transactions(
         "custom_categories": custom,
         "pending_questions": db.get_pending_questions(client, user.user_id),
         "period": resliced["period"],
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.post("/reclassify")
+def reclassify(user: AuthUser = Depends(get_current_user)):
+    """Ask the model to categorise the user's merchants again, FROM SCRATCH, and
+    return what it would change. Writes nothing.
+
+    Cached classifications are deliberately bypassed — "re-classify" has to mean
+    a fresh opinion, otherwise it would just replay the same stored answers.
+    Merchants the user has corrected themselves are left alone and reported
+    separately, so this can never quietly undo their own decisions.
+
+    The frontend shows the result as a confirmation list; applying it goes
+    through POST /overrides like any other edit.
+    """
+    _rate_limit(user.user_id, "/reclassify")
+    client, data = _require_snapshot(user)
+
+    all_tx = db.get_all_transactions(client, user.user_id)
+    if not all_tx:
+        raise HTTPException(status_code=404, detail="No transactions to reclassify")
+
+    overrides = db.get_overrides(client, user.user_id)
+    custom = db.get_custom_categories(client, user.user_id)
+    categories = _all_categories(custom)
+
+    # Current state, as the user sees it on the transactions page.
+    current = analyze_stored(
+        all_tx,
+        goal_amount=(data.get("goal") or {}).get("target_amount"),
+        goal_date=(data.get("goal") or {}).get("target_date"),
+        overrides=overrides,
+        period="all",
+    )
+
+    # Merchants the user has already ruled on by name — never re-decide these.
+    pinned = {
+        str(r["match"]).strip().upper()
+        for r in overrides or [] if r.get("match")
+    }
+
+    # Aggregate the current expense rows per merchant.
+    rows_by_merchant: dict = {}
+    for t in current["transactions"]:
+        if t.get("flow") != "expense":
+            continue
+        name = str(t.get("merchant") or "").strip()
+        if not name:
+            continue
+        entry = rows_by_merchant.setdefault(
+            name, {"category": t.get("category"), "count": 0, "total": 0.0}
+        )
+        entry["count"] += 1
+        entry["total"] += abs(float(t.get("amount") or 0))
+
+    candidates = [m for m in rows_by_merchant if m.upper() not in pinned]
+    if not candidates:
+        return {
+            "changes": [], "unchanged": 0, "skipped_pinned": len(pinned),
+            "available": bool(llm_available()), "disclaimer": DISCLAIMER,
+        }
+
+    fresh = categorise_merchants(
+        candidates, categories,
+        context={
+            m: {"count": v["count"], "total": round(v["total"], 2),
+                "avg": round(v["total"] / v["count"], 2)}
+            for m, v in rows_by_merchant.items() if m in set(candidates)
+        },
+    )
+    if not fresh:
+        raise HTTPException(
+            status_code=503,
+            detail="Re-classification needs an OpenAI key on the server.",
+        )
+
+    changes = []
+    unchanged = 0
+    for merchant in candidates:
+        res = fresh.get(merchant) or {}
+        proposed = res.get("category")
+        confidence = res.get("confidence")
+        now = rows_by_merchant[merchant]["category"]
+        # Only surface confident, genuinely different answers — an unsure guess
+        # is not worth asking the user to confirm.
+        if not proposed or confidence not in ("high", "medium") or proposed == now:
+            unchanged += 1
+            continue
+        changes.append({
+            "merchant": merchant,
+            "from": now,
+            "to": proposed,
+            "confidence": confidence,
+            "count": rows_by_merchant[merchant]["count"],
+            "total": round(rows_by_merchant[merchant]["total"], 2),
+        })
+
+    # Biggest money impact first — that is what the user should check hardest.
+    changes.sort(key=lambda c: c["total"], reverse=True)
+    return {
+        "changes": changes,
+        "unchanged": unchanged,
+        "skipped_pinned": len(pinned),
+        "available": True,
         "disclaimer": DISCLAIMER,
     }
 

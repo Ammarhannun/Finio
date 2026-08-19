@@ -1296,6 +1296,145 @@ def _():
     assert_true("KMART" not in ctx, "only requested merchants are described")
 
 
+# ── Re-classify (propose, then the user confirms) ───────────────────────────
+
+def _reclassify_client(transactions, overrides, proposal):
+    """TestClient for POST /reclassify with the DB and the model stubbed."""
+    from fastapi.testclient import TestClient
+    import main as app_main
+
+    saved = {k: getattr(app_main.db, k, None) for k in (
+        "get_client", "load_dashboard", "get_all_transactions", "get_overrides",
+        "get_custom_categories", "get_budget_targets", "get_user_profile",
+        "get_streak", "get_goal")}
+    saved_llm = app_main.categorise_merchants
+
+    app_main.db.get_client = lambda *a, **k: object()
+    app_main.db.load_dashboard = lambda c, u: {
+        "month": "2026-06", "metrics": {"total_spent": 1.0}, "goal": {}}
+    app_main.db.get_all_transactions = lambda c, u: transactions
+    app_main.db.get_overrides = lambda c, u: overrides
+    app_main.db.get_custom_categories = lambda c, u: []
+    app_main.db.get_budget_targets = lambda c, u: {}
+    app_main.db.get_user_profile = lambda c, u: {}
+    app_main.db.get_streak = lambda c, u: None
+    app_main.db.get_goal = lambda c, u: None
+    app_main.categorise_merchants = lambda m, cats, context=None: proposal
+
+    class U:
+        user_id = "u1"
+        token = "t"
+
+    app_main.app.dependency_overrides[app_main.get_current_user] = lambda: U()
+    app_main._RATE.clear()
+
+    def restore():
+        for k, v in saved.items():
+            if v is not None:
+                setattr(app_main.db, k, v)
+        app_main.categorise_merchants = saved_llm
+        app_main.app.dependency_overrides.clear()
+
+    return TestClient(app_main.app), restore
+
+
+_RECLASS_TX = [
+    {"date": "2026-06-01", "amount": -65.0, "merchant": "CALTEX WOOLWORTHS FUEL",
+     "category": "Groceries", "is_expense": True},
+    {"date": "2026-06-03", "amount": -72.4, "merchant": "CALTEX WOOLWORTHS FUEL",
+     "category": "Groceries", "is_expense": True},
+    {"date": "2026-06-09", "amount": -31.0, "merchant": "UBER EATS",
+     "category": "Food & Dining", "is_expense": True},
+    {"date": "2026-06-11", "amount": -90.0, "merchant": "PINNED MERCHANT",
+     "category": "Shopping", "is_expense": True},
+]
+
+
+@test("reclassify: proposes only confident, genuinely different categories")
+def _():
+    proposal = {
+        "CALTEX WOOLWORTHS FUEL": {"category": "Transport", "confidence": "high"},
+        "UBER EATS": {"category": "Food & Dining", "confidence": "high"},
+    }
+    client, restore = _reclassify_client(_RECLASS_TX, [], proposal)
+    try:
+        body = client.post("/reclassify").json()
+    finally:
+        restore()
+
+    names = [c["merchant"] for c in body["changes"]]
+    assert_in("CALTEX WOOLWORTHS FUEL", names)
+    # Already correct → nothing to confirm.
+    assert_true("UBER EATS" not in names)
+    change = body["changes"][0]
+    assert_eq(change["from"], "Groceries")
+    assert_eq(change["to"], "Transport")
+    assert_eq(change["count"], 2)
+    assert_eq(change["total"], 137.4)
+
+
+@test("reclassify: never re-decides a merchant the user set themselves")
+def _():
+    proposal = {
+        "CALTEX WOOLWORTHS FUEL": {"category": "Transport", "confidence": "high"},
+        "PINNED MERCHANT": {"category": "Health", "confidence": "high"},
+    }
+    overrides = [{"match": "PINNED MERCHANT", "category": "Shopping"}]
+    client, restore = _reclassify_client(_RECLASS_TX, overrides, proposal)
+    try:
+        body = client.post("/reclassify").json()
+    finally:
+        restore()
+
+    names = [c["merchant"] for c in body["changes"]]
+    assert_true("PINNED MERCHANT" not in names,
+                "a user's own correction must never be proposed away")
+    assert_eq(body["skipped_pinned"], 1)
+
+
+@test("reclassify: an unsure answer is never offered for confirmation")
+def _():
+    proposal = {
+        "CALTEX WOOLWORTHS FUEL": {"category": "Transport", "confidence": "low"},
+        "UBER EATS": {"category": None, "confidence": "low"},
+    }
+    client, restore = _reclassify_client(_RECLASS_TX, [], proposal)
+    try:
+        body = client.post("/reclassify").json()
+    finally:
+        restore()
+    assert_eq(body["changes"], [])
+
+
+@test("reclassify: writes nothing by itself")
+def _():
+    # The endpoint must be a pure proposal — applying goes through /overrides
+    # only after the user confirms.
+    import main as app_main
+
+    writes = []
+    proposal = {"CALTEX WOOLWORTHS FUEL": {"category": "Transport", "confidence": "high"}}
+    client, restore = _reclassify_client(_RECLASS_TX, [], proposal)
+    saved = (app_main.db.save_overrides, app_main.db.save_snapshot)
+    app_main.db.save_overrides = lambda *a, **k: writes.append("save_overrides")
+    app_main.db.save_snapshot = lambda *a, **k: writes.append("save_snapshot")
+    try:
+        assert_eq(client.post("/reclassify").status_code, 200)
+    finally:
+        app_main.db.save_overrides, app_main.db.save_snapshot = saved
+        restore()
+    assert_eq(writes, [], "reclassify must not persist anything")
+
+
+@test("reclassify: 503 when the server has no model configured")
+def _():
+    client, restore = _reclassify_client(_RECLASS_TX, [], None)
+    try:
+        assert_eq(client.post("/reclassify").status_code, 503)
+    finally:
+        restore()
+
+
 # ── Persistence-layer regressions (audit fixes) ─────────────────────────────
 # These use a fake Supabase client so they run offline and assert on the exact
 # bugs found in the audit, not on incidental behaviour.
