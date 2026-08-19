@@ -207,7 +207,7 @@
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
            formatMonthYear, formatDay, dateRangeLabel, escapeHtml,
-           getStoredPeriod, setStoredPeriod } from './api.js';
+           getStoredPeriod, setStoredPeriod, renderMarkdown } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('dashboard');
@@ -503,7 +503,7 @@
     try {
       const r = await apiFetch('/insight');
       const card = document.getElementById('insight-card');
-      document.getElementById('insight-text').textContent = r.text || '';
+      document.getElementById('insight-text').innerHTML = renderMarkdown(r.text || '');
       card.style.display = r.text ? 'flex' : 'none';
     } catch (_) { /* no data yet */ }
   }
