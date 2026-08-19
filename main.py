@@ -683,12 +683,22 @@ def set_overrides(body: OverrideRequest, user: AuthUser = Depends(get_current_us
         custom_categories=body.custom_categories,
     )
     _cache_clear_user(user.user_id)
+
+    # Marking money that LEFT the account as "income" is incoherent and used to
+    # silently wreck the totals. It is now neutralised to a transfer, but the
+    # user still needs telling — otherwise their numbers quietly disagree with
+    # what they thought they set.
+    from modules.pipeline import _restore_full_df
+    from modules.data_processor import contradictory_flow_rules
+    warnings = contradictory_flow_rules(_restore_full_df(all_tx), overrides)
+
     return {
         "overrides": overrides,
         "custom_categories": db.get_custom_categories(client, user.user_id),
         "metrics": resliced["metrics"],
         "forecast": resliced["forecast"],
         "invest": resliced["invest"],
+        "flow_warnings": warnings,
         "disclaimer": DISCLAIMER,
     }
 

@@ -106,6 +106,73 @@ def apply_flow_overrides(df, overrides):
     return df
 
 
+def reconcile_flow_contradictions(df):
+    """Neutralise flow labels that contradict the direction of the money.
+
+    Marking money that LEFT the account as "income" is not a preference, it is
+    incoherent — you cannot earn a negative amount. It used to be accepted
+    silently and then quietly corrupt the totals: compute_metrics sums the
+    income rows, so one -$4,800 row labelled income simply subtracted $4,800
+    from reported income, and the user saw an impossible "you overspend every
+    month" without any clue why.
+
+    Such rows are moved to `transfer`, the neutral bucket that counts as
+    neither income nor spending, which is the only honest reading of "money
+    went out but it is not spending".
+
+    NOTE the asymmetry: expense + a POSITIVE amount is legitimate — that is a
+    refund offsetting spend (see _default_flow) — so it is deliberately left
+    alone. Returns (df, mask_of_reconciled_rows).
+    """
+    if "flow" not in df.columns or "amount" not in df.columns:
+        import pandas as pd
+        return df, pd.Series(dtype=bool)
+    mask = (df["flow"] == FLOW_INCOME) & (df["amount"] < 0)
+
+    # Second contradiction: a row still categorised "Transfers" but flowing as
+    # an expense. config states plainly that Transfers is NOT a spend bucket —
+    # moving money to your own account or to a person is not consumption — yet
+    # such rows were landing in total_spent and in the category breakdown. On a
+    # real statement this made "Transfers" the single largest spending category
+    # ($14,071), which is what made the dashboard look impossible.
+    #
+    # The category is treated as authoritative: to count one of these as real
+    # spending, give it a real spend category rather than leaving it as
+    # "Transfers".
+    from config import TRANSFERS_LABEL
+    if "category" in df.columns:
+        mask = mask | ((df["flow"] == FLOW_EXPENSE)
+                       & (df["category"] == TRANSFERS_LABEL))
+    if mask.any():
+        df.loc[mask, "flow"] = FLOW_TRANSFER
+    return df, mask
+
+
+def contradictory_flow_rules(df, overrides):
+    """Rules that call outgoing money "income", for warning the user on write.
+
+    Returns [{match, count, total}] — only rules where EVERY matching
+    transaction is money leaving the account, so a genuine mixed merchant is
+    never flagged.
+    """
+    out = []
+    if not overrides or df is None or df.empty:
+        return out
+    for rule in overrides:
+        if rule.get("flow") != FLOW_INCOME:
+            continue
+        rows = df[_override_mask(df, rule)]
+        if rows.empty:
+            continue
+        if (rows["amount"] < 0).all():
+            out.append({
+                "match": rule.get("match") or rule.get("tx_key"),
+                "count": int(len(rows)),
+                "total": round(float(rows["amount"].abs().sum()), 2),
+            })
+    return out
+
+
 def apply_category_overrides(df, overrides):
     """Apply the CATEGORY half of the user's reclassification rules.
 
@@ -128,6 +195,7 @@ def add_flags(df, overrides=None):
     df["is_transfer"] = df["description"].apply(_is_transfer)
     df["flow"] = df.apply(_default_flow, axis=1)
     df = apply_flow_overrides(df, overrides)
+    df, _ = reconcile_flow_contradictions(df)
 
     # Keep is_transfer / is_expense consistent with the (possibly overridden) flow
     # so every downstream module agrees on what counts.

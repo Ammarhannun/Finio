@@ -178,7 +178,7 @@ CRYPTO_OPTIONS = ["BTC", "ETH"]
 
 # Bump when analysis logic changes enough that old stored snapshots would show
 # misleading numbers; the dashboard then prompts the user to hit Re-analyse.
-SNAPSHOT_VERSION = 3
+SNAPSHOT_VERSION = 4
 
 # ── Chat history ────────────────────────────────────────────────────────────
 # How many messages a chat keeps on screen. The old value (20) was shared with
