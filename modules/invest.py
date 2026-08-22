@@ -7,8 +7,17 @@ NEEDS_PCT = 50
 WANTS_PCT = 30
 SAVINGS_PCT = 20
 
-NEEDS_CATEGORIES = ["Groceries", "Transport", "Health", "Other"]
-WANTS_CATEGORIES = ["Food & Dining", "Shopping", "Subscriptions"]
+# 50/30/20 needs the whole of spending accounted for, or the comparison lies.
+# NEEDS is the explicit list; WANTS is deliberately "everything else" rather
+# than a second fixed list. With two fixed lists, any category in neither
+# silently vanished — "Housing & Rent" was missing, so rent, the largest need
+# most people have, was left out of the split entirely ($1,800 of rent showed
+# as $0 of needs). User-invented categories disappeared the same way.
+#
+# Everything not named here counts as a want, which is the safer default: this
+# breakdown exists to surface discretionary spending, so an unrecognised
+# category should not be quietly excused as essential.
+NEEDS_CATEGORIES = ["Groceries", "Transport", "Health", "Housing & Rent", "Other"]
 
 MIN_BUFFER_TO_INVEST = 500
 MIN_SAVINGS_RATE_PCT = 10
@@ -33,8 +42,10 @@ def compare_to_actual(df, metrics, split):
     needs_spent = expenses.loc[
         expenses["category"].isin(NEEDS_CATEGORIES), "amount_abs"
     ].sum()
+    # Everything that isn't a need — including Entertainment and any category
+    # the user invented — so no spending can fall out of the comparison.
     wants_spent = expenses.loc[
-        expenses["category"].isin(WANTS_CATEGORIES), "amount_abs"
+        ~expenses["category"].isin(NEEDS_CATEGORIES), "amount_abs"
     ].sum()
     actual_saved = metrics["net_saved"]
 

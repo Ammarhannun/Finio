@@ -1225,8 +1225,10 @@ def _():
     # inside "BONDI", "SUPER" inside "SUPERCHEAP", "MARKET" inside
     # "MARKETPLACE" — and the rules layer used to outrank everything.
     assert_eq(rule_category("COTTON ON BONDI JUNCTION"), "Shopping")
-    assert_eq(rule_category("SUPERCHEAP AUTO ALEXANDRIA"), "Shopping")
     assert_true(rule_category("PETSTOCK MARKETPLACE") != "Groceries")
+    # Car servicing is Transport (a running cost), matching what the model is
+    # told — "SUPER" must not drag it into Groceries.
+    assert_eq(rule_category("SUPERCHEAP AUTO ALEXANDRIA"), "Transport")
     # Genuine whole-word matches still work.
     assert_eq(rule_category("WOOLWORTHS METRO EASTWOOD"), "Groceries")
     assert_eq(rule_category("UBER EATS SYDNEY"), "Food & Dining")
@@ -1247,16 +1249,16 @@ def _expense_df(names):
 def _():
     import modules.categoriser as cat
 
-    # The keyword rules call this Groceries (WOOLWORTHS); it is a petrol
-    # station. The model must win — that ordering is the whole point.
-    assert_eq(cat.rule_category("CALTEX WOOLWORTHS FUEL"), "Groceries")
+    # A keyword rule matches this merchant, but the model is confident it is
+    # something else. The model must win — that ordering is the whole point,
+    # because a keyword list cannot know what a merchant actually sells.
+    assert_eq(cat.rule_category("COTTON ON BONDI"), "Shopping")
 
     df = cat.categorise_data(
-        _expense_df(["CALTEX WOOLWORTHS FUEL"]),
-        llm_cache={"CALTEX WOOLWORTHS FUEL":
-                   {"category": "Transport", "confidence": "high"}},
+        _expense_df(["COTTON ON BONDI"]),
+        llm_cache={"COTTON ON BONDI": {"category": "Other", "confidence": "high"}},
     )
-    assert_eq(df["category"].iloc[0], "Transport")
+    assert_eq(df["category"].iloc[0], "Other")
 
 
 @test("categoriser: a low-confidence model answer falls through to the rules")
@@ -1301,16 +1303,20 @@ def _():
     import modules.categoriser as cat
     import pandas as pd
 
-    # ENGIE is an energy retailer. The model abstained (category None); a
-    # ~30-example NB then confidently filed a $663 bill under Food & Dining.
+    # A merchant no keyword rule can match, that the model also could not
+    # place. A ~30-example NB has strictly less information than the thing
+    # that just abstained, yet it never abstains itself — that is how a $663
+    # ENGIE energy bill ended up filed under Food & Dining.
     df = pd.DataFrame({
-        "description": ["ENGIE 138808 AU AUS"],
-        "merchant_clean": ["ENGIE 138808 AU AUS"],
+        "description": ["ZZQ UNKNOWN VENDOR 8891"],
+        "merchant_clean": ["ZZQ UNKNOWN VENDOR 8891"],
         "amount": [-663.73],
         "flow": ["expense"],
     })
+    assert_true(cat.rule_category("ZZQ UNKNOWN VENDOR 8891") is None,
+                "fixture must not be rescued by a keyword rule")
     out = cat.categorise_data(df, llm_cache={
-        "ENGIE 138808 AU AUS": {"category": None, "confidence": "low"}})
+        "ZZQ UNKNOWN VENDOR 8891": {"category": None, "confidence": "low"}})
     assert_eq(out["category"].iloc[0], "Other",
               "an abstention must stay honest, not become a guess")
 
@@ -1348,6 +1354,54 @@ def _():
     assert_eq(len(found), 1)
     assert_eq(found[0]["basis"], "merchant")
     assert_eq(found[0]["compared_to"], "CAFE")
+
+
+# ── Layout invariants (split mode overflow) ─────────────────────────────────
+
+def _css():
+    return (ROOT / "frontend" / "styles.css").read_text()
+
+
+@test("css: main is a query container so layout follows the content column")
+def _():
+    css = _css()
+    # Opening the coach shrinks <main> without changing the window, so any
+    # breakpoint that keys off the VIEWPORT keeps the desktop layout and the
+    # contents spill out of their cards. Container queries are what make the
+    # components respond to the width they are actually given.
+    assert_in("container-type: inline-size", css)
+    assert_in("container-name: page", css)
+    assert_true(css.count("@container") >= 4,
+                "layout breakpoints should be container queries, not only media queries")
+
+
+@test("css: components that overflowed in split mode collapse by container width")
+def _():
+    import re
+
+    css = _css()
+    blocks = re.findall(r"@container page \([^)]*\)\s*\{(.*?)\n\}", css, re.S)
+    body = "\n".join(blocks)
+    # Each of these was visibly clipped when the coach was open.
+    for selector in (".cards-row", ".goal-presets", ".dash-two-col",
+                     ".dash-chart-row", ".tx-row"):
+        assert_in(selector, body,
+                  f"{selector} must collapse on CONTAINER width, not viewport: ")
+
+
+@test("css: grid children can shrink instead of pushing out of their card")
+def _():
+    css = _css()
+    # Grid/flex children default to min-width:auto and refuse to shrink below
+    # their content — which is how long money figures escaped their boxes.
+    assert_in("min-width: 0", css)
+    assert_in("overflow-wrap: anywhere", css)
+
+
+@test("css: braces stay balanced")
+def _():
+    css = _css()
+    assert_eq(css.count("{"), css.count("}"), "unbalanced braces in styles.css")
 
 
 @test("analytics: the chart series flags part-months instead of hiding them")

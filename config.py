@@ -39,7 +39,8 @@ CATEGORIES = [
     "Subscriptions",   # streaming, gym, phone plans
     "Shopping",        # retail, amazon, electronics, clothes
     "Health",          # pharmacy, medical
-    "Housing & Rent",  # rent, real-estate agencies, strata, utilities-adjacent
+    "Housing & Rent",  # rent, real-estate agencies, strata, utilities
+    "Entertainment",   # cinemas, events, concerts, ticketing, games
     "Other",           # uncategorised
 ]
 
@@ -93,12 +94,33 @@ SUBURB_STOPWORDS = {
 # merchant name wins, so put specific entries before general ones
 # (e.g. "UBER EATS" before "UBER", "AMAZON PRIME" before "AMAZON").
 CATEGORY_RULES = [
-    # Housing first — "RENT" etc. must win before anything generic.
+    # Fuel, parking and tolls FIRST. These names routinely carry a supermarket
+    # brand ("CALTEX WOOLWORTHS FUEL", "COLES EXPRESS") and the Groceries rules
+    # sit above Transport, so without this they were all filed as groceries.
+    ("Transport", [
+        "FUEL", "PETROL", "SERVICE STATION", "SERVO",
+        "CALTEX", "AMPOL", "COLES EXPRESS", "UNITED PETROLEUM", "7-ELEVEN FUEL",
+        "PARKING", "CARPARK", "CAR PARK", "SECURE PARKING", "WILSON PARKING",
+        "LINKT", "E-TOLL", "ETOLL", "GO VIA", "TOLL",
+    ]),
+    # Housing next — "RENT" etc. must win before anything generic.
     ("Housing & Rent", [
         "RENT", "REAL ESTATE", "REALESTATE", "RAY WHITE", "LJ HOOKER",
         "MCGRATH", "STRATA", "BOND", "LANDLORD", "PROPERTY MGMT",
         "PROPERTY MANAGEMENT", "ELECTRICITY", "ENERGY AUSTRALIA", "AGL",
         "ORIGIN ENERGY", "WATER CORP", "SYDNEY WATER", "COUNCIL RATES",
+        # Energy/utility retailers whose names give no clue what they sell.
+        "ENGIE", "ALINTA", "MOMENTUM ENERGY", "RED ENERGY", "SIMPLY ENERGY",
+        "POWERSHOP", "DODO", "SUPERLOOP", "AUSSIE BROADBAND", "TANGERINE",
+        "GAS", "ENERGY",
+    ]),
+    ("Entertainment", [
+        "EVENT CINEMAS", "EVENT TOP", "HOYTS", "VILLAGE CINEMAS", "READING CINEMAS",
+        "IMAX", "PALACE CINEMA", "DENDY", "CINEMA", "TICKETEK", "TICKETMASTER",
+        "MOSHTIX", "EVENTBRITE", "OZTIX", "STEAM GAMES", "STEAMGAMES",
+        "PLAYSTATION", "XBOX", "NINTENDO", "BOWLING", "TIMEZONE", "LASER TAG",
+        "ESCAPE ROOM", "LUNA PARK", "AQUARIUM", "ZOO", "MUSEUM", "GALLERY",
+        "CONCERT", "FESTIVAL",
     ]),
     ("Food & Dining", [
         "UBER EATS", "UBEREATS", "DOORDASH", "DELIVEROO", "MENULOG", "EASI",
@@ -112,7 +134,8 @@ CATEGORY_RULES = [
     ("Groceries", [
         "WOOLWORTHS", "WOOLIES", "COLES", "ALDI", "IGA", "COSTCO", "7-ELEVEN",
         "7 ELEVEN", "SEVEN ELEVEN", "FOODWORKS", "HARRIS FARM", "SUPERMARKET",
-        "GROCER", "BUTCHER", "FRUIT", "SUPER", "MARKET", "DELI",
+        "GROCER", "BUTCHER", "FRUIT", "SUPER", "MARKET", "MART", "DELI",
+        "SUPABARN", "NQR", "SPUDSHED", "DRAKES",
     ]),
     ("Transport", [
         "UBER", "DIDI", "OLA", "OPAL", "TRANSPORT NSW", "TRANSPORTFORNSW",
@@ -120,19 +143,21 @@ CATEGORY_RULES = [
         "AMPOL", "7-ELEVEN FUEL", "COLES EXPRESS", "FUEL", "PETROL", "PARKING",
         "WILSON PARKING", "SECURE PARKING", "CARPARK", "TRAINLINK", "METRO",
         "TAXI", "13CABS",
+        # Running a car, not retail therapy — same call the model is told to make.
+        "SUPERCHEAP", "REPCO", "AUTOBARN", "BURSONS", "MECHANIC", "TYREPOWER",
     ]),
     ("Subscriptions", [
         "NETFLIX", "SPOTIFY", "DISNEY", "STAN", "BINGE", "PARAMOUNT", "PRIME VIDEO",
         "AMAZON PRIME", "YOUTUBE PREMIUM", "APPLE.COM", "ITUNES", "GOOGLE STORAGE",
         "ADOBE", "MICROSOFT", "DROPBOX", "AUDIBLE", "PATREON", "CHATGPT", "OPENAI",
         "TELSTRA", "OPTUS", "VODAFONE", "AMAYSIM", "BELONG", "GYM", "FITNESS",
-        "ANYTIME FITNESS", "F45", "PLUS FITNESS", "GYMSHARK",
+        "ANYTIME FITNESS", "F45", "PLUS FITNESS", "PLUSFITNESS",
     ]),
     ("Shopping", [
         "AMAZON", "EBAY", "KMART", "TARGET", "BIG W", "JB HI-FI", "JBHIFI",
         "JB HIFI", "HARVEY NORMAN", "THE GOOD GUYS", "OFFICEWORKS", "BUNNINGS",
         "IKEA", "MYER", "DAVID JONES", "UNIQLO", "COTTON ON", "H&M", "ZARA",
-        "MECCA", "SEPHORA", "REBEL", "SUPERCHEAP", "CHEMIST WAREHOUSE ONLINE",
+        "MECCA", "SEPHORA", "REBEL", "GYMSHARK", "CHEMIST WAREHOUSE ONLINE",
         "THE ICONIC", "ASOS", "TEMU", "SHEIN", "ALIEXPRESS",
     ]),
     ("Health", [
