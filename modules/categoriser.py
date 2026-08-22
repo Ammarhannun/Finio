@@ -218,12 +218,34 @@ def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
             df.loc[unknown_mask, name_col].apply(rule_category)
         )
 
-    # 4. Naive Bayes only for whatever is STILL unknown (no key / LLM unsure).
+    # 4. Naive Bayes for whatever is STILL unknown — but NOT for merchants the
+    #    model looked at and said it could not place.
+    #
+    #    Those two cases are very different. When there is no API key, NB is all
+    #    we have and a rough guess beats nothing. But when the LLM has already
+    #    examined a merchant and answered "I don't know", a ~30-example Naive
+    #    Bayes model has strictly less information than the thing that just
+    #    abstained — and it does not abstain, it always returns its nearest
+    #    label. On this account that put a $663 ENGIE energy bill in
+    #    "Food & Dining", which then also skewed the anomaly baseline and left
+    #    Housing & Rent showing $15. An honest "Other" is better: it is what
+    #    the quiz asks about, and what Re-classify can revisit.
     unknown_mask = expense_mask & df["category"].isna()
     if unknown_mask.any():
-        model = get_model(user_examples)
-        df.loc[unknown_mask, "category"] = model.predict(
-            df.loc[unknown_mask, name_col]
+        names = df.loc[unknown_mask, name_col].astype(str)
+        abstained = names.map(
+            lambda m: m in cache and (cache.get(m) or {}).get("category") is None
         )
+        guessable = unknown_mask.copy()
+        guessable.loc[unknown_mask] = ~abstained.values
+        if guessable.any():
+            model = get_model(user_examples)
+            df.loc[guessable, "category"] = model.predict(
+                df.loc[guessable, name_col]
+            )
+        # Merchants the model abstained on stay honestly uncategorised.
+        still_unknown = expense_mask & df["category"].isna()
+        if still_unknown.any():
+            df.loc[still_unknown, "category"] = "Other"
 
     return df

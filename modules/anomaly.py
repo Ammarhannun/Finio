@@ -61,8 +61,18 @@ def _robust_scores(values):
 def detect_anomalies(df, limit=5):
     """Return the most unusual expense transactions (biggest score first).
 
-    Each item: merchant, category, amount, date, typical (category median), z.
-    Pass the user's FULL history so the per-category baseline is stable.
+    Each item: merchant, category, amount, date, typical, z, basis.
+
+    The baseline is the MERCHANT's own history where there is enough of it,
+    and only falls back to the category otherwise. Scoring everything against
+    the category was too coarse to be useful: a Groceries median of $8.38 —
+    dragged down by dozens of small convenience-store runs — sat alongside
+    $300 Costco shops in the same bucket, so an ordinary $88 supermarket trip
+    was flagged as unusual while a $159 Costco run got flagged despite being
+    only half that merchant's normal $312. "Unusual for you at this merchant"
+    is the question worth answering.
+
+    Pass the user's FULL history so the baselines are stable.
     """
     if df is None or df.empty or "flow" not in df.columns:
         return []
@@ -72,26 +82,58 @@ def detect_anomalies(df, limit=5):
     exp["amt"] = exp["amount"].abs()
 
     name_col = "merchant_clean" if "merchant_clean" in exp.columns else "description"
-    anomalies = []
-    for cat, g in exp.groupby("category"):
-        if len(g) < MIN_HISTORY:
-            continue
-        scores, median = _robust_scores(g["amt"])
+    exp["_name"] = exp[name_col].astype(str)
+
+    def score_group(baseline, emit_idx, basis, label_of):
+        """Score against `baseline`'s distribution, emit only rows in emit_idx.
+
+        The baseline is always the FULL group. Scoring a leftover row against
+        only the other leftovers would strand exactly the case this exists to
+        catch — one big charge at a merchant never seen before, which has no
+        history of its own to be measured against.
+        """
+        scores, typical = _robust_scores(baseline["amt"])
         if scores is None:
-            continue
-        for idx, row in g.iterrows():
+            return []
+        found = []
+        for idx in emit_idx:
+            row = baseline.loc[idx]
             if row["amt"] < MIN_AMOUNT:
                 continue
             score = scores.loc[idx]
             # Only ever flag overspending, never an unusually cheap purchase.
-            if score >= Z_THRESHOLD:
-                anomalies.append({
-                    "merchant": str(row.get(name_col) or "Unknown"),
-                    "category": cat,
-                    "amount": round(float(row["amt"]), 2),
-                    "date": pd.Timestamp(row["date"]).strftime("%Y-%m-%d"),
-                    "typical": round(float(median), 2),
-                    "z": round(float(score), 1),
-                })
+            if score < Z_THRESHOLD:
+                continue
+            found.append({
+                "merchant": str(row["_name"] or "Unknown"),
+                "category": row.get("category"),
+                "amount": round(float(row["amt"]), 2),
+                "date": pd.Timestamp(row["date"]).strftime("%Y-%m-%d"),
+                "typical": round(float(typical), 2),
+                "z": round(float(score), 1),
+                "basis": basis,          # what "typical" is measured against
+                "compared_to": label_of,
+            })
+        return found
+
+    anomalies = []
+    scored_idx = set()
+
+    # 1. Merchants with enough of their own history are judged against themselves.
+    for merchant, g in exp.groupby("_name"):
+        if len(g) < MIN_HISTORY:
+            continue
+        scored_idx.update(g.index)
+        anomalies += score_group(g, list(g.index), "merchant", merchant)
+
+    # 2. Everything else is judged against its whole category, which is all we
+    #    have for a merchant seen once or twice.
+    if "category" in exp.columns:
+        for cat, g in exp.groupby("category"):
+            todo = [i for i in g.index if i not in scored_idx]
+            if not todo or len(g) < MIN_HISTORY:
+                continue
+            anomalies += score_group(g, todo, "category", cat)
+
     anomalies.sort(key=lambda a: a["z"], reverse=True)
     return anomalies[:limit]

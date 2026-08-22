@@ -1296,6 +1296,60 @@ def _():
     assert_true("KMART" not in ctx, "only requested merchants are described")
 
 
+@test("categoriser: Naive Bayes does not overrule the model's 'I don't know'")
+def _():
+    import modules.categoriser as cat
+    import pandas as pd
+
+    # ENGIE is an energy retailer. The model abstained (category None); a
+    # ~30-example NB then confidently filed a $663 bill under Food & Dining.
+    df = pd.DataFrame({
+        "description": ["ENGIE 138808 AU AUS"],
+        "merchant_clean": ["ENGIE 138808 AU AUS"],
+        "amount": [-663.73],
+        "flow": ["expense"],
+    })
+    out = cat.categorise_data(df, llm_cache={
+        "ENGIE 138808 AU AUS": {"category": None, "confidence": "low"}})
+    assert_eq(out["category"].iloc[0], "Other",
+              "an abstention must stay honest, not become a guess")
+
+
+@test("anomaly: judged against the merchant's own history, not the category")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    # Groceries mixes $5 convenience runs with $300 Costco shops, so a
+    # category median of ~$8 flagged a BELOW-average Costco trip as unusual.
+    rows = [{"date": f"2026-0{1 + i // 28}-{i % 28 + 1:02d}", "amount": -6.0,
+             "flow": "expense", "category": "Groceries",
+             "description": "IGA UNSW"} for i in range(20)]
+    rows += [{"date": f"2026-03-{i + 1:02d}", "amount": -310.0, "flow": "expense",
+              "category": "Groceries", "description": "COSTCO"} for i in range(5)]
+    # A normal-for-Costco shop, far above the category median but ordinary here.
+    rows.append({"date": "2026-04-01", "amount": -300.0, "flow": "expense",
+                 "category": "Groceries", "description": "COSTCO"})
+    found = detect_anomalies(pd.DataFrame(rows))
+    assert_true(not any(a["merchant"] == "COSTCO" for a in found),
+                f"a typical Costco shop must not be flagged: {found}")
+
+
+@test("anomaly: reports what 'typical' was measured against")
+def _():
+    import pandas as pd
+    from modules.anomaly import detect_anomalies
+
+    rows = [{"date": f"2026-01-{i + 1:02d}", "amount": -20.0, "flow": "expense",
+             "category": "Food & Dining", "description": "CAFE"} for i in range(8)]
+    rows.append({"date": "2026-01-20", "amount": -900.0, "flow": "expense",
+                 "category": "Food & Dining", "description": "CAFE"})
+    found = detect_anomalies(pd.DataFrame(rows))
+    assert_eq(len(found), 1)
+    assert_eq(found[0]["basis"], "merchant")
+    assert_eq(found[0]["compared_to"], "CAFE")
+
+
 @test("analytics: the chart series flags part-months instead of hiding them")
 def _():
     from modules.analytics import compute_averages
