@@ -52,7 +52,16 @@ def eval_categoriser():
 
     from modules.categoriser import categorise_data
 
-    rows = pd.read_csv(DATASETS / "categories_eval.csv")
+    return _score_categoriser("categories_eval.csv")
+
+
+def _score_categoriser(filename):
+    import pandas as pd
+    from sklearn.metrics import precision_recall_fscore_support
+
+    from modules.categoriser import categorise_data
+
+    rows = pd.read_csv(DATASETS / filename)
     df = pd.DataFrame({
         "date": pd.Timestamp("2026-03-01"),
         "amount": -25.0,
@@ -84,6 +93,43 @@ def eval_categoriser():
 
 
 # ── 2. Retrieval ──────────────────────────────────────────────────────────────
+def eval_holdout():
+    """Accuracy on merchants NO keyword rule matches.
+
+    The main eval set has had rules written against it, so it flatters the
+    offline path and stops measuring generalisation. This set is deliberately
+    made of merchants the keyword list cannot touch, which is the only honest
+    read on what the model layer is actually buying:
+
+        offline (rules + Naive Bayes)   20.0%
+        model-first                     86.7%
+
+    Those two numbers look nearly identical on the tuned set. They are not.
+    """
+    import pandas as pd
+
+    from modules.categoriser import categorise_data
+
+    rows = pd.read_csv(DATASETS / "categories_holdout.csv")
+    df = pd.DataFrame({
+        "date": pd.Timestamp("2026-03-01"),
+        "amount": -40.0,
+        "description": rows["description"],
+        "merchant_clean": rows["description"],
+        "flow": "expense",
+        "is_transfer": False,
+    })
+    preds = [c if c is not None else "Other"
+             for c in categorise_data(df)["category"].tolist()]
+    truth = rows["category"].tolist()
+    hits = sum(1 for t, p in zip(truth, preds) if t == p)
+    misses = [{"merchant": m, "got": p, "want": t}
+              for m, p, t in zip(rows["description"], preds, truth) if p != t]
+    return {"n": len(truth), "correct": hits,
+            "accuracy": round(hits / len(truth), 3) if truth else 0.0,
+            "misses": misses}
+
+
 def eval_retrieval(k=2):
     """Hit-rate@k and MRR against the curated knowledge base. Works offline
     (TF-IDF) and with embeddings — the harness reports whichever ran."""
@@ -232,6 +278,13 @@ def main():
     print("\n[2/3] Retrieval (RAG knowledge base)")
     ret = eval_retrieval()
     report["retrieval"] = ret
+
+    hold = eval_holdout()
+    report["holdout"] = hold
+    print(f"\n  Held-out merchants (no keyword rule matches): "
+          f"{hold['correct']}/{hold['n']} = {hold['accuracy'] * 100:.1f}%")
+    for m in hold["misses"][:5]:
+        print(f"      miss  {m['merchant'][:32]:34} got {m['got']:16} want {m['want']}")
     print(f"      hit@{ret['k']}     {_bar(ret['hit_rate'])} {ret['hit_rate']:.1%}")
     print(f"      MRR       {_bar(ret['mrr'])} {ret['mrr']:.3f}")
     for m in ret["misses"][:3]:

@@ -59,11 +59,11 @@ _DISAMBIGUATION = (
     "That covers retailers you may not recognise by name (Engie, Alinta, "
     "Momentum, Red Energy, Dodo, Superloop); a numeric reference in the name "
     "is billing noise, not a reason to give up.\n"
-    "- Entertainment and leisure — cinemas, events, concerts, ticketing — have "
-    "no dedicated category here. Use Other for them, and say conf medium.\n"
+    "- Cinemas, events, concerts, ticketing, games and attractions are "
+    "Entertainment.\n"
     "- Never answer \"Other\" as a way of hedging. \"Other\" is a real "
-    "category, correct for genuine miscellaneous spending including the "
-    "entertainment case above. But if you truly cannot identify a merchant, "
+    "category, correct for genuine miscellaneous spending. But if you truly "
+    "cannot identify a merchant, "
     "answer null with conf low so a keyword fallback can try.\n"
 )
 

@@ -2418,3 +2418,51 @@ body.coach-splitting canvas {
   .reclass-row { grid-template-columns: auto 1fr; row-gap: 0.25rem; }
   .reclass-move, .reclass-meta, .reclass-conf { grid-column: 2; }
 }
+
+/* ── Layout that responds to the CONTENT column, not the window ───────────
+   Every breakpoint above is a viewport media query. That silently breaks in
+   split mode: opening the coach shrinks <main> to ~40% of the window, but the
+   window itself is unchanged, so a 500px-wide column kept the full desktop
+   layout and its contents spilled out of their cards — clipped figures,
+   truncated budget amounts, preset cards cut in half.
+
+   Container queries fix the actual problem: these components now react to the
+   width they are really given, whether that is narrow because the window is
+   small or because the coach is open. */
+main {
+  container-type: inline-size;
+  container-name: page;
+}
+
+/* Grid and flex children default to min-width:auto, so they refuse to shrink
+   below their content and push out of the box instead of wrapping. This is
+   what let long money figures escape their cards. */
+.dashboard-grid > *, .cards-row > *, .dash-two-col > *, .dash-chart-row > *,
+.split-row > *, .goal-presets > *, .form-grid-2 > *, .metric-card, .card {
+  min-width: 0;
+}
+.card, .metric-card, .budget-item, .goal-preset {
+  overflow-wrap: anywhere;
+}
+
+@container page (max-width: 900px) {
+  .dash-chart-row { grid-template-columns: 1fr; }
+}
+@container page (max-width: 800px) {
+  .dash-two-col { grid-template-columns: 1fr; }
+}
+@container page (max-width: 640px) {
+  .cards-row { grid-template-columns: 1fr; }
+  .budget-row { grid-template-columns: 1fr; row-gap: 0.35rem; }
+}
+@container page (max-width: 560px) {
+  .goal-presets { grid-template-columns: 1fr; }
+  .split-row { flex-direction: column; }
+  .form-grid-2 { grid-template-columns: 1fr; }
+}
+@container page (max-width: 520px) {
+  /* The transaction table is the widest thing on the platform — drop to the
+     compact three-column form rather than letting it overflow. */
+  .tx-row, .tx-head { grid-template-columns: 20px 1fr 90px; row-gap: 0.4rem; }
+  .tx-toolbar { flex-wrap: wrap; }
+}
