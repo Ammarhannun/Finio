@@ -25,7 +25,16 @@ def resolve_periods(df, period=None, anchor=None, start=None, end=None):
     latest transaction). `start`/`end` are only used for the 'custom' period.
     """
     period = (period or DEFAULT_PERIOD).lower()
-    dates = pd.to_datetime(df["date"])
+    dates = pd.to_datetime(df["date"]) if df is not None and len(df) else pd.Series(dtype="datetime64[ns]")
+    if not len(dates) or pd.isna(dates.min()):
+        # No transactions in scope (an empty upload, or a custom range that
+        # matches nothing). Anchor on today and return an empty window rather
+        # than raising — min()/max() on an empty frame give NaT, and .normalize()
+        # on NaT threw AttributeError, turning a legitimately empty result into
+        # a 500.
+        today = pd.Timestamp(anchor).normalize() if anchor else pd.Timestamp.today().normalize()
+        return {"current": (today, today), "prior": (None, None),
+                "period": period, "label": "no transactions"}
     min_date, max_date = dates.min().normalize(), dates.max().normalize()
     anchor = pd.to_datetime(anchor).normalize() if anchor else max_date
 
