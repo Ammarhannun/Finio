@@ -1356,6 +1356,46 @@ def _():
     assert_eq(found[0]["compared_to"], "CAFE")
 
 
+@test("period: an empty window returns a result instead of raising")
+def _():
+    import pandas as pd
+    from modules.period import resolve_periods
+
+    # min()/max() on an empty frame give NaT, and .normalize() on NaT raised
+    # AttributeError — turning a legitimately empty result into a 500.
+    empty = pd.DataFrame({"date": pd.to_datetime([]), "amount": []})
+    for period in ("daily", "weekly", "monthly", "all", "custom"):
+        out = resolve_periods(empty, period=period)
+        assert_eq(out["label"], "no transactions")
+        assert_eq(out["prior"], (None, None))
+
+
+@test("goal: presets say when the user cannot fund them yet")
+def _():
+    from modules.savings_forecaster import recommend_goal
+
+    # Not saving anything: every preset must be flagged, because the money has
+    # to be freed up first. The dashboard renders this flag.
+    broke = recommend_goal({"total_income": 3000.0, "total_spent": 3200.0,
+                            "net_saved": -200.0}, monthly_saved=-200.0)
+    assert_true(broke["presets"], "should still offer a starter buffer")
+    assert_true(all(p["achievable"] is False for p in broke["presets"]),
+                "presets must not look affordable when nothing is being saved")
+
+    saving = recommend_goal({"total_income": 3000.0, "total_spent": 2000.0,
+                             "net_saved": 1000.0}, monthly_saved=1000.0)
+    assert_true(all(p["achievable"] is True for p in saving["presets"]))
+
+
+@test("css: an unfundable goal preset is visually distinct")
+def _():
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    html = (ROOT / "frontend" / "dashboard.html").read_text()
+    assert_in(".goal-preset.stretch", css)
+    # The flag existed in the API but was dropped by the renderer.
+    assert_in("achievable === false", html)
+
+
 # ── Layout invariants (split mode overflow) ─────────────────────────────────
 
 def _css():

@@ -2466,3 +2466,16 @@ main {
   .tx-row, .tx-head { grid-template-columns: 20px 1fr 90px; row-gap: 0.4rem; }
   .tx-toolbar { flex-wrap: wrap; }
 }
+
+/* A preset the user cannot currently fund. The backend flags these
+   (achievable:false); showing them identically to affordable ones presented an
+   impossible savings plan as a normal choice. */
+.goal-preset.stretch { border-style: dashed; opacity: 0.82; }
+.goal-preset-flag {
+  display: block; margin-top: 0.35rem; font-size: 0.65rem;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--yellow);
+}
+.goal-preset-note {
+  grid-column: 1 / -1; margin: 0.5rem 0 0;
+  font-size: 0.78rem; color: var(--muted); line-height: 1.45;
+}

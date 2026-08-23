@@ -581,13 +581,26 @@
     const presetsEl = document.getElementById('goal-presets');
     const presets = rec?.presets || [];
     if (presets.length) {
+      // The backend marks a preset achievable:false when the user is not
+      // saving anything yet — the money for it has to be freed up first. That
+      // flag was being dropped here, so someone who overspends every month was
+      // shown "$1,000/mo" as if it were a normal choice. Say it plainly.
+      const needsFreeingUp = presets.some(p => p.achievable === false);
       presetsEl.innerHTML = presets.map(p => `
-        <button type="button" class="goal-preset${amount && Number(amount) === p.amount ? ' active' : ''}"
-                data-amount="${p.amount}" data-date="${p.target_date}">
-          <span class="goal-preset-label">${p.label}</span>
+        <button type="button" class="goal-preset${amount && Number(amount) === p.amount ? ' active' : ''}${p.achievable === false ? ' stretch' : ''}"
+                data-amount="${p.amount}" data-date="${p.target_date}"
+                title="${p.achievable === false
+                  ? 'You are not saving this much yet — this needs money freed up first'
+                  : 'Based on what you already save'}">
+          <span class="goal-preset-label">${escapeHtml(p.label)}</span>
           <span class="goal-preset-amount">${formatAUD(p.amount)}</span>
           <span class="goal-preset-rate">${formatAUD(p.per_month)}/mo · ${p.months} months</span>
-        </button>`).join('');
+          ${p.achievable === false ? '<span class="goal-preset-flag">needs freeing up</span>' : ''}
+        </button>`).join('')
+        + (needsFreeingUp
+            ? `<p class="goal-preset-note">You are not saving this much yet, so
+                 these are targets to work towards rather than your current pace.</p>`
+            : '');
       presetsEl.querySelectorAll('.goal-preset').forEach(btn =>
         btn.addEventListener('click', () => saveGoal(
           Number(btn.dataset.amount), btn.dataset.date)));
