@@ -1396,6 +1396,36 @@ def _():
     assert_in("achievable === false", html)
 
 
+@test("coach: split mode loads the conversation, not a blank panel")
+def _():
+    js = (ROOT / "frontend" / "coach-widget.js").read_text()
+    # setOpen() was the ONLY caller of loadHistory(), so restoring in split
+    # mode (which goes through enterSplit) reopened the panel empty — the
+    # thread was on the server, nothing ever fetched it.
+    assert_in("function hydrate()", js)
+    split = js[js.index("function enterSplit("):js.index("function enterSplit(") + 1600]
+    assert_in("hydrate()", split,
+              "enterSplit must load the conversation, or the panel opens blank: ")
+
+
+@test("coach: the small panel is draggable and cannot leave the screen")
+def _():
+    js = (ROOT / "frontend" / "coach-widget.js").read_text()
+    css = (ROOT / "frontend" / "styles.css").read_text()
+
+    assert_in("makeDraggable", js)
+    assert_in("PANEL_POS_KEY", js)          # position survives navigation
+    assert_in("savePanelPos", js)
+    # Clamped on both axes so it can never be dragged out of reach.
+    drag = js[js.index("function makeDraggable()"):]
+    assert_in("clamp(baseX + dx", drag)
+    assert_in("clamp(baseY + dy", drag)
+    # Header controls must not start a drag.
+    assert_in("e.target.closest('button, a, input, select')", drag)
+    # Only the floating panel gets a grab cursor — split/full are docked.
+    assert_in("#coach-panel.open:not(.split):not(.full) .cw-head", css)
+
+
 # ── Layout invariants (split mode overflow) ─────────────────────────────────
 
 def _css():

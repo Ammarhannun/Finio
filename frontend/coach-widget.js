@@ -18,6 +18,7 @@ const CHAT_KEY = 'finio-chat-id';
 const OPEN_KEY = 'finio-coach-open';
 const SPLIT_KEY = 'finio-coach-split-pct';
 const FAB_POS_KEY = 'finio-coach-fab-pos';
+const PANEL_POS_KEY = 'finio-coach-panel-pos';
 const RAIL_KEY = 'finio-coach-rail-px';
 const SPLIT_DEFAULT = 42;
 const RAIL_DEFAULT = 180;
@@ -36,6 +37,23 @@ function loadOpenState() {
 }
 function saveOpenState(state) {
   try { localStorage.setItem(OPEN_KEY, state); } catch (e) { /* ignore */ }
+}
+
+// Floating-panel position, saved as a PERCENTAGE of the viewport so a window
+// resize (or a different screen) keeps it roughly where the user put it
+// instead of stranding it off-screen.
+function loadPanelPos() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANEL_POS_KEY) || 'null');
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) return raw;
+  } catch (e) { /* ignore */ }
+  return null;
+}
+function savePanelPos(pos) {
+  try { localStorage.setItem(PANEL_POS_KEY, JSON.stringify(pos)); } catch (e) { /* ignore */ }
+}
+function clearPanelPos() {
+  try { localStorage.removeItem(PANEL_POS_KEY); } catch (e) { /* ignore */ }
 }
 
 function loadSplitPct() {
@@ -186,6 +204,17 @@ export function mountCoachWidget(page) {
       panel.style.right = '';
       panel.style.top = '';
       panel.style.bottom = '';
+      return;
+    }
+    // A position the user dragged to wins over the default docking.
+    const dragged = loadPanelPos();
+    if (dragged) {
+      const w = panel.offsetWidth || 360;
+      const h = panel.offsetHeight || 520;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left = `${Math.round(clamp(dragged.x / 100 * window.innerWidth, 8, window.innerWidth - w - 8))}px`;
+      panel.style.top = `${Math.round(clamp(dragged.y / 100 * window.innerHeight, 8, window.innerHeight - h - 8))}px`;
       return;
     }
     const side = preferredSide();
@@ -678,16 +707,20 @@ export function mountCoachWidget(page) {
   function enterSplit(pct = loadSplitPct()) {
     // Phones: keep the old full-bleed overlay — no room for a useful split.
     if (isNarrow()) {
-      panel.classList.add('full');
+      panel.classList.add('full', 'open');
       panel.classList.remove('split');
       document.body.classList.remove('coach-split');
       splitter.hidden = true;
       syncExpandBtn(true);
+      fab.classList.add('hidden');
+      hydrate();
       return;
     }
     applyDockSide(preferredSide());
     panel.classList.remove('full');
     panel.classList.add('split', 'open');
+    fab.classList.add('hidden');
+    hydrate();
     panel.style.left = '';
     panel.style.right = '';
     panel.style.top = '';
@@ -810,6 +843,88 @@ export function mountCoachWidget(page) {
     if (panel.classList.contains('open')) placeFloatingPanel();
   });
 
+  // Load the conversation once per page load, whichever way the panel opened.
+  // setOpen() used to be the only caller of loadHistory(), so restoring in
+  // SPLIT mode (which goes through enterSplit) reopened the panel completely
+  // blank — the thread was still on the server, nothing ever fetched it.
+  let hydrated = false;
+  function hydrate() {
+    if (hydrated) return;
+    hydrated = true;
+    loadHistory();
+  }
+
+  // ── Drag the small panel by its header ──────────────────────────────────
+  // Only in floating mode: split is docked to an edge and full is the phone
+  // overlay, so neither has anywhere to be dragged to.
+  (function makeDraggable() {
+    const head = panel.querySelector('.cw-head');
+    if (!head) return;
+    let dragging = false, startX = 0, startY = 0, baseX = 0, baseY = 0, moved = false;
+
+    const floating = () =>
+      panel.classList.contains('open')
+      && !panel.classList.contains('split')
+      && !panel.classList.contains('full');
+
+    head.addEventListener('pointerdown', (e) => {
+      // Never hijack the header's buttons (close, expand, new chat...).
+      if (e.target.closest('button, a, input, select')) return;
+      if (!floating() || e.button !== 0) return;
+      const r = panel.getBoundingClientRect();
+      dragging = true; moved = false;
+      startX = e.clientX; startY = e.clientY;
+      baseX = r.left; baseY = r.top;
+      // Pin to the measured box first, so switching off right/bottom docking
+      // does not make the panel jump before the first move.
+      panel.style.left = `${Math.round(r.left)}px`;
+      panel.style.top = `${Math.round(r.top)}px`;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.classList.add('dragging');
+      head.setPointerCapture?.(e.pointerId);
+    });
+
+    head.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;   // ignore jitter
+      moved = true;
+      const w = panel.offsetWidth, h = panel.offsetHeight;
+      // Always leave the panel reachable — never let it be dragged off-screen.
+      panel.style.left = `${Math.round(clamp(baseX + dx, 8, window.innerWidth - w - 8))}px`;
+      panel.style.top = `${Math.round(clamp(baseY + dy, 8, window.innerHeight - h - 8))}px`;
+      e.preventDefault();
+    });
+
+    const end = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      panel.classList.remove('dragging');
+      head.releasePointerCapture?.(e.pointerId);
+      if (!moved) return;
+      const r = panel.getBoundingClientRect();
+      savePanelPos({
+        x: (r.left / window.innerWidth) * 100,
+        y: (r.top / window.innerHeight) * 100,
+      });
+    };
+    head.addEventListener('pointerup', end);
+    head.addEventListener('pointercancel', end);
+
+    // Double-click the header to snap back to the default corner.
+    head.addEventListener('dblclick', (e) => {
+      if (e.target.closest('button, a, input, select') || !floating()) return;
+      clearPanelPos();
+      placeFloatingPanel();
+      showToast('Coach position reset');
+    });
+
+    // A saved position can end up off-screen after a resize — pull it back.
+    window.addEventListener('resize', () => { if (floating()) placeFloatingPanel(); });
+  })();
+
   function setOpen(open) {
     if (!open) {
       exitSplit({ keepOpen: false });
@@ -821,7 +936,7 @@ export function mountCoachWidget(page) {
     panel.classList.add('open');
     fab.classList.add('hidden');
     saveOpenState('open');
-    loadHistory();
+    hydrate();
     setTimeout(() => input.focus(), 150);
   }
 
