@@ -2479,3 +2479,19 @@ main {
   grid-column: 1 / -1; margin: 0.5rem 0 0;
   font-size: 0.78rem; color: var(--muted); line-height: 1.45;
 }
+
+/* Drag handle for the floating coach panel. Split and full modes are docked,
+   so the grab cursor only appears when there is somewhere to drag to. */
+#coach-panel.open:not(.split):not(.full) .cw-head {
+  cursor: grab;
+  touch-action: none;          /* let pointermove drive it, not the scroller */
+  user-select: none;
+}
+#coach-panel.open:not(.split):not(.full) .cw-head:active { cursor: grabbing; }
+#coach-panel.dragging {
+  transition: none;            /* follow the pointer exactly */
+  box-shadow: var(--shadow-lg);
+  opacity: 0.97;
+}
+/* Buttons inside the header keep their own cursor. */
+#coach-panel .cw-head button { cursor: pointer; }
