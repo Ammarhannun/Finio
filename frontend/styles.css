@@ -2586,3 +2586,10 @@ main {
   color: var(--muted); font-size: 0.875rem; line-height: 1.5;
 }
 .sc-empty-hint { font-size: 0.8125rem; opacity: 0.85; }
+
+/* Reset control inside the verdict card — starts a fresh check rather than
+   leaving the previous merchant and amount sitting under a stale answer. */
+.verdict-again {
+  margin-top: 1rem;
+  width: 100%;
+}
