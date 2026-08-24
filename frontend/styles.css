@@ -372,8 +372,8 @@ main { width: 100%; max-width: none; margin: 0; padding: 1.75rem 1.5rem 3.5rem; 
 .cards-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
 }
 @media (max-width: 600px) { .cards-row { grid-template-columns: 1fr; } }
 
@@ -1321,11 +1321,24 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 .dash-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-  align-items: start;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+  /* Stretch, not start. With align-items:start a shorter column simply ended
+     where its content ran out, leaving a block of dead space beside the taller
+     one — on a real dashboard that was ~280px of nothing under the goal and
+     personality cards. Stretching makes both columns the same height so the
+     row closes off flush. */
+  align-items: stretch;
 }
-.dash-col { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; }
+.dash-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-width: 0;
+}
+/* The last card in a column absorbs whatever height is left over, so the two
+   columns finish on the same line instead of one stopping short. */
+.dash-col > .card:last-child { flex: 1 1 auto; }
 
 /* Clickable budget category rows → jump to the editor */
 .budget-row { margin-bottom: 1.1rem; padding: 0.3rem 0.5rem; margin-left: -0.5rem; margin-right: -0.5rem; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s; }
@@ -1857,8 +1870,8 @@ body.coach-splitting canvas {
 .dash-chart-row {
   display: grid;
   grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr);
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
   align-items: stretch;
   width: 100%;
 }
@@ -2155,8 +2168,17 @@ body.coach-splitting canvas {
 /* Cards inside a column are spaced by the column's gap, never their own
    margin — mixing the two was the source of the uneven gutters. */
 .dash-col > .card { margin-bottom: 0 !important; }
-.dash-two-col { align-items: start; }
-.dash-col { align-content: start; }
+/* Stretch, not start. With align-items:start a shorter column simply ended
+   where its content ran out, leaving a block of nothing beside the taller one
+   — measured at ~280px under the goal/personality column. Stretching makes
+   both columns the same height so the row closes off flush.
+   NOTE: an earlier .dash-two-col rule further up sets this too; this block is
+   the one that wins, so they must agree. */
+.dash-two-col { align-items: stretch; }
+.dash-col { align-content: stretch; }
+/* The last card in a column absorbs the leftover height, so both columns
+   finish on the same line instead of one stopping short. */
+.dash-col > .card:last-child { flex: 1 1 auto; }
 
 /* ══ Editable budgets ════════════════════════════════════════════════════ */
 .budget-row { cursor: default; }

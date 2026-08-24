@@ -1402,6 +1402,35 @@ def _():
     assert_in("achievable === false", html)
 
 
+@test("css: dashboard columns finish flush, with no dead space")
+def _():
+    import re
+
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    # Strip comments first — prose explaining the old value is not a rule.
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    # align-items:start let a shorter column end where its content ran out,
+    # leaving ~280px of nothing beside the taller one.
+    starts = re.findall(r"\.dash-two-col\s*\{[^}]*align-items:\s*start", css)
+    assert_eq(starts, [], "dash-two-col must stretch, not start")
+    assert_true(re.search(r"\.dash-two-col\s*\{[^}]*align-items:\s*stretch", css),
+                "dash-two-col should stretch its columns")
+    # The last card soaks up the leftover height so both columns end together.
+    assert_in(".dash-col > .card:last-child", css)
+
+
+@test("css: one gutter token, so dashboard spacing cannot drift")
+def _():
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    # There were two competing spacing systems: an earlier .dash-two-col block
+    # and a later one that silently overrode it. A single token keeps the
+    # rows in step.
+    assert_eq(css.count("--dash-gap"), 0, "duplicate gutter token reintroduced")
+    assert_true(css.count("--gap: 1.25rem") == 1, "--gap should be defined once")
+    for row in (".cards-row", ".dash-chart-row", ".dash-two-col"):
+        assert_in(row, css)
+
+
 @test("css: the chat has a capped, centred reading column")
 def _():
     css = (ROOT / "frontend" / "styles.css").read_text()
