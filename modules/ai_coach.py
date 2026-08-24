@@ -410,7 +410,7 @@ def fallback_coach_response(user_message, context, transactions=None):
             res = run_tool("category_total", {"query": token}, transactions, context)
             if res["count"] > 0:
                 return (f"You spent ${res['total']:.2f} on '{token}' "
-                        f"({res['count']} transactions) this period. {DISCLAIMER}")
+                        f"({res['count']} transactions) this period.")
 
     if "biggest" in msg or "category" in msg:
         if context.get("top_categories"):
@@ -443,11 +443,11 @@ def fallback_coach_response(user_message, context, transactions=None):
                      if p.strip() and not p.strip().startswith("#")]
             summary = " ".join(paras[:2])
             return (f"{summary}\n\nSource: {hits[0]['title']}. "
-                    f"Ask me to go deeper if you want more. {DISCLAIMER}")
+                    f"Ask me to go deeper if you want more.")
         text = " ".join(context.get("patterns", [])[:2]) or \
             "Ask me about your spending, a category (e.g. coffee), saving, a purchase, or a concept like ETFs or super."
 
-    return f"{text} {DISCLAIMER}"
+    return text.strip()
 
 
 def strip_disclaimer(insight):
@@ -540,10 +540,13 @@ def coach_chat(user_message, context, history=None, transactions=None):
             )
             msg = response.choices[0].message
             if not msg.tool_calls:
+                # The disclaimer is returned as its own field and the widget
+                # renders it under the thread. Appending it to the sentence
+                # made every reply a run-on ("...just let me know! General
+                # information only, not financial advice").
                 text = _plain(msg.content or "")
-                if DISCLAIMER not in text:
-                    text = f"{text} {DISCLAIMER}"
-                return {"text": text, "source": "openai", "disclaimer": DISCLAIMER,
+                return {"text": strip_disclaimer({"text": text})["text"],
+                        "source": "openai", "disclaimer": DISCLAIMER,
                         "proposed_actions": proposals}
 
             messages.append({
