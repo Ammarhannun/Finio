@@ -1638,6 +1638,28 @@ def _():
     assert_eq(warned[0]["total"], 6300.0)
 
 
+@test("spend-check: the reset button clears every field it claims to")
+def _():
+    import re
+
+    html = (ROOT / "frontend" / "spend-check.html").read_text()
+    start = html.index("getElementById('check-another')")
+    handler = html[start:html.index("scrollIntoView", start)]
+
+    # A typo'd id fails silently at runtime and node --check cannot see it —
+    # the same class of bug as calling an un-imported helper.
+    ids = set(re.findall(r"getElementById\('([^']+)'\)", handler))
+    for element_id in ids - {"check-another"}:
+        assert_in(f'id="{element_id}"', html,
+                  f"reset handler touches #{element_id} which is not in the page: ")
+
+    # It has to actually reset the inputs, not just hide the verdict.
+    for field in ("merchant", "amount", "days-ahead"):
+        assert_in(f"getElementById('{field}').value", handler,
+                  f"reset must clear the {field} field: ")
+    assert_in('id="check-another"', html, "the button must exist in the verdict card: ")
+
+
 @test("spend-check: the verdict still works when history is unavailable")
 def _():
     from fastapi.testclient import TestClient

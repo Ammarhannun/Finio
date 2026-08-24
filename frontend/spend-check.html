@@ -209,7 +209,24 @@
               <div class="val">${formatAUD(amount)}</div>
             </div>
           </div>
+          <button type="button" class="btn btn-outline btn-sm verdict-again" id="check-another">
+            Check something else
+          </button>
         </div>`;
+
+      // Clear the slate for the next question. Without this the old merchant
+      // and amount stay in the form under a verdict that no longer applies to
+      // whatever you type next, which is a confusing thing to leave on screen.
+      document.getElementById('check-another').addEventListener('click', () => {
+        verdictEl.innerHTML = '';
+        errEl.style.display = 'none';
+        document.getElementById('merchant').value = '';
+        document.getElementById('amount').value = '';
+        document.getElementById('days-ahead').value = '30';
+        document.getElementById('merchant').focus();
+        document.getElementById('check-form')
+          .scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
     } catch (err) {
       verdictEl.innerHTML = '';
       if (err.message === 'no_analysis' || err.status === 404) {
