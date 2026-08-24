@@ -708,6 +708,42 @@ def save_overrides(client, user_id, overrides, resliced, custom_categories=None)
     )
 
 
+def save_spend_check(client, user_id, result):
+    """Log one spend check. Best-effort: the feature is a history, not part of
+    the answer, so a missing table (003 migration not run) must never stop the
+    user getting their verdict."""
+    try:
+        client.table("spend_checks").insert({
+            "user_id": user_id,
+            "merchant": (result.get("merchant") or "").strip()[:120] or None,
+            "amount": float(result.get("purchase_amount") or 0),
+            "days_ahead": int(result.get("days_ahead") or 0),
+            "verdict": result.get("verdict"),
+            "projected_balance": float(result.get("projected_balance") or 0),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as exc:
+        warn("spend-check history", exc, hint="run migrations/003_spend_checks.sql")
+
+
+def get_spend_checks(client, user_id, limit=20):
+    """The user's recent spend checks, newest first. Empty list when the table
+    isn't there yet, so the page just shows nothing rather than erroring."""
+    try:
+        result = (
+            client.table("spend_checks")
+            .select("merchant, amount, days_ahead, verdict, projected_balance, checked_at")
+            .eq("user_id", user_id)
+            .order("checked_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        debug("spend-check history read", exc)
+        return []
+    return result.data or []
+
+
 def append_chat(client, user_id, role, message, chat_id="default"):
     row = {
         "user_id": user_id,
