@@ -2578,3 +2578,11 @@ main {
   .sc-row { grid-template-columns: 10px 1fr auto; row-gap: 0.2rem; }
   .sc-verdict, .sc-when { grid-column: 2 / -1; justify-self: start; text-align: left; }
 }
+
+/* Empty / not-yet-set-up state for the check history. The card stays on the
+   page rather than disappearing — an invisible feature cannot be found. */
+.sc-empty {
+  margin: 0; padding: 0.75rem 0;
+  color: var(--muted); font-size: 0.875rem; line-height: 1.5;
+}
+.sc-empty-hint { font-size: 0.8125rem; opacity: 0.85; }
