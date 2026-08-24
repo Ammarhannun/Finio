@@ -897,7 +897,16 @@ def spend_check(body: SpendCheckRequest, user: AuthUser = Depends(get_current_us
 def spend_check_history(user: AuthUser = Depends(get_current_user)):
     """Past spend checks, newest first, for the list under the form."""
     client = db.get_client(user.token)
-    return {"checks": db.get_spend_checks(client, user.user_id), "disclaimer": DISCLAIMER}
+    checks = db.get_spend_checks(client, user.user_id)
+    # Hiding the card when the table is missing made the feature invisible with
+    # no way to tell whether it was broken or simply unused. Say which.
+    return {
+        "checks": checks or [],
+        "available": checks is not None,
+        "setup_hint": None if checks is not None
+                      else "Run migrations/003_spend_checks.sql in Supabase to save your check history.",
+        "disclaimer": DISCLAIMER,
+    }
 
 
 @app.get("/coach/history")

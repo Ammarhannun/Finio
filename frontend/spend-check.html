@@ -110,8 +110,18 @@
     try {
       const res = await apiFetch('/spend-check/history');
       const checks = res.checks || [];
-      if (!checks.length) { card.style.display = 'none'; return; }
+      // Always show the card. Vanishing when empty made the whole feature
+      // impossible to find — you cannot tell "not set up" from "not used yet"
+      // from "broken" when there is nothing on screen at all.
       card.style.display = 'block';
+      if (!checks.length) {
+        document.getElementById('sc-history-note').textContent = '';
+        list.innerHTML = res.available === false
+          ? `<p class="sc-empty">History needs a one-off setup step.
+               <br><span class="sc-empty-hint">${escapeHtml(res.setup_hint || '')}</span></p>`
+          : `<p class="sc-empty">No checks yet. Run one above and it will show up here.</p>`;
+        return;
+      }
       document.getElementById('sc-history-note').textContent =
         `last ${checks.length} · newest first`;
       list.innerHTML = checks.map(c => `
@@ -124,7 +134,8 @@
         </div>`).join('');
     } catch (err) {
       // A history is a nice-to-have; never let it break the page.
-      card.style.display = 'none';
+      card.style.display = 'block';
+      list.innerHTML = '<p class="sc-empty">Could not load your check history.</p>';
     }
   }
 

@@ -740,7 +740,9 @@ def get_spend_checks(client, user_id, limit=20):
         )
     except Exception as exc:
         debug("spend-check history read", exc)
-        return []
+        # None (not []) means "cannot read this", which the API turns into an
+        # explanation. An empty list means "read fine, nothing logged yet".
+        return None
     return result.data or []
 
 
