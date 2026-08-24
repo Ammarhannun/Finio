@@ -129,7 +129,8 @@ export function mountCoachWidget(page) {
         <div id="cw-rail-splitter" class="cw-rail-splitter" hidden title="Drag to resize chats"></div>
         <div class="cw-main">
           <div id="cw-messages" class="cw-messages"></div>
-          <form id="cw-form" class="cw-form">
+          <p class="cw-disclaimer">General information only, not financial advice</p>
+      <form id="cw-form" class="cw-form">
             <input id="cw-input" type="text" placeholder="Ask your coach…" maxlength="2000" autocomplete="off">
             <button type="submit" class="cw-send" aria-label="Send">→</button>
           </form>

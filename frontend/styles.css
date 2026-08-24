@@ -1675,7 +1675,13 @@ body.coach-splitting canvas {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 1rem;
+  /* Cap the READING column and centre it. In split mode the panel can be
+     1400px wide, and a line of text running the full width is genuinely hard
+     to read — the eye loses its place on the return sweep. Growing the side
+     padding (rather than shrinking the panel) keeps the scrollbar and the
+     hover backgrounds full-bleed while the text sits in a comfortable column,
+     and it leaves the existing left/right turn alignment working inside it. */
+  padding: 1rem max(1rem, calc((100% - var(--cw-read, 46rem)) / 2));
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -1830,7 +1836,11 @@ body.coach-splitting canvas {
 .cw-apply:disabled { opacity: 0.6; cursor: default; }
 
 .cw-form {
-  display: flex; gap: 0.5rem; padding: 0.8rem;
+  display: flex; gap: 0.5rem;
+  /* Same column as the messages, so the composer lines up with the text
+     above it instead of stretching the whole width of the panel. The
+     border-top still spans edge to edge. */
+  padding: 0.8rem max(0.8rem, calc((100% - var(--cw-read, 46rem)) / 2));
   border-top: 1px solid var(--border);
   min-width: 0;
   flex-shrink: 0;
@@ -2495,3 +2505,15 @@ main {
 }
 /* Buttons inside the header keep their own cursor. */
 #coach-panel .cw-head button { cursor: pointer; }
+
+/* One quiet disclaimer under the thread, instead of the same sentence welded
+   onto the end of every single reply. */
+.cw-disclaimer {
+  margin: 0;
+  padding: 0.5rem max(0.8rem, calc((100% - var(--cw-read, 46rem)) / 2)) 0;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  opacity: 0.75;
+  text-align: center;
+  flex-shrink: 0;
+}

@@ -544,18 +544,24 @@ def _():
     ctx = run_pipeline_context()["context"]
     text = fallback_coach_response("How much did I spend?", ctx)
     assert_true("1044" in text.replace(",", "") or "1,044" in text)
-    assert_in(DISCLAIMER, text)
+    # The disclaimer is its own field and its own line in the widget. Welding
+    # it onto the end of the answer made every reply a run-on.
+    assert_true(DISCLAIMER not in text,
+                f"disclaimer leaked into the answer: {text!r}")
 
 
-@test("ai_coach: coach_chat always returns disclaimer")
+@test("ai_coach: coach_chat returns the disclaimer as its own field")
 def _():
     from modules.ai_coach import coach_chat, run_pipeline_context
 
     ctx = run_pipeline_context()["context"]
     r = coach_chat("What's my biggest category?", ctx)
     assert_in("disclaimer", r)
-    assert_in(DISCLAIMER, r["text"])
+    assert_eq(r["disclaimer"], DISCLAIMER)
     assert_in(r["source"], ["openai", "fallback"])
+    # ...and NOT glued onto the reply, on either the model or fallback path.
+    assert_true(DISCLAIMER not in r["text"],
+                f"disclaimer leaked into the reply: {r['text']!r}")
 
 
 @test("ai_coach: explain_etf blocked when cannot invest")
@@ -1394,6 +1400,20 @@ def _():
     assert_in(".goal-preset.stretch", css)
     # The flag existed in the API but was dropped by the renderer.
     assert_in("achievable === false", html)
+
+
+@test("css: the chat has a capped, centred reading column")
+def _():
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    # In split mode the panel can be 1400px+. A line of text running the full
+    # width is hard to read — the eye loses its place on the return sweep.
+    # Growing the side padding centres the column while keeping the scrollbar
+    # and hover backgrounds full-bleed.
+    assert_in("--cw-read", css)
+    for block in (".cw-messages", ".cw-form"):
+        i = css.index(block + " {")
+        assert_in("var(--cw-read", css[i:i + 600],
+                  f"{block} must share the capped reading column: ")
 
 
 @test("coach: split mode loads the conversation, not a blank panel")
