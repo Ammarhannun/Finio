@@ -61,13 +61,22 @@
   <!-- Verdict -->
   <div id="verdict-section" style="max-width:520px;margin:0 auto;"></div>
 
+  <!-- Past checks, newest first. Hidden until there is something to show. -->
+  <div class="card sc-history" id="sc-history" style="display:none;">
+    <div class="card-head">
+      <div class="section-title">Recent checks</div>
+      <span class="tx-help" id="sc-history-note"></span>
+    </div>
+    <div id="sc-history-list"></div>
+  </div>
+
   <p class="disclaimer">General information only, not financial advice</p>
 </main>
 <div id="toast"></div>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar,
-           getStoredPeriod, storedPeriodParts } from './api.js';
+  import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar, escapeHtml,
+           getStoredPeriod, storedPeriodParts, formatDay } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('spend');
@@ -81,6 +90,44 @@
     red: { icon: '✕', label: 'Not recommended right now' },
   };
 
+  const VERDICT_WORD = { green: 'Yes', yellow: 'Tight', red: 'No' };
+
+  function timeAgo(iso) {
+    const then = new Date(iso);
+    if (isNaN(then)) return '';
+    const mins = Math.round((Date.now() - then.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.round(hrs / 24);
+    return days < 30 ? `${days}d ago` : formatDay(iso);
+  }
+
+  async function loadHistory() {
+    const card = document.getElementById('sc-history');
+    const list = document.getElementById('sc-history-list');
+    try {
+      const res = await apiFetch('/spend-check/history');
+      const checks = res.checks || [];
+      if (!checks.length) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      document.getElementById('sc-history-note').textContent =
+        `last ${checks.length} · newest first`;
+      list.innerHTML = checks.map(c => `
+        <div class="sc-row">
+          <span class="sc-dot ${escapeHtml(c.verdict || '')}" aria-hidden="true"></span>
+          <span class="sc-merchant" title="${escapeHtml(c.merchant || 'Something')}">${escapeHtml(c.merchant || 'Something')}</span>
+          <span class="sc-amount">${formatAUD(c.amount)}</span>
+          <span class="sc-verdict ${escapeHtml(c.verdict || '')}">${escapeHtml(VERDICT_WORD[c.verdict] || c.verdict || '')}</span>
+          <span class="sc-when">${escapeHtml(timeAgo(c.checked_at))}</span>
+        </div>`).join('');
+    } catch (err) {
+      // A history is a nice-to-have; never let it break the page.
+      card.style.display = 'none';
+    }
+  }
+
   async function init() {
     try {
       await requireAuth();
@@ -92,6 +139,7 @@
             : { period: value, month: null };
         }, getStoredPeriod(), 'Window');
     } catch (_) {}
+    loadHistory();
   }
 
   document.getElementById('check-form').addEventListener('submit', async (e) => {
@@ -127,6 +175,7 @@
 
       const verdict = (res.verdict || 'yellow').toLowerCase();
       const v = VERDICTS[verdict] || VERDICTS.yellow;
+      loadHistory();   // the check just made is now the newest row
 
       verdictEl.innerHTML = `
         <div class="verdict-card ${verdict}">

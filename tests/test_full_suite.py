@@ -1638,6 +1638,76 @@ def _():
     assert_eq(warned[0]["total"], 6300.0)
 
 
+@test("spend-check: the verdict still works when history is unavailable")
+def _():
+    from fastapi.testclient import TestClient
+    import main as app_main
+
+    # The 003 migration may not have been run. History is a nice-to-have; the
+    # answer the user asked for must never depend on it.
+    class NoTable:
+        def table(self, name):
+            if name == "spend_checks":
+                raise Exception('relation "public.spend_checks" does not exist')
+            class Q:
+                data = []
+                def select(s, *a, **k): return s
+                def eq(s, *a, **k): return s
+                def order(s, *a, **k): return s
+                def limit(s, *a, **k): return s
+                def execute(s): return s
+            return Q()
+
+    saved = (app_main.db.get_client, app_main.db.load_dashboard)
+    app_main.db.get_client = lambda *a, **k: NoTable()
+    app_main.db.load_dashboard = lambda c, u: {
+        "month": "2026-06", "goal": {},
+        "metrics": {"latest_balance": 3000.0, "net_saved": 500.0,
+                    "daily_burn_rate": 40.0}}
+
+    class U:
+        user_id = "u1"
+        token = "t"
+
+    app_main.app.dependency_overrides[app_main.get_current_user] = lambda: U()
+    try:
+        client = TestClient(app_main.app)
+        r = client.post("/spend-check",
+                        json={"merchant": "JB Hi-Fi", "amount": 900, "days_ahead": 30})
+        assert_eq(r.status_code, 200)
+        assert_in(r.json()["verdict"], ["green", "yellow", "red"])
+        h = client.get("/spend-check/history")
+        assert_eq(h.status_code, 200)
+        assert_eq(h.json()["checks"], [])
+    finally:
+        app_main.db.get_client, app_main.db.load_dashboard = saved
+        app_main.app.dependency_overrides.clear()
+
+
+@test("spend-check: each check is logged, newest first")
+def _():
+    from modules import db
+
+    saved = []
+
+    class Rec:
+        def table(self, name):
+            class Q:
+                def insert(s, row): saved.append(row); return s
+                def execute(s): return s
+            return Q()
+
+    db.save_spend_check(Rec(), "u1", {
+        "merchant": "JB Hi-Fi", "purchase_amount": 900.0, "days_ahead": 30,
+        "verdict": "red", "projected_balance": -120.0,
+    })
+    assert_eq(len(saved), 1)
+    assert_eq(saved[0]["merchant"], "JB Hi-Fi")
+    assert_eq(saved[0]["verdict"], "red")
+    assert_eq(saved[0]["user_id"], "u1")
+    assert_true("checked_at" in saved[0])
+
+
 # ── Re-classify (propose, then the user confirms) ───────────────────────────
 
 def _reclassify_client(transactions, overrides, proposal):

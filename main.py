@@ -889,7 +889,15 @@ def spend_check(body: SpendCheckRequest, user: AuthUser = Depends(get_current_us
         metrics["latest_balance"] = (data.get("metrics") or {}).get("latest_balance")
     result = check_purchase(None, metrics, body.amount, body.days_ahead)
     result["merchant"] = body.merchant
+    db.save_spend_check(client, user.user_id, result)
     return result
+
+
+@app.get("/spend-check/history")
+def spend_check_history(user: AuthUser = Depends(get_current_user)):
+    """Past spend checks, newest first, for the list under the form."""
+    client = db.get_client(user.token)
+    return {"checks": db.get_spend_checks(client, user.user_id), "disclaimer": DISCLAIMER}
 
 
 @app.get("/coach/history")
