@@ -131,7 +131,8 @@ export function mountCoachWidget(page) {
           <div id="cw-messages" class="cw-messages"></div>
           <p class="cw-disclaimer">General information only, not financial advice</p>
       <form id="cw-form" class="cw-form">
-            <input id="cw-input" type="text" placeholder="Ask your coach…" maxlength="2000" autocomplete="off">
+            <textarea id="cw-input" rows="1" placeholder="Ask your coach…" maxlength="2000"
+                      autocomplete="off" spellcheck="true"></textarea>
             <button type="submit" class="cw-send" aria-label="Send">→</button>
           </form>
         </div>
@@ -365,6 +366,7 @@ export function mountCoachWidget(page) {
     }
     turn.remove();
     input.value = plain;
+    autoGrow();
     input.focus();
     input.setSelectionRange(plain.length, plain.length);
   }
@@ -958,11 +960,31 @@ export function mountCoachWidget(page) {
     }
   });
 
+  // The composer grows with what you type instead of being a one-line slot,
+  // and stops at a ceiling so it can never swallow the conversation.
+  const INPUT_MAX_PX = 160;
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, INPUT_MAX_PX) + 'px';
+    input.style.overflowY = input.scrollHeight > INPUT_MAX_PX ? 'auto' : 'hidden';
+  }
+  input.addEventListener('input', autoGrow);
+
+  // A textarea does not submit on Enter, so wire it up: Enter sends,
+  // Shift+Enter (or Alt+Enter) drops to a new line.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing) {
+      e.preventDefault();
+      document.getElementById('cw-form').requestSubmit();
+    }
+  });
+
   document.getElementById('cw-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const msg = input.value.trim();
     if (!msg) return;
     input.value = '';
+    autoGrow();                 // shrink back after sending
     addMsg('user', fmtMsg(msg), msg);
     const typing = addMsg(
       'assistant typing',
