@@ -1431,6 +1431,26 @@ def _():
         assert_in(row, css)
 
 
+@test("coach: the composer is a real multi-line box, not a one-line input")
+def _():
+    js = (ROOT / "frontend" / "coach-widget.js").read_text()
+    css = (ROOT / "frontend" / "styles.css").read_text()
+
+    assert_in('<textarea id="cw-input"', js)
+    assert_true('<input id="cw-input"' not in js, "the one-line input should be gone")
+
+    # A textarea does not submit on Enter, so that has to be wired explicitly —
+    # otherwise sending a message would break entirely.
+    assert_in("requestSubmit()", js)
+    assert_in("e.shiftKey", js)          # Shift+Enter must still make a newline
+
+    # It grows with the text but stops, so it can never swallow the thread.
+    assert_in("INPUT_MAX_PX", js)
+    assert_in("autoGrow", js)
+    assert_in(".cw-form textarea", css)
+    assert_in("resize: none", css)
+
+
 @test("css: the chat has a capped, centred reading column")
 def _():
     css = (ROOT / "frontend" / "styles.css").read_text()

@@ -1858,8 +1858,22 @@ body.coach-splitting canvas {
   min-width: 0;
   flex-shrink: 0;
 }
-.cw-form input {
-  flex: 1; min-width: 0; padding: 0.6rem 0.9rem; font-size: 0.875rem;
+/* A composer you can actually write in, rather than a one-line slot. It grows
+   with the text (capped in JS) and sits on the same reading column as the
+   messages above it. */
+.cw-form { align-items: flex-end; }        /* send button stays by the last line */
+.cw-form textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  min-height: 46px;
+  max-height: 160px;
+  resize: none;              /* height is driven by content, not a drag handle */
+  overflow-y: hidden;
+  font-family: inherit;
+  border-radius: 14px;
 }
 .cw-send {
   background: var(--accent); color: #fff; border: none; border-radius: 50%;
