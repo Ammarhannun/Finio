@@ -1431,6 +1431,26 @@ def _():
         assert_in(row, css)
 
 
+@test("css: a chat bubble takes the width its text needs")
+def _():
+    import re
+
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    block = css[css.index(".cw-msg.user {"):]
+    block = block[:block.index("}")]
+
+    # A PERCENTAGE max-width here resolves against .cw-turn, which is
+    # shrink-to-fit and therefore sized BY this element. Browsers break that
+    # circularity by collapsing the bubble: "hi finiooo" rendered 86px wide and
+    # wrapped onto two lines inside a 736px column. Cap in ch instead.
+    assert_true("%" not in re.sub(r"/\*.*?\*/", "", block, flags=re.S),
+                f"no percentage cap on the shrink-to-fit bubble: {block!r}")
+    assert_in("max-width: 46ch", block)
+    # The responsive cap belongs on the turn, which has a definite parent.
+    turn = css[css.index(".cw-turn.user {"):]
+    assert_in("max-width: 88%", turn[:turn.index("}")])
+
+
 @test("coach: the composer is a real multi-line box, not a one-line input")
 def _():
     js = (ROOT / "frontend" / "coach-widget.js").read_text()

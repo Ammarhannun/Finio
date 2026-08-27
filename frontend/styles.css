@@ -1710,6 +1710,7 @@ body.coach-splitting canvas {
 .cw-turn.user {
   align-self: flex-end;
   align-items: flex-end;
+  max-width: 88%;      /* safe here: .cw-messages has a definite width */
 }
 .cw-turn.assistant {
   align-self: stretch;
@@ -1717,13 +1718,19 @@ body.coach-splitting canvas {
 }
 .cw-msg {
   min-width: 0;
-  padding: 0.55rem 0.85rem;
+  padding: 0.65rem 0.95rem;
   border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   line-height: 1.5;
   box-sizing: border-box;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  /* break-word, NOT anywhere. `anywhere` also changes the MIN-CONTENT size to
+     the width of a single character, and because a bubble is a shrink-to-fit
+     flex item the browser then squeezes it right down: "hi finiooo" needs 60px
+     and was being rendered in 53px, wrapping onto two lines in a 736px column.
+     `break-word` leaves intrinsic sizing alone, so the bubble takes its natural
+     width and only breaks a genuinely unbreakable string. */
+  overflow-wrap: break-word;
+  word-break: normal;
   position: relative;
 }
 .cw-msg-body { min-width: 0; }
@@ -1733,9 +1740,14 @@ body.coach-splitting canvas {
    the same colour, so the bubble reads as "yours" without a heavy solid slab. */
 .cw-msg.user {
   width: fit-content;
-  /* Was capped at 22rem, so a long message wrapped into a narrow column even
-     when the panel was wide. Let it use the available width instead. */
-  max-width: 92%;
+  /* Cap in ch, NEVER a percentage. A percentage max-width resolves against the
+     parent, but .cw-turn is shrink-to-fit and therefore sized BY this element —
+     a circular dependency the browser breaks by collapsing the bubble. That is
+     why "hi finiooo" rendered 86px wide and wrapped onto two lines inside a
+     736px column. With a ch cap it takes its natural width (98px) and only
+     wraps once it reaches a comfortable line length.
+     The percentage cap lives on .cw-turn instead, which has a real parent. */
+  max-width: 46ch;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
   color: var(--text);
@@ -2606,4 +2618,13 @@ main {
 .verdict-again {
   margin-top: 1rem;
   width: 100%;
+}
+
+/* Narrow screens: a single unbreakable string (a long URL) is wider than the
+   whole column, so it has to be allowed to break mid-word or it sticks out of
+   the panel. `anywhere` is safe HERE because at this size bubbles are near
+   full width anyway — the intrinsic-size collapse it causes (see .cw-msg.user)
+   only shows up when there is lots of spare width to collapse into. */
+@media (max-width: 560px) {
+  .cw-msg { overflow-wrap: anywhere; }
 }
