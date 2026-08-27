@@ -1443,9 +1443,15 @@ def _():
     # shrink-to-fit and therefore sized BY this element. Browsers break that
     # circularity by collapsing the bubble: "hi finiooo" rendered 86px wide and
     # wrapped onto two lines inside a 736px column. Cap in ch instead.
-    assert_true("%" not in re.sub(r"/\*.*?\*/", "", block, flags=re.S),
-                f"no percentage cap on the shrink-to-fit bubble: {block!r}")
-    assert_in("max-width: 46ch", block)
+    #
+    # Only the max-width matters — percentages elsewhere in the block are fine
+    # (color-mix uses them for the tint).
+    caps = re.findall(r"max-width:\s*([^;]+);", block)
+    assert_true(caps, "the bubble should still have a cap")
+    for cap in caps:
+        assert_true("%" not in cap,
+                    f"percentage cap on a shrink-to-fit bubble collapses it: {cap!r}")
+    assert_in("46ch", " ".join(caps))
     # The responsive cap belongs on the turn, which has a definite parent.
     turn = css[css.index(".cw-turn.user {"):]
     assert_in("max-width: 88%", turn[:turn.index("}")])
