@@ -1521,6 +1521,58 @@ def _():
     assert_in("#coach-panel.open:not(.split):not(.full) .cw-head", css)
 
 
+# ── Deploy readiness ────────────────────────────────────────────────────────
+
+@test("deploy: startup shouts when CORS would block the whole site")
+def _():
+    src = (ROOT / "main.py").read_text()
+    # Deployed without FINIO_ORIGINS, CORS only allows localhost, so the
+    # browser blocks every request while the server logs look perfectly
+    # healthy. That failure mode must not be silent.
+    assert_in("_check_configuration", src)
+    assert_in("FINIO_ORIGINS is not set", src)
+    assert_in("MISSING REQUIRED CONFIG", src)
+
+
+@test("deploy: the start command pins a single worker")
+def _():
+    procfile = (ROOT / "Procfile").read_text()
+    railway = (ROOT / "railway.json").read_text()
+    # The rate limiter and period-view cache are in process memory, so each
+    # extra worker enforces its own separate limit and keeps its own cache.
+    for name, text in (("Procfile", procfile), ("railway.json", railway)):
+        assert_in("--workers 1", text, f"{name} must pin one worker: ")
+        assert_in("$PORT", text, f"{name} must bind the platform's port: ")
+
+
+@test("deploy: every table the code uses has a migration")
+def _():
+    import re
+
+    db_src = (ROOT / "modules" / "db.py").read_text()
+    used = set(re.findall(r'table\("([a-z_]+)"\)', db_src))
+
+    sql = ""
+    for path in [ROOT / "project-plan" / "supabase_schema.sql",
+                 *sorted((ROOT / "migrations").glob("*.sql"))]:
+        sql += path.read_text().lower()
+
+    for table in used:
+        assert_in(table, sql,
+                  f"{table} is queried but no migration creates it: ")
+
+
+@test("deploy: requirements cover what the code imports")
+def _():
+    reqs = (ROOT / "requirements.txt").read_text().lower()
+    # PyJWT is imported by db.get_user_id for local token verification. It is
+    # optional (the failure is caught) but its absence silently costs a network
+    # round-trip on every single request.
+    for pkg in ("fastapi", "uvicorn", "pandas", "scikit-learn", "openai",
+                "supabase", "pdfplumber", "python-multipart", "pyjwt"):
+        assert_in(pkg, reqs, f"{pkg} missing from requirements.txt: ")
+
+
 # ── Layout invariants (split mode overflow) ─────────────────────────────────
 
 def _css():

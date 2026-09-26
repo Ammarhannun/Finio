@@ -80,6 +80,43 @@ def health():
 _RATE: dict = {}
 
 
+# Required for the app to do anything at all. Checked once at startup so a
+# missing value is a clear line in the logs, not a KeyError buried in the first
+# request that touches the database.
+_REQUIRED_ENV = ("SUPABASE_URL", "SUPABASE_ANON_KEY")
+
+
+@app.on_event("startup")
+def _check_configuration():
+    missing = [k for k in _REQUIRED_ENV if not os.getenv(k)]
+    if missing:
+        log.error(
+            "MISSING REQUIRED CONFIG: %s. Every authenticated request will "
+            "fail with a 500 until these are set.", ", ".join(missing),
+        )
+
+    # The CORS default only covers localhost. Deployed WITHOUT FINIO_ORIGINS,
+    # every browser request from the real frontend is blocked — and it fails in
+    # the browser, so the server logs look perfectly healthy while the site is
+    # completely broken. Refuse to be quiet about it.
+    if not _origins:
+        log.warning(
+            "FINIO_ORIGINS is not set, so CORS only allows localhost. If this "
+            "is a deployed environment, set FINIO_ORIGINS to your frontend's "
+            "URL (e.g. https://finio.vercel.app) or the browser will block "
+            "every request.",
+        )
+    else:
+        log.info("CORS allowing: %s", ", ".join(_origins))
+
+    if not os.getenv("OPENAI_API_KEY"):
+        log.warning(
+            "OPENAI_API_KEY is not set — the coach, insights and the model "
+            "categoriser fall back to the offline path (measured 20%% accuracy "
+            "on unseen merchants vs 87%% with the model).",
+        )
+
+
 @app.on_event("startup")
 def _warn_if_multi_worker():
     workers = os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS")
