@@ -1,13 +1,13 @@
 # Finio
 
-**An AI personal-finance app for young Australians.** Upload a bank statement (CSV or PDF) and Finio turns it into a clear picture of your money: LLM-categorised spending, what you *usually* earn and spend, recurring bills, unusual charges, forecasts, and a coach that answers questions about your real numbers and can fix its own mistakes when you tell it to.
+**An AI personal-finance app.** Upload a bank statement (CSV or PDF) and Finio turns it into a clear picture of your money: LLM-categorised spending, what you *usually* earn and spend, recurring bills, unusual charges, forecasts, and a coach that answers questions about your real numbers and can fix its own mistakes when you tell it to.
 
 ![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-F7931E?logo=scikitlearn&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Auth%20%2B%20pgvector-3ECF8E?logo=supabase&logoColor=white)
 ![OpenAI](https://img.shields.io/badge/OpenAI-optional-412991?logo=openai&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-74%20passing-2f8f4e)
+![Tests](https://img.shields.io/badge/tests-131%20passing-2f8f4e)
 
 > ⚠️ **General information only, not financial advice.**
 
@@ -16,7 +16,7 @@
 ## Features
 
 - **Statement parsing** — CSV and text-based PDF statements, normalised across bank export formats, with merchant-name cleaning (`ENGIE 138808 AU AUS` → `ENGIE`).
-- **Categorisation that actually works** — an **LLM classifies every merchant**, with keyword rules and Naive Bayes as offline fallbacks, and every classification cached. Measured on 57 labelled Australian merchants: **100% accuracy with the model, 87.7% offline** (`python -m eval.run_eval`). On a real 733-transaction statement the uncategorised "Other" pile is **under 1%**.
+- **Categorisation that actually works** — an **LLM classifies every merchant**, with keyword rules and Naive Bayes as offline fallbacks, and every classification cached. The keyword rules have since been tuned against the main eval set, so its score no longer measures generalisation; a **held-out set of merchants no rule matches** does: **87% with the model, 20% offline** (`python -m eval.run_eval`). That four-fold gap is the case for the architecture. On a real 733-transaction statement the uncategorised "Other" pile is **under 1%**.
 - **Quick questions** — when Finio genuinely can't tell (a person-to-person transfer, an opaque reference) it asks you up to **6 short questions**, ranked by money at stake. Recurring incoming transfers are recognised as likely income; your own banking-app transfers are not. Every answer becomes a permanent rule.
 - **"What I usually spend"** — Day / Week / Month show your real averages over your whole history (complete calendar months only), not a partial latest slice. "All" shows true all-time totals.
 - **Spending over time** — a month-by-month chart of what you spent versus kept, plus your top merchants.
@@ -37,7 +37,7 @@
 | Retrieval | TF-IDF by default; **embeddings + Supabase pgvector** when configured |
 | Data / auth | **Supabase** (Postgres, Auth, pgvector, RLS) |
 | Frontend | Dependency-free **HTML / CSS / JS** + Chart.js |
-| Quality | 74-case test suite + an **AI evaluation harness** |
+| Quality | 131-test suite + an **AI evaluation harness** with quality floors |
 
 ## AI / ML highlights
 
@@ -57,9 +57,14 @@ python -m eval.run_eval --no-coach   # offline only, no API calls
 
 | Suite | Metric | Baseline |
 |---|---|---|
-| Categoriser | macro F1 on 41 **held-out** merchants | **0.906** (90.2% accuracy) |
+| Categoriser | accuracy / macro F1 on 71 labelled merchants | **98.6% / 0.883** |
+| Categoriser | accuracy on 15 **held-out** merchants no keyword rule matches | **86.7%** (offline: 20%) |
 | Retrieval | hit-rate@2 / MRR over 15 probes | **100% / 1.000** |
 | Coach | LLM-as-judge: helpfulness / accuracy / safety | **4.88 / 5.00 / 5.00** |
+
+The held-out row is the one that matters. The main set has had keyword rules
+written against it, so both paths score near-perfectly on it; only merchants
+the rules cannot touch show what the model layer is actually buying.
 
 The coach suite includes adversarial probes (a "put everything in Bitcoin" request and a prompt-injection attempt) — both are correctly refused. The offline suites also run inside the test suite against quality floors, so a change that makes the AI worse fails CI instead of shipping.
 
@@ -113,7 +118,7 @@ main/
 ├── data/kb/                   # RAG knowledge base (AU finance)
 ├── migrations/                # pgvector + chats SQL
 ├── frontend/                  # vanilla HTML/CSS/JS (+ coach widget)
-└── tests/                     # 74-case suite
+└── tests/                     # 131-test suite
 ```
 
 ## Testing
