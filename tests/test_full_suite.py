@@ -1521,6 +1521,74 @@ def _():
     assert_in("#coach-panel.open:not(.split):not(.full) .cw-head", css)
 
 
+# ── Input validation at the API edge ────────────────────────────────────────
+
+@test("schemas: control characters are stripped, not stored")
+def _():
+    from schemas import CoachRequest, QuizRequest
+
+    # Postgres raises 22P05 on a NUL in a text column, so a pasted message
+    # containing one used to come back as a 500. Confirmed against the real
+    # database before fixing.
+    assert_eq(CoachRequest(message="hi\x00there").message, "hithere")
+    assert_eq(QuizRequest(merchant="ACME\x07CORP").merchant, "ACMECORP")
+    # Newlines are legitimate in a message and must survive.
+    assert_in("\n", CoachRequest(message="line one\nline two").message)
+
+
+@test("schemas: inf and nan are rejected, not passed into the maths")
+def _():
+    from pydantic import ValidationError
+    from schemas import SpendCheckRequest, BudgetRequest
+
+    # inf passes a `gt=0` check, survives the arithmetic, and then either
+    # produces nonsense or breaks JSON serialisation.
+    for bad in (float("inf"), float("nan")):
+        assert_raises(ValidationError,
+                      lambda b=bad: SpendCheckRequest(merchant="x", amount=b))
+    assert_raises(ValidationError,
+                  lambda: BudgetRequest(targets={"Food & Dining": float("nan")}))
+
+
+@test("schemas: money is bounded on both ends")
+def _():
+    from pydantic import ValidationError
+    from schemas import SpendCheckRequest, BudgetRequest, GoalRequest
+    from datetime import date
+
+    assert_raises(ValidationError, lambda: SpendCheckRequest(merchant="x", amount=1e12))
+    assert_raises(ValidationError, lambda: BudgetRequest(targets={"Food": -50}))
+    assert_raises(ValidationError, lambda: BudgetRequest(targets={"Food": 1e15}))
+    assert_raises(ValidationError,
+                  lambda: GoalRequest(amount=1e15, target_date=date(2027, 1, 1)))
+    # Ordinary values still work.
+    assert_eq(SpendCheckRequest(merchant="x", amount=900).amount, 900.0)
+    assert_eq(BudgetRequest(targets={"Food": 400}).targets["Food"], 400.0)
+    assert_true(BudgetRequest(targets={"Food": None}).targets["Food"] is None)
+
+
+@test("schemas: user-supplied lists cannot grow without bound")
+def _():
+    from pydantic import ValidationError
+    from schemas import ProfileRequest
+
+    assert_raises(ValidationError,
+                  lambda: ProfileRequest(custom_categories=[f"c{i}" for i in range(500)]))
+    # A sensible list is kept, de-duplicated and trimmed.
+    ok = ProfileRequest(custom_categories=["  Pets  ", "Pets", "Travel"])
+    assert_eq(ok.custom_categories, ["Pets", "Travel"])
+
+
+@test("schemas: hostile-looking text is kept as data, not rejected")
+def _():
+    from schemas import SpendCheckRequest
+
+    # A merchant really can contain angle brackets. The defence is escaping at
+    # render, not refusing the input — rejecting it would break real statements.
+    payload = "<img onerror=alert(1)>"
+    assert_eq(SpendCheckRequest(merchant=payload, amount=10).merchant, payload)
+
+
 # ── Deploy readiness ────────────────────────────────────────────────────────
 
 @test("deploy: startup shouts when CORS would block the whole site")
