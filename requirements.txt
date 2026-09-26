@@ -16,5 +16,9 @@ pdfplumber>=0.11.0,<0.12
 openai>=1.55.0,<2.0
 supabase>=2.10.0,<3.0
 
+# Local JWT verification (db.get_user_id). Optional — without it every request
+# does a network round-trip to Supabase Auth to identify the user instead.
+PyJWT>=2.9.0,<3.0
+
 # Config
 python-dotenv>=1.0.0,<2.0
