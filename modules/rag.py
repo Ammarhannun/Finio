@@ -59,7 +59,7 @@ def search(query, k=2, min_score=0.05):
     Tries semantic search first (OpenAI embedding + pgvector `match_kb`), which
     matches on meaning. Falls back to TF-IDF keyword matching when there's no
     key, no migration, or any error — so retrieval always works.
-    """
+ """
     if not query:
         return []
     from modules.embeddings import embed_one

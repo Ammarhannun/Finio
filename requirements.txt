@@ -1,16 +1,17 @@
-# Finio — Python 3.9+
+# Finio — Python 3.11+. Production installs requirements.lock.
 # Backend
-fastapi>=0.115.0,<0.116
-uvicorn[standard]>=0.32.0,<0.33
-python-multipart>=0.0.12
+fastapi>=0.121.0,<1.0
+starlette>=1.3.1,<2.0
+uvicorn[standard]>=0.34.0,<1.0
+python-multipart>=0.0.22,<1.0
 
 # Data + ML
-pandas>=2.2.0,<2.3
-numpy>=1.26.0,<2.0
-scikit-learn>=1.5.0,<1.6
+pandas>=2.2.0,<3.0
+numpy>=1.26.0,<3.0
+scikit-learn>=1.6.0,<2.0
 
 # PDF bank statement parsing (text-based PDFs)
-pdfplumber>=0.11.0,<0.12
+pdfplumber>=0.11.8,<1.0
 
 # AI + database
 openai>=1.55.0,<2.0

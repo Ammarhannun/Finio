@@ -25,7 +25,7 @@ def _spend_by_category(rows):
     return out[out > 0].to_dict()
 
 
-def suggest_budgets(df, metrics, targets=None, baseline=None):
+def suggest_budgets(df, metrics, targets=None, baseline=None, period="monthly"):
     targets = targets or {}
 
     if "flow" in df.columns:
@@ -37,11 +37,7 @@ def suggest_budgets(df, metrics, targets=None, baseline=None):
     # can be measured against the previous one. A caller may also pass an
     # explicit `baseline` (e.g. once Phase 5 defines the period externally).
     months = sorted(expenses["month"].unique()) if "month" in expenses.columns else []
-    if len(months) >= 1:
-        current = expenses[expenses["month"] == months[-1]]
-        current_spend = _spend_by_category(current)
-    else:
-        current_spend = _spend_by_category(expenses)
+    current_spend = _spend_by_category(expenses)
 
     if baseline is None:
         if len(months) >= 2:
@@ -51,7 +47,7 @@ def suggest_budgets(df, metrics, targets=None, baseline=None):
             baseline = {}
 
     budgets = []
-    for category in CATEGORIES:
+    for category in sorted(set(CATEGORIES) | set(targets) | set(current_spend) | set(baseline)):
         actual = round(current_spend.get(category, 0.0), 2)
 
         if category in targets:
@@ -62,9 +58,13 @@ def suggest_budgets(df, metrics, targets=None, baseline=None):
             limit, source = None, "unset"
 
         # Divide-by-zero / no-budget guard: no headroom %, not flagged as over.
-        if limit and limit > 0:
+        comparable = period == "monthly"
+        if limit is not None and limit > 0 and comparable:
             headroom_pct = round((limit - actual) / limit * 100, 1)
             over_budget = bool(actual > limit)
+        elif limit == 0 and comparable:
+            headroom_pct = None
+            over_budget = bool(actual > 0)
         else:
             headroom_pct = None
             over_budget = False
@@ -76,6 +76,7 @@ def suggest_budgets(df, metrics, targets=None, baseline=None):
             "limit_source": source,
             "headroom_pct": headroom_pct,
             "over_budget": over_budget,
+ "comparable": comparable,
         })
 
     budgets.sort(key=lambda row: row["actual_spend"], reverse=True)
@@ -83,5 +84,6 @@ def suggest_budgets(df, metrics, targets=None, baseline=None):
         "budgets": budgets,
         "current_month": str(months[-1]) if months else None,
         "baseline_month": str(months[-2]) if len(months) >= 2 else None,
+ "comparison_period": period,
         "disclaimer": DISCLAIMER,
     }

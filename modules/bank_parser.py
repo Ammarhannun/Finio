@@ -1,4 +1,5 @@
 import re
+import numpy as np
 
 import pandas as pd
 from config import (
@@ -149,6 +150,16 @@ def normalize(df):
         out["amount"] = amount
     else:
         # Separate Debit/Credit columns → single signed amount
+        # Reject malformed nonblank amounts before replacing truly empty cells
+        # with zero. Otherwise a bad debit silently becomes a $0 transaction.
+        for column in (debit_col, credit_col):
+            if column is None:
+                continue
+            raw = df[column]
+            nonblank = raw.notna() & raw.astype(str).str.strip().ne("")
+            parsed = pd.to_numeric(raw, errors="coerce")
+            if (nonblank & parsed.isna()).any():
+                raise ValueError("Some debit or credit amounts could not be read. Check the CSV format and try again.")
         debit = (
             pd.to_numeric(df[debit_col], errors="coerce").fillna(0)
             if debit_col
@@ -166,7 +177,19 @@ def normalize(df):
 
     cols = [c for c in NORMALIZED_COLUMNS if c in out.columns]
     out = out[cols]
-    out = out.dropna(subset=["date", "amount"])
+    invalid = out["date"].isna() | out["amount"].isna() | ~np.isfinite(out["amount"])
+    if invalid.any():
+        raise ValueError("Some transaction dates or amounts could not be read. Check the CSV format and try again.")
+    if out.empty:
+        raise ValueError("No transactions found. Upload a statement containing transactions.")
+    if len(out) > 20000:
+        raise ValueError("A statement can contain at most 20,000 transactions.")
+    if out["amount"].abs().gt(100_000_000).any():
+        raise ValueError("A transaction amount is outside the supported range.")
+    out["amount"] = out["amount"].astype(float)
+    out["description"] = out["description"].fillna("").astype(str).str.replace(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", regex=True)
+    if out["description"].str.len().gt(2000).any():
+        raise ValueError("A transaction description is too long.")
     return out.reset_index(drop=True)
 
 
@@ -206,7 +229,7 @@ def clean_merchant_name(name):
 
     "SQ FEEL GOOD BURGERS"            -> "FEEL GOOD BURGERS"
     "JC CHICKEN PTY. LTD RYDE NSWAU"  -> "JC CHICKEN"
-    "TRANSFER TO XX1234 COMMBANK APP" -> "TRANSFER TO COMMBANK APP"
+ "TRANSFER TO XX1234 COMMBANK APP" -> "TRANSFER TO COMMBANK APP"
     """
     text = str(name).upper().strip()
 

@@ -46,7 +46,7 @@
           </div>
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="p-age">Age <span style="color:var(--muted);font-weight:400;">(for invest tips)</span></label>
+              <label for="p-age">Age <span style="color:var(--muted);font-weight:400;">(optional; not used for investment suggestions)</span></label>
               <input type="number" id="p-age" min="16" max="100" placeholder="24">
             </div>
             <div class="form-group">
@@ -65,23 +65,31 @@
         </form>
       </div>
 
-      <!-- Streak -->
+      <!-- Upload history -->
       <div class="card">
-        <div class="section-title">Your streak</div>
+        <div class="section-title">Statement updates</div>
         <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
-          Upload a statement regularly to keep your streak alive.
+          Upload again when you want to refresh the analysis. You do not need to re-upload for a streak.
         </p>
-        <div class="streak-stats">
-          <div class="streak-stat">
-            <div class="figure" id="s-current">0</div>
-            <div class="streak-label">Current streak</div>
-          </div>
-          <div class="streak-stat">
-            <div class="figure" id="s-best">0</div>
-            <div class="streak-label">Best streak</div>
-          </div>
-        </div>
         <p id="s-last" style="color:var(--muted);font-size:0.8125rem;margin-top:1rem;"></p>
+      </div>
+
+      <!-- Appearance -->
+      <div class="card">
+        <div class="section-title">Your data, your choice</div>
+        <p class="tx-help">Export your saved transactions, analysis, preferences and chats as JSON.</p>
+        <button id="export-data" class="btn btn-outline">Download my data</button>
+        <details class="data-delete">
+          <summary>Delete saved Finio data</summary>
+          <p>This permanently removes your statements’ transaction data, analysis, goals, budgets,
+            profile details and chats from the live database. Your login account stays available.
+            Provider backups may retain data according to their retention settings.</p>
+          <label for="delete-confirm">Type DELETE to confirm</label>
+          <input id="delete-confirm" autocomplete="off" placeholder="DELETE">
+          <button id="delete-data" class="btn btn-outline">Permanently delete my data</button>
+        </details>
+        <p><a href="privacy.html">How Finio processes your data</a></p>
+        <p id="data-status" role="status"></p>
       </div>
 
       <!-- Appearance -->
@@ -109,6 +117,28 @@
 
   const loadingEl = document.getElementById('loading');
   const section = document.getElementById('profile-section');
+  document.getElementById('export-data').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const data = await apiFetch('/data/export');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = 'finio-data.json'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      document.getElementById('data-status').textContent = 'Your data download is ready.';
+    } catch (err) { document.getElementById('data-status').textContent = err.message; }
+    finally { document.getElementById('export-data').disabled = false; }
+  });
+  document.getElementById('delete-data').addEventListener('click', async (e) => {
+    const confirmation = document.getElementById('delete-confirm').value;
+    if (confirmation !== 'DELETE') { document.getElementById('data-status').textContent = 'Type DELETE to confirm.'; return; }
+    e.currentTarget.disabled = true;
+    try {
+      await apiFetch('/data/delete', { method: 'POST', body: JSON.stringify({ confirmation }) });
+      window.location.href = 'dashboard.html';
+    } catch (err) { document.getElementById('data-status').textContent = err.message; }
+    finally { document.getElementById('delete-data').disabled = false; }
+  });
 
   // Second theme button on the page mirrors the nav toggle.
   document.getElementById('theme-toggle-2').addEventListener('click', () => {
@@ -125,8 +155,6 @@
     document.getElementById('p-income').value = p.income_bracket || '';
 
     const streak = p.streak || {};
-    document.getElementById('s-current').textContent = streak.current_streak ?? 0;
-    document.getElementById('s-best').textContent = streak.best_streak ?? 0;
     document.getElementById('s-last').textContent = streak.last_upload
       ? `Last upload: ${formatMonthYear(streak.last_upload)}`
       : 'No uploads yet.';
@@ -139,8 +167,8 @@
     errEl.style.display = 'none';
 
     const ageVal = document.getElementById('p-age').value;
-    const body = { income_bracket: document.getElementById('p-income').value || null };
-    if (ageVal) body.age = parseInt(ageVal, 10);
+    const body = { income_bracket: document.getElementById('p-income').value || null,
+                   age: ageVal ? parseInt(ageVal, 10) : null };
 
     btn.disabled = true;
     btn.textContent = 'Saving…';

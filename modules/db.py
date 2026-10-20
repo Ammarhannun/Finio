@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 
 from modules.history import update_streak
 from modules.logs import debug, log, warn
+from modules.serialization import json_safe
 
 
 def _vec(embedding):
@@ -50,15 +51,15 @@ def get_embedded_merchants(client, user_id):
     """Merchant names that already have a stored embedding, so a re-upload only
     pays to embed what's genuinely new."""
     try:
-        result = (
+        rows = paged(lambda: (
             client.table("merchant_embeddings")
             .select("merchant")
             .eq("user_id", user_id)
-            .execute()
-        )
+            .order("merchant")
+        ))
     except Exception:
         return set()
-    return {r["merchant"] for r in (result.data or []) if r.get("merchant")}
+    return {r["merchant"] for r in rows if r.get("merchant")}
 
 
 def match_merchants(client, user_id, embedding, k=5):
@@ -180,8 +181,12 @@ def _tx_rows(user_id, transactions):
             "merchant": tx["merchant"],
             "category": tx.get("category"),
             "is_expense": tx["is_expense"],
+            "flow": tx.get("flow") or ("transfer" if tx.get("category") == "Transfers" else
+            "expense" if tx["is_expense"] or tx["amount"] < 0 else "income"),
+            "balance": tx.get("balance"),
+            "position": index,
         }
-        for tx in transactions
+        for index, tx in enumerate(transactions)
     ]
 
 
@@ -204,39 +209,27 @@ def replace_all_transactions(client, user_id, transactions):
     """Replace the user's ENTIRE stored history (used so the dashboard can
     re-slice into any period later without a re-upload).
 
-    Supabase gives us no multi-statement transaction, so this is written to fail
-    safe instead: never delete for an empty replacement, and if the re-insert
-    fails part-way, put the old rows back rather than leaving the user with a
-    wiped history.
+    Migration 004 provides an atomic, authenticated database transaction.
+    Never fall back to separate delete/insert calls when the RPC is missing.
     """
     if not transactions:
         # An empty parse must never be able to erase a real history.
         return
 
-    rows = _tx_rows(user_id, transactions)
-    previous = get_all_transactions(client, user_id)
-
-    client.table("transactions").delete().eq("user_id", user_id).execute()
+    client.rpc("finio_replace_transactions", {
+        "p_rows": json_safe(_tx_rows(user_id, transactions)),
+    }).execute()
     _memo_clear(client, ("all_tx", user_id))
-    try:
-        for i in range(0, len(rows), _INSERT_CHUNK):
-            client.table("transactions").insert(rows[i:i + _INSERT_CHUNK]).execute()
-    except Exception:
-        # Roll back to what was there before, then surface the original error.
-        try:
-            client.table("transactions").delete().eq("user_id", user_id).execute()
-            restore = _tx_rows(user_id, previous)
-            for i in range(0, len(restore), _INSERT_CHUNK):
-                client.table("transactions").insert(restore[i:i + _INSERT_CHUNK]).execute()
-        except Exception as restore_exc:
-            # The history is now genuinely lost — this must be loud.
-            log.error(
-                "ROLLBACK FAILED for user %s — stored transactions may be "
-                "incomplete: %s", user_id, restore_exc,
-            )
-        raise
-    finally:
-        _memo_clear(client, ("all_tx", user_id))
+
+
+def paged(query_factory):
+    """Read until an empty page, even when the server cap is below our page size."""
+    rows = []
+    while True:
+        page = query_factory().range(len(rows), len(rows) + 499).execute().data or []
+        rows.extend(page)
+        if not page:
+            return rows
 
 
 def get_all_transactions(client, user_id):
@@ -246,14 +239,14 @@ def get_all_transactions(client, user_id):
     if memo is not None and key in memo:
         return memo[key]
 
-    result = (
+    rows = paged(lambda: (
         client.table("transactions")
-        .select("date, amount, merchant, category, is_expense")
+        .select("date, amount, merchant, category, is_expense, flow, balance, position")
         .eq("user_id", user_id)
         .order("date")
-        .execute()
-    )
-    rows = result.data or []
+        .order("position")
+        .order("id")
+    ))
     if memo is not None:
         memo[key] = rows
     return rows
@@ -261,7 +254,7 @@ def get_all_transactions(client, user_id):
 
 def save_snapshot(client, user_id, month, summary_json):
     client.table("snapshots").upsert(
-        {"user_id": user_id, "month": month, "summary_json": summary_json},
+        {"user_id": user_id, "month": month, "summary_json": json_safe(summary_json)},
         on_conflict="user_id,month",
     ).execute()
     # The row just changed — drop the memo so a later read in this same request
@@ -327,13 +320,14 @@ def upsert_budgets(client, user_id, month, budget_rows):
     client.table("budgets").upsert(payload, on_conflict="user_id,category,month").execute()
 
 
-def upsert_user_profile(client, user_id, email=None, age=None, income_bracket=None):
+def upsert_user_profile(client, user_id, email=None, age=None, income_bracket=None,
+                        clear_age=False, clear_income_bracket=False):
     payload = {"id": user_id}
     if email is not None:
         payload["email"] = email
-    if age is not None:
+    if age is not None or clear_age:
         payload["age"] = age
-    if income_bracket is not None:
+    if income_bracket is not None or clear_income_bracket:
         payload["income_bracket"] = income_bracket
     if len(payload) > 1:
         client.table("users").upsert(payload, on_conflict="id").execute()
@@ -361,7 +355,7 @@ def get_latest_snapshot(client, user_id):
         client.table("snapshots")
         .select("month, summary_json")
         .eq("user_id", user_id)
-        .order("month", desc=True)
+        .order("updated_at", desc=True)
         .limit(1)
         .execute()
     )
@@ -379,15 +373,14 @@ def get_latest_snapshot(client, user_id):
 def get_transactions(client, user_id, month):
     """Fetch stored transactions for a given month (YYYY-MM)."""
     start, end = _month_bounds(month)
-    result = (
+    return paged(lambda: (
         client.table("transactions")
-        .select("date, amount, merchant, category, is_expense")
+        .select("date, amount, merchant, category, is_expense, flow, balance, position")
         .eq("user_id", user_id)
         .gte("date", start)
         .lt("date", end)
-        .execute()
-    )
-    return result.data or []
+        .order("date").order("position").order("id")
+    ))
 
 
 def save_goal_recompute(
@@ -399,6 +392,9 @@ def save_goal_recompute(
         summary = snapshot_row["summary_json"]
         summary["forecast"] = recomputed["forecast"]
         summary["invest"] = recomputed["invest"]
+        if "context" in recomputed:
+            summary["context"] = recomputed["context"]
+        summary.pop("insight", None)
         month_date = f"{month}-01" if len(str(month)) == 7 else month
         save_snapshot(client, user_id, month_date, summary)
 
@@ -501,19 +497,12 @@ def persist_analysis(
     user = get_user(access_token)
     user_id = user.id
     client = get_client(access_token)
-    # Always upsert the profile so the users row exists (email is NOT NULL)
-    upsert_user_profile(
-        client, user_id, email=user.email, age=age, income_bracket=income_bracket
-    )
     # month is "YYYY-MM" — Supabase date column needs "YYYY-MM-01"
     month = result["snapshot"]["month"]
     month_date = f"{month}-01" if len(month) == 7 else month
 
     # Store the FULL history so the dashboard can re-slice to any period later.
     # Fall back to the current slice for older results without all_transactions.
-    replace_all_transactions(
-        client, user_id, result.get("all_transactions", result["transactions"])
-    )
 
     summary_json = {
         **result["snapshot"],
@@ -541,7 +530,6 @@ def persist_analysis(
     summary_json["pending_questions"] = result.get("pending_questions", [])
     from config import SNAPSHOT_VERSION
     summary_json["snapshot_version"] = SNAPSHOT_VERSION
-    save_snapshot(client, user_id, month_date, summary_json)
 
     existing = get_streak(client, user_id)
     streak = update_streak(
@@ -549,16 +537,19 @@ def persist_analysis(
         current_streak=existing["current_streak"] if existing else 0,
         best_streak=existing["best_streak"] if existing else 0,
     )
-    save_streak(client, user_id, streak)
-
-    upsert_goal(
-        client,
-        user_id,
-        goal_amount,
-        goal_date,
-        result["forecast"]["current_saved"],
-    )
-    upsert_budgets(client, user_id, month_date, result["budgets"]["budgets"])
+    # A single database transaction commits every part of an upload. There is
+    # deliberately no delete/insert fallback if migration 004 is missing.
+    client.rpc("finio_commit_analysis", json_safe({
+        "p_rows": _tx_rows(user_id, result.get("all_transactions", result["transactions"])),
+        "p_month": month_date,
+        "p_summary": summary_json,
+        "p_profile": {"email": user.email, "age": age, "income_bracket": income_bracket},
+        "p_goal": {"amount": goal_amount, "target_date": goal_date,
+        "current_saved": result["forecast"]["current_saved"]},
+        "p_streak": streak,
+        "p_budgets": result["budgets"]["budgets"],
+    })).execute()
+    _memo_clear(client)
 
     return streak
 
@@ -719,7 +710,8 @@ def save_spend_check(client, user_id, result):
             "amount": float(result.get("purchase_amount") or 0),
             "days_ahead": int(result.get("days_ahead") or 0),
             "verdict": result.get("verdict"),
-            "projected_balance": float(result.get("projected_balance") or 0),
+            "projected_balance": (float(result["projected_balance"])
+                                  if result.get("projected_balance") is not None else None),
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
     except Exception as exc:

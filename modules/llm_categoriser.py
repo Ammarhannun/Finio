@@ -23,8 +23,8 @@ def has_llm():
     The test suite sets it so tests stay fast, deterministic and free — now
     that the model classifies EVERY merchant rather than only the ones the
     rules missed, leaving it on turned the suite into a network-bound job.
-    """
-    if os.getenv("FINIO_DISABLE_LLM"):
+ """
+    if os.getenv("FINIO_DISABLE_LLM", "").lower() in ("1", "true", "yes"):
         return False
     return bool(os.getenv("OPENAI_API_KEY"))
 
@@ -75,7 +75,7 @@ def _format_input(merchants, context):
     disambiguate a lot: a $9 charge at a fuel station is a snack, a $75 one is
     fuel; a fixed amount every month is a subscription. The raw bank
     description is included too because cleaning can strip useful words.
-    """
+ """
     rows = []
     for m in merchants:
         c = (context or {}).get(m) or {}
@@ -102,13 +102,13 @@ def categorise_merchants(merchants, categories, context=None):
     A merchant the model can't place gets category None and confidence "low" —
     those become quiz questions. Returns None when there is no key or every
     call fails (caller falls back to rules, then the local model).
-    """
+ """
     merchants = [m for m in dict.fromkeys(merchants) if str(m).strip()]
     if not merchants or not has_llm():
         return None
 
     from openai import OpenAI
-    client = OpenAI()
+    client = OpenAI(timeout=30.0, max_retries=1)
 
     system = (
         "You classify Australian bank-statement merchants into spending "
@@ -125,7 +125,8 @@ def categorise_merchants(merchants, categories, context=None):
 
     out = {}
     any_ok = False
-    for i in range(0, len(merchants), CHUNK):
+    # Bound one upload's model spend; the remainder uses the existing fallback.
+    for i in range(0, min(len(merchants), CHUNK * 5), CHUNK):
         batch = merchants[i:i + CHUNK]
         try:
             resp = client.chat.completions.create(
@@ -168,7 +169,7 @@ def build_questions(df, llm_results, overrides=None, limit=6):
     - transfer-flow merchants moving real money (classic 'PAYID JOHN' — only
       the user knows if that's income, spending or an internal transfer)
     Merchants the user already has a rule for are never asked about.
-    """
+ """
     if df is None or df.empty:
         return []
     known = set()

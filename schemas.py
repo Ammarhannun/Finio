@@ -69,6 +69,7 @@ class GoalRequest(BaseModel):
 class SpendCheckRequest(BaseModel):
     merchant: str = Field("", max_length=120)
     amount: float = Field(..., gt=0, le=MAX_MONEY)
+    current_balance: Optional[float] = Field(None, ge=-MAX_MONEY, le=MAX_MONEY)
     days_ahead: int = Field(30, ge=1, le=90)
     period: Optional[str] = None
     month: Optional[str] = None
@@ -78,10 +79,10 @@ class SpendCheckRequest(BaseModel):
     def _strip_control(cls, v):
         return _clean_text(v)
 
-    @field_validator("amount")
+    @field_validator("amount", "current_balance")
     @classmethod
     def _real_number(cls, v):
-        return _finite(v, field="amount")
+        return _finite(v, field="amount") if v is not None else None
 
 
 class ProfileRequest(BaseModel):
@@ -195,4 +196,3 @@ class OverrideRequest(BaseModel):
             if name and len(name) <= 60 and name not in out:
                 out.append(name)
         return out
-

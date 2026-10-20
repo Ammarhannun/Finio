@@ -1,9 +1,13 @@
 import os
 import tempfile
+import threading
+from datetime import date
+from functools import lru_cache
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.deps import AuthUser, get_current_user, get_optional_user
@@ -17,6 +21,8 @@ from config import (
     RATE_LIMITS,
 )
 from modules import db
+from modules.serialization import json_safe
+from modules.bank_parser import parse_bank_csv
 from modules.logs import log, warn
 from modules.ai_coach import (
     QUICK_QUESTIONS, coach_chat, generate_insight, strip_disclaimer, title_chat,
@@ -37,7 +43,14 @@ from schemas import (
 
 load_dotenv()
 
-app = FastAPI(title="Finio", description="AI-powered personal finance analyser")
+@asynccontextmanager
+async def lifespan(app):
+    _check_configuration()
+    _warn_if_multi_worker()
+    yield
+
+
+app = FastAPI(title="Finio", description="AI-powered personal finance analyser", lifespan=lifespan)
 
 # Explicit origins — a wildcard with allow_credentials=True is invalid per the
 # CORS spec. Defaults cover local dev; override in prod via FINIO_ORIGINS
@@ -63,7 +76,79 @@ else:
     _cors["allow_origins"] = _default_origins
     _cors["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
 
+from api.body_limit import BodyLimitMiddleware
+app.add_middleware(BodyLimitMiddleware, upload_limit=MAX_UPLOAD_BYTES + 1024 * 1024)
 app.add_middleware(CORSMiddleware, **_cors)
+
+
+@app.middleware("http")
+async def response_security(request: Request, call_next):
+    from fastapi.responses import JSONResponse
+    length = request.headers.get("content-length", "0")
+    if not length.isdigit() or int(length) > MAX_UPLOAD_BYTES + 1024 * 1024:
+        return JSONResponse({"detail": "Request too large. Upload a file under 10 MB."}, status_code=413)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    from fastapi.responses import JSONResponse
+    import uuid
+    reference = uuid.uuid4().hex[:12]
+    # Do not log exception strings: provider errors may contain financial data.
+    log.error("Request failed: %s %s %s reference=%s", request.method, request.url.path,
+              type(exc).__name__, reference)
+    return JSONResponse({"detail": f"Something went wrong. Please try again. Reference: {reference}"},
+                        status_code=500)
+
+
+@app.get("/ready")
+def readiness():
+    if not db.is_configured() or (os.getenv("FINIO_ENV") == "production" and
+                                 (not _origins or any(not o.startswith("https://") or '*' in o for o in _origins))):
+        raise HTTPException(503, "Service is not ready")
+    try:
+        if db.get_client().rpc("finio_ready", {}).execute().data is not True:
+            raise ValueError("schema not ready")
+    except Exception:
+        raise HTTPException(503, "Service is not ready") from None
+    return {"status": "ready"}
+
+
+_UPLOAD_SLOTS = threading.BoundedSemaphore(2)
+_ACTIVE_UPLOADS = set()
+_UPLOAD_LOCK = threading.Lock()
+
+
+def upload_user(user: AuthUser = Depends(get_current_user)):
+    with _UPLOAD_LOCK:
+        if user.user_id in _ACTIVE_UPLOADS or not _UPLOAD_SLOTS.acquire(blocking=False):
+            raise HTTPException(429, "An upload is already processing. Please try again shortly.")
+        _ACTIVE_UPLOADS.add(user.user_id)
+    try:
+        yield user
+    finally:
+        with _UPLOAD_LOCK:
+            _ACTIVE_UPLOADS.discard(user.user_id)
+            _UPLOAD_SLOTS.release()
+
+
+@app.get("/demo")
+@lru_cache(maxsize=1)
+def demo():
+    # Fixed synthetic data, offline, cached once; never invokes a paid model.
+    from config import SAMPLE_CSV
+    from modules.data_processor import add_flags
+    from modules.pipeline import analyze_window
+    from modules.categoriser import rule_category
+    frame = add_flags(parse_bank_csv(SAMPLE_CSV))
+    frame["category"] = frame.apply(lambda row: (
+        "Transfers" if row["flow"] == "transfer" else "Income" if row["flow"] == "income"
+        else rule_category(row["description"]) or "Other"), axis=1)
+    return {**analyze_window(frame), "demo": True}
 
 
 @app.get("/")
@@ -78,6 +163,7 @@ def health():
 # degradation (it still stops a runaway retry loop) but it must not be a
 # surprise, so startup says so out loud when it detects more than one worker.
 _RATE: dict = {}
+_RATE_LOCK = threading.Lock()
 
 
 # Required for the app to do anything at all. Checked once at startup so a
@@ -86,7 +172,6 @@ _RATE: dict = {}
 _REQUIRED_ENV = ("SUPABASE_URL", "SUPABASE_ANON_KEY")
 
 
-@app.on_event("startup")
 def _check_configuration():
     missing = [k for k in _REQUIRED_ENV if not os.getenv(k)]
     if missing:
@@ -117,7 +202,6 @@ def _check_configuration():
         )
 
 
-@app.on_event("startup")
 def _warn_if_multi_worker():
     workers = os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS")
     try:
@@ -134,6 +218,11 @@ def _warn_if_multi_worker():
 
 
 def _rate_limit(user_id: str, endpoint: str):
+    with _RATE_LOCK:
+        _rate_limit_locked(user_id, endpoint)
+
+
+def _rate_limit_locked(user_id: str, endpoint: str):
     import time as _t
 
     limit = RATE_LIMITS.get(endpoint)
@@ -157,15 +246,16 @@ def _rate_limit(user_id: str, endpoint: str):
 
 
 @app.post("/analyze")
-async def analyze_csv(
+def analyze_csv(
     file: UploadFile = File(...),
-    goal_amount: Optional[float] = Form(None),
-    goal_date: Optional[str] = Form(None),
-    age: Optional[int] = Form(None),
+    goal_amount: Optional[float] = Form(None, gt=0, le=100_000_000, allow_inf_nan=False),
+    goal_date: Optional[date] = Form(None),
+    age: Optional[int] = Form(None, ge=16, le=100),
     period: Optional[str] = Form(None),
     period_start: Optional[str] = Form(None),
     period_end: Optional[str] = Form(None),
-    user: Optional[AuthUser] = Depends(get_optional_user),
+    confirm_replace: bool = Form(False),
+    user: AuthUser = Depends(upload_user),
 ):
     if user:
         _rate_limit(user.user_id, "/analyze")
@@ -183,7 +273,7 @@ async def analyze_csv(
             # memory first meant one oversized file could exhaust the server's
             # RAM before any validation ran.
             written = 0
-            while chunk := await file.read(1024 * 1024):
+            while chunk := file.file.read(1024 * 1024):
                 written += len(chunk)
                 if written > MAX_UPLOAD_BYTES:
                     raise HTTPException(
@@ -202,36 +292,55 @@ async def analyze_csv(
         saved_custom = None
         saved_llm_cache = None
         saved_bracket = None
+        saved_targets = {}
+        saved_goal = {}
+        saved_age = None
         if user:
             try:
                 _client = db.get_client(user.token)
                 saved_overrides = db.get_overrides(_client, user.user_id)
                 saved_custom = db.get_custom_categories(_client, user.user_id)
                 saved_llm_cache = db.get_llm_categories(_client, user.user_id)
-                saved_bracket = (db.get_user_profile(_client, user.user_id) or {}).get("income_bracket")
+                profile = db.get_user_profile(_client, user.user_id) or {}
+                saved_bracket = profile.get("income_bracket")
+                saved_age = profile.get("age")
+                saved_targets = db.get_budget_targets(_client, user.user_id)
+                saved_goal = db.get_goal(_client, user.user_id) or {}
+                if db.get_all_transactions(_client, user.user_id) and not confirm_replace:
+                    raise HTTPException(409, "This replaces your saved transaction history. Confirm replacement or upload your complete history.")
                 user_examples = examples_from_overrides(saved_overrides)
+            except HTTPException:
+                raise
             except Exception as exc:
                 # Losing saved corrections silently would make the categoriser
                 # look like it had regressed for no reason.
-                warn("saved corrections lookup", exc,
-                     hint="this upload will categorise without your past edits")
-                saved_overrides = user_examples = saved_custom = saved_llm_cache = None
-                saved_bracket = None
+                log.warning("Upload stopped: saved settings unavailable (%s)", type(exc).__name__)
+                raise HTTPException(503, "Could not load your saved settings. Nothing has been replaced; please try again.") from None
 
-        result = run_full_pipeline(
+        try:
+            result = run_full_pipeline(
             tmp_path,
-            goal_amount=goal_amount,
-            goal_date=goal_date,
-            age=age,
+            goal_amount=goal_amount if goal_amount is not None else saved_goal.get("target_amount"),
+            goal_date=goal_date.isoformat() if goal_date else saved_goal.get("target_date"),
+            age=age if age is not None else saved_age,
             overrides=saved_overrides,
             user_examples=user_examples,
             llm_cache=saved_llm_cache,
             custom_categories=saved_custom,
             income_bracket=saved_bracket,
+            budget_targets=saved_targets,
             period=period,
             period_start=period_start,
             period_end=period_end,
-        )
+            )
+        except (ValueError, UnicodeError) as exc:
+            raise HTTPException(422, "Could not read this statement. Use a CSV with date, description and amount columns, or a text-based PDF.") from None
+        except Exception as exc:
+            from pdfminer.pdfparser import PDFSyntaxError
+            from pdfminer.pdfdocument import PDFPasswordIncorrect
+            if isinstance(exc, (PDFSyntaxError, PDFPasswordIncorrect)):
+                raise HTTPException(422, "This PDF could not be read. Try an unlocked text-based PDF or export a CSV.") from None
+            raise
 
         if user:
             try:
@@ -241,9 +350,11 @@ async def analyze_csv(
                     result,
                     goal_amount=goal_used["amount"],
                     goal_date=goal_used["target_date"],
-                    age=goal_used["age"],
+                    age=age if age is not None else saved_age,
+                    income_bracket=saved_bracket,
                     overrides=saved_overrides,
                     custom_categories=saved_custom,
+                    budget_targets=saved_targets,
                 )
                 result["streak"] = streak
                 result["persisted"] = True
@@ -252,7 +363,7 @@ async def analyze_csv(
                 raise HTTPException(status_code=401, detail=str(exc)) from exc
             except Exception as exc:
                 raise HTTPException(
-                    status_code=500, detail=f"Failed to save to database: {exc}"
+                    status_code=503, detail="Could not save your analysis. Your previous data is unchanged. Please try again."
                 ) from exc
         else:
             result["persisted"] = False
@@ -274,7 +385,7 @@ async def analyze_csv(
                 # list again on every single upload.
                 _client = db.get_client(user.token)
                 known = db.get_embedded_merchants(_client, user.user_id)
-                merchants = [m for m in seen if m not in known]
+                merchants = [m for m in seen if m not in known][:500]
                 vectors = embed_texts(merchants)
                 if vectors:
                     rows = [{"merchant": m, "category": seen[m], "embedding": v}
@@ -286,7 +397,7 @@ async def analyze_csv(
                 warn("merchant embeddings", exc,
                      hint="semantic merchant search will fall back to text match")
 
-        return result
+        return json_safe(result)
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -303,6 +414,58 @@ def _require_snapshot(user: AuthUser):
     return client, data
 
 
+@app.post("/analyze/preview")
+def preview_statement(file: UploadFile = File(...), user: AuthUser = Depends(upload_user)):
+    """Parse locally for review. No AI calls or persistence before confirmation."""
+    _rate_limit(user.user_id, "/analyze")
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if suffix not in (".csv", ".pdf"):
+        raise HTTPException(400, "Please choose a CSV or text-based PDF.")
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            path = tmp.name
+            size = 0
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "The file must be under 10 MB.")
+                tmp.write(chunk)
+        try:
+            frame = parse_bank_csv(path)
+        except Exception:
+            raise HTTPException(422, "Could not read the statement. Try a CSV with date, description and amount columns, or an unlocked text-based PDF.") from None
+        return {"count": len(frame), "start": frame.date.min().strftime("%Y-%m-%d"),
+        "end": frame.date.max().strftime("%Y-%m-%d"),
+        "money_out": round(float(-frame.loc[frame.amount < 0, "amount"].sum()), 2),
+        "money_in": round(float(frame.loc[frame.amount > 0, "amount"].sum()), 2),
+        "best_effort_pdf": suffix == ".pdf", "disclaimer": DISCLAIMER}
+    finally:
+        if path:
+            os.remove(path)
+
+
+@app.get("/data/export")
+def export_data(user: AuthUser = Depends(get_current_user)):
+    _rate_limit(user.user_id, "/analyze")
+    client = db.get_client(user.token)
+    out = {"profile": db.get_user_profile(client, user.user_id)}
+    for table in ("transactions", "snapshots", "budgets", "goals", "streaks", "chat_history", "spend_checks", "merchant_embeddings"):
+        ordering = "merchant" if table == "merchant_embeddings" else "id"
+        out[table] = db.paged(lambda table=table, ordering=ordering: client.table(table)
+                             .select("*").eq("user_id", user.user_id).order(ordering))
+    return {"format_version": 1, "data": out}
+
+
+@app.post("/data/delete")
+def delete_data(body: dict, user: AuthUser = Depends(upload_user)):
+    if body != {"confirmation": "DELETE"}:
+        raise HTTPException(422, "Type DELETE to permanently remove your saved Finio data.")
+    db.get_client(user.token).rpc("finio_delete_data", {}).execute()
+    _cache_clear_user(user.user_id)
+    return {"deleted": True, "account_retained": True}
+
+
 def _available_months(client, user):
     all_tx = db.get_all_transactions(client, user.user_id)
     months = sorted({str(t["date"])[:7] for t in all_tx}) if all_tx else []
@@ -317,6 +480,8 @@ import time
 # never serve stale numbers. TTL is just a safety net.
 _VIEW_CACHE: dict = {}
 _VIEW_TTL = 300
+_VIEW_LOCK = threading.RLock()
+_VIEW_EPOCH = 0
 
 
 def _view_key(user_id, period, month, start, end):
@@ -324,14 +489,22 @@ def _view_key(user_id, period, month, start, end):
 
 
 def _cache_clear_user(user_id):
-    for k in [k for k in _VIEW_CACHE if k.startswith(f"{user_id}|")]:
-        _VIEW_CACHE.pop(k, None)
+    global _VIEW_EPOCH
+    with _VIEW_LOCK:
+        _VIEW_EPOCH += 1
+        for k in [k for k in _VIEW_CACHE if k.startswith(f"{user_id}|")]:
+            _VIEW_CACHE.pop(k, None)
 
 
 _VIEW_CACHE_MAX = 256
 
 
 def _cache_evict():
+    with _VIEW_LOCK:
+        _cache_evict_locked()
+
+
+def _cache_evict_locked():
     """Drop expired entries, then trim to a hard ceiling (oldest first).
 
     Without this the cache only ever shrank when a user wrote something, so an
@@ -356,9 +529,27 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
     invest, coach, spend check) describes the same window."""
     if not any([period, month, start, end]):
         return None
+    import re
+    if period and period not in ("daily", "weekly", "monthly", "all", "custom"):
+        raise HTTPException(422, "Choose a supported time period.")
+    if month and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(422, "Month must be YYYY-MM.")
+    if month:
+        try:
+            date.fromisoformat(month + '-01')
+        except ValueError:
+            raise HTTPException(422, "Choose a valid month.") from None
+    if period == "custom":
+        try:
+            if not start or not end or date.fromisoformat(start) > date.fromisoformat(end):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(422, "Choose a valid start and end date.") from None
 
     key = _view_key(user.user_id, period, month, start, end)
-    hit = _VIEW_CACHE.get(key)
+    with _VIEW_LOCK:
+        epoch = _VIEW_EPOCH
+        hit = _VIEW_CACHE.get(key)
     if hit and (time.time() - hit[0]) < _VIEW_TTL:
         return hit[1]
     _cache_evict()
@@ -372,6 +563,7 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
         goal_amount=goal.get("target_amount"),
         goal_date=goal.get("target_date"),
         income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
+        age=(db.get_user_profile(client, user.user_id) or {}).get("age"),
         overrides=db.get_overrides(client, user.user_id),
         budget_targets=db.get_budget_targets(client, user.user_id),
         period=period,
@@ -379,7 +571,11 @@ def _period_view(client, user, data, *, period=None, month=None, start=None, end
         period_start=start,
         period_end=end,
     )
-    _VIEW_CACHE[key] = (time.time(), result)
+    with _VIEW_LOCK:
+        # A concurrent write invalidates this in-flight read. Return its
+        # result to that caller, but never repopulate the cache with old data.
+        if epoch == _VIEW_EPOCH:
+            _VIEW_CACHE[key] = (time.time(), result)
     return result
 
 
@@ -651,6 +847,7 @@ def set_budgets(body: BudgetRequest, user: AuthUser = Depends(get_current_user))
         goal_date=goal.get("target_date"),
         overrides=db.get_overrides(client, user.user_id),
         budget_targets=targets,
+        age=(db.get_user_profile(client, user.user_id) or {}).get("age"),
         income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
     ) if all_tx else None
     db.save_budget_targets(client, user.user_id, targets, resliced)
@@ -686,6 +883,9 @@ def quiz_answer(body: QuizRequest, user: AuthUser = Depends(get_current_user)):
             goal_amount=goal.get("target_amount"),
             goal_date=goal.get("target_date"),
             overrides=overrides,
+            budget_targets=db.get_budget_targets(client, user.user_id),
+            age=(db.get_user_profile(client, user.user_id) or {}).get("age"),
+            income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
         )
         db.save_overrides(
             client, user.user_id, overrides, resliced,
@@ -714,6 +914,9 @@ def set_overrides(body: OverrideRequest, user: AuthUser = Depends(get_current_us
         goal_amount=goal.get("target_amount"),
         goal_date=goal.get("target_date"),
         overrides=overrides,
+        budget_targets=db.get_budget_targets(client, user.user_id),
+        age=(db.get_user_profile(client, user.user_id) or {}).get("age"),
+        income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
     )
     db.save_overrides(
         client, user.user_id, overrides, resliced,
@@ -757,6 +960,9 @@ def reanalyze(user: AuthUser = Depends(get_current_user)):
         goal_amount=goal.get("target_amount"),
         goal_date=goal.get("target_date"),
         overrides=overrides,
+        budget_targets=db.get_budget_targets(client, user.user_id),
+        age=(db.get_user_profile(client, user.user_id) or {}).get("age"),
+        income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
     )
     # Reuse the snapshot-refresh path (writes metrics/analysis/budgets/forecast/…).
     db.save_overrides(
@@ -779,19 +985,21 @@ def list_overrides(user: AuthUser = Depends(get_current_user)):
 @app.post("/goal")
 def set_goal(body: GoalRequest, user: AuthUser = Depends(get_current_user)):
     client, data = _require_snapshot(user)
-    transactions = db.get_transactions(client, user.user_id, data["month"])
+    transactions = db.get_all_transactions(client, user.user_id)
     if not transactions:
         raise HTTPException(
             status_code=404, detail="No transactions found — upload a statement first"
         )
 
     goal_date = body.target_date.isoformat()
-    recomputed = recompute_for_goal(
+    recomputed = analyze_stored(
         transactions,
-        data["metrics"],
         goal_amount=body.amount,
         goal_date=goal_date,
-        age=body.age,
+        age=body.age if body.age is not None else (db.get_user_profile(client, user.user_id) or {}).get("age"),
+        overrides=db.get_overrides(client, user.user_id),
+        budget_targets=db.get_budget_targets(client, user.user_id),
+        income_bracket=(db.get_user_profile(client, user.user_id) or {}).get("income_bracket"),
     )
     db.save_goal_recompute(
         client,
@@ -849,6 +1057,8 @@ def update_profile(
     db.upsert_user_profile(
         client, user.user_id, email=email,
         age=body.age, income_bracket=body.income_bracket,
+        clear_age="age" in body.model_fields_set and body.age is None,
+        clear_income_bracket="income_bracket" in body.model_fields_set and body.income_bracket is None,
     )
     if body.custom_categories is not None:
         db.save_custom_categories(client, user.user_id, body.custom_categories)
@@ -920,10 +1130,15 @@ def spend_check(body: SpendCheckRequest, user: AuthUser = Depends(get_current_us
     client, data = _require_snapshot(user)
     resliced = _period_view(client, user, data, period=body.period, month=body.month)
     metrics = dict((resliced or data)["metrics"])
-    # Real balance is a point-in-time fact, not per-period — re-sliced stored rows
-    # don't carry it, so borrow it from the saved snapshot when missing.
-    if metrics.get("latest_balance") is None:
-        metrics["latest_balance"] = (data.get("metrics") or {}).get("latest_balance")
+    # Balance and its date must come from the SAME saved statement point, not
+    # the selected analysis slice (which may be empty or an older month).
+    source_metrics = data.get("metrics") or {}
+    metrics["latest_balance"] = source_metrics.get("latest_balance")
+    metrics["balance_date"] = (source_metrics.get("date_range") or {}).get("end")
+    if body.current_balance is not None:
+        metrics["latest_balance"] = body.current_balance
+        metrics["balance_date"] = date.today().isoformat()
+        metrics["user_entered_balance"] = True
     result = check_purchase(None, metrics, body.amount, body.days_ahead)
     result["merchant"] = body.merchant
     db.save_spend_check(client, user.user_id, result)
@@ -970,6 +1185,10 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
     context = (resliced or data).get("context")
     if not context:
         raise HTTPException(status_code=404, detail="No coach context — upload a CSV first")
+    source_metrics = data.get("metrics") or {}
+    context = {**context,
+    "latest_balance": source_metrics.get("latest_balance"),
+    "balance_date": (source_metrics.get("date_range") or {}).get("end")}
     if body.page:
         # Tell the coach what's on the user's screen so help fits the page
         # (and reclassification proposals make sense on the transactions page).

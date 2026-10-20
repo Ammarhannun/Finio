@@ -63,9 +63,9 @@
         <label class="select-all-label" title="Select every transaction shown (respects your search)">
           <input type="checkbox" id="select-all"> Select all
         </label>
-        <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…">
+        <input type="search" id="tx-search" class="tx-search" placeholder="Search merchant or category…" aria-label="Search transactions by merchant or category">
         <div class="add-category">
-          <input type="text" id="new-category" placeholder="Add a category…" maxlength="40">
+          <input type="text" id="new-category" placeholder="Add a category…" maxlength="40" aria-label="New spending category">
           <button type="button" class="btn btn-outline btn-sm" id="add-category-btn">Add</button>
         </div>
         <button type="button" class="btn btn-outline btn-sm" id="tx-reclassify"
@@ -143,7 +143,7 @@
   const selected = new Set();
 
   function visibleTxs() {
-    const all = txState.transactions;
+    const all = txState.transactions.map(t => ({ ...t, ...(staged.get(t.key) || {}) }));
     return txFilter
       ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
       : all;
@@ -153,19 +153,17 @@
     document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
   }
 
-  function categoryOptions(selected, disabled) {
-    // Non-expense rows get a plain "—" so the browser doesn't display a
-    // misleading first category greyed out.
-    if (disabled) return `<select class="tx-cat" disabled><option value="">—</option></select>`;
+  function categoryOptions(selected, disabled, label) {
+    if (disabled) return `<select class="tx-cat" aria-label="Spending category for ${label}" disabled><option value="">—</option></select>`;
     const opts = txState.categories.map(c => {
       const e = escapeHtml(c);
       return `<option value="${e}"${c === selected ? ' selected' : ''}>${e}</option>`;
     }).join('');
-    return `<select class="tx-cat">${opts}</select>`;
+    return `<select class="tx-cat" aria-label="Spending category for ${label}"><option value=""${!selected ? ' selected' : ''}>Choose category…</option>${opts}</select>`;
   }
 
-  function flowOptions(selected) {
-    return `<select class="tx-flow">${
+  function flowOptions(selected, label) {
+    return `<select class="tx-flow" aria-label="Transaction flow for ${label}">${
       ['income', 'expense', 'transfer'].map(f =>
         `<option value="${f}"${f === selected ? ' selected' : ''}>${FLOW_LABEL[f]}</option>`).join('')
     }</select>`;
@@ -173,6 +171,7 @@
 
   function rowHtml(t) {
     const catDisabled = t.flow !== 'expense';
+    const rowLabel = escapeHtml(`${t.merchant} on ${formatDay(t.date)}`);
     return `
       <div class="tx-row${staged.has(t.key) ? ' edited' : ''}" data-key="${t.key}">
         <input type="checkbox" class="tx-check" data-key="${t.key}"${selected.has(t.key) ? ' checked' : ''}
@@ -180,8 +179,8 @@
         <span class="tx-date">${formatDay(t.date)}</span>
         <span class="tx-merchant" title="${escapeHtml(t.merchant)}">${escapeHtml(t.merchant)}</span>
         <span class="tx-amount ${t.amount < 0 ? 'neg' : 'pos'}">${formatAUD(t.amount)}</span>
-        ${flowOptions(t.flow)}
-        ${categoryOptions(catDisabled ? '' : t.category, catDisabled)}
+        ${flowOptions(t.flow, rowLabel)}
+        ${categoryOptions(catDisabled ? '' : t.category, catDisabled, rowLabel)}
       </div>`;
   }
 
@@ -190,7 +189,7 @@
   function groupHtml(title, rows, opts = {}) {
     if (!rows.length) return '';
     groupRows[title] = rows;
-    const total = rows.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const total = rows.reduce((s, t) => s + (t.flow === 'expense' ? -t.amount : t.amount), 0);
     const t = escapeHtml(title);
     const expanded = expandedGroups.has(title);
     const shown = expanded ? rows : rows.slice(0, GROUP_CAP);
@@ -274,7 +273,11 @@
       const catSel = row.querySelector('.tx-cat');
       flowSel.addEventListener('change', () => {
         stageChange(key, 'flow', flowSel.value);
-        catSel.disabled = flowSel.value !== 'expense';
+        if (flowSel.value === 'expense' && !txState.categories.includes((staged.get(key) || {}).category || (originals.get(key) || {}).category)) {
+          stageChange(key, 'category', '');
+        }
+        renderTransactions();
+        updateBulkBar();
       });
       catSel.addEventListener('change', () => stageChange(key, 'category', catSel.value));
     });
@@ -314,18 +317,9 @@
       if (flow) stageChange(key, 'flow', flow);
       if (cat) stageChange(key, 'category', cat);
     });
-    applyStagedToState();
     renderTransactions();
     updateSaveBtn();
   });
-
-  function applyStagedToState() {
-    staged.forEach((entry, key) => {
-      const t = origFor(key);
-      if (entry.flow) t.flow = entry.flow;
-      if (entry.category) t.category = entry.category;
-    });
-  }
 
   document.getElementById('add-category-btn').addEventListener('click', () => {
     const input = document.getElementById('new-category');
@@ -341,6 +335,10 @@
   });
 
   function removeCustomCategory(name) {
+    if (txState.transactions.some(t => ((staged.get(t.key) || {}).category ?? t.category) === name)) {
+      showToast(`Move transactions out of “${name}” before removing it`);
+      return;
+    }
     txState.custom_categories = txState.custom_categories.filter(c => c !== name);
     txState.categories = txState.categories.filter(c => c !== name);
     customDirty = true;
@@ -361,7 +359,7 @@
 
   function refreshCategorySelects() {
     document.getElementById('bulk-category').innerHTML =
-      '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
+ '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
     renderCustomChips();
     renderTransactions();
   }
@@ -377,12 +375,18 @@
     const btn = document.getElementById('tx-save');
     const errEl = document.getElementById('tx-error');
     errEl.style.display = 'none';
+    const missingCategory = txState.transactions.map(t => ({ ...t, ...(staged.get(t.key) || {}) }))
+      .find(t => t.flow === 'expense' && !t.category);
+    if (missingCategory) {
+      errEl.textContent = `Choose a spending category for ${missingCategory.merchant} before saving.`;
+      errEl.style.display = 'block';
+      return;
+    }
     const stagedKeys = new Set(staged.keys());
     const rules = savedRules.filter(r => !(r.tx_key && stagedKeys.has(r.tx_key)));
     staged.forEach((entry, key) => {
-      const rule = { tx_key: key };
-      if (entry.flow) rule.flow = entry.flow;
-      if (entry.category) rule.category = entry.category;
+      const existing = savedRules.find(r => r.tx_key === key) || {};
+      const rule = { ...existing, tx_key: key, ...entry };
       rules.push(rule);
     });
     btn.disabled = true;
@@ -682,7 +686,7 @@
       dataSection.style.display = 'block';
       if (err.message === 'no_analysis' || err.status === 404) {
         document.getElementById('tx-list').innerHTML =
-          '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the <a href="dashboard.html">Dashboard</a>.</p>';
+ '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the <a href="dashboard.html">Dashboard</a>.</p>';
       } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
         showToast(err.message);
       }

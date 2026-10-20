@@ -23,7 +23,7 @@ def resolve_periods(df, period=None, anchor=None, start=None, end=None):
 
     `anchor` is the reference date a relative period hangs off (defaults to the
     latest transaction). `start`/`end` are only used for the 'custom' period.
-    """
+ """
     period = (period or DEFAULT_PERIOD).lower()
     dates = pd.to_datetime(df["date"]) if df is not None and len(df) else pd.Series(dtype="datetime64[ns]")
     if not len(dates) or pd.isna(dates.min()):

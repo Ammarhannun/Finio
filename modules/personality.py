@@ -1,5 +1,6 @@
 from config import DISCLAIMER
 from modules.analytics import category_breakdown
+from modules.bill_detector import estimated_monthly_bill_total
 
 
 def _category_pct(df, category):
@@ -48,8 +49,11 @@ def score_personality(df, metrics, analysis, bills):
     shop_pct = _category_pct(df, "Shopping")
     subs_pct = _category_pct(df, "Subscriptions")
 
-    bill_total = sum(b["amount"] for b in bills) if bills else 0
-    bill_share = (bill_total / metrics["total_income"] * 100) if metrics["total_income"] else 0
+    bill_total = estimated_monthly_bill_total(bills)
+    period_days = (metrics.get("date_range") or {}).get("days") or 0
+    monthly_income = (metrics["total_income"] / period_days * 30.44
+                      if period_days >= 28 else 0)
+    bill_share = (bill_total / monthly_income * 100) if monthly_income else 0
 
     scores = {
         "planner": 0,

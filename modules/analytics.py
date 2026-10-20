@@ -1,5 +1,6 @@
 import pandas as pd
 from config import DISCLAIMER, FLOW_EXPENSE, FLOW_INCOME, TRANSFERS_LABEL
+from modules.bill_detector import estimated_monthly_bill_total
 
 
 def compute_averages(df):
@@ -42,14 +43,18 @@ def compute_averages(df):
 
     # Monthly average from COMPLETE months when we have them (a real "usual
     # month"); otherwise scale the daily rate.
-    m_spent = exp.set_index("date")["amount"].resample("MS").sum().mul(-1) if not exp.empty else pd.Series(dtype=float)
-    m_income = inc.set_index("date")["amount"].resample("MS").sum() if not inc.empty else pd.Series(dtype=float)
-    m_spent_c = _complete_months(m_spent, df["date"]) if len(m_spent) else m_spent
+    months = pd.date_range(df["date"].min().to_period("M").to_timestamp(),
+                           df["date"].max().to_period("M").to_timestamp(), freq="MS")
+    m_spent = (-exp.set_index("date")["amount"].resample("MS").sum()
+               if not exp.empty else pd.Series(dtype=float)).reindex(months, fill_value=0.0)
+    m_income = (inc.set_index("date")["amount"].resample("MS").sum()
+                if not inc.empty else pd.Series(dtype=float)).reindex(months, fill_value=0.0)
+    m_spent_c = _complete_months(m_spent, df["date"], fallback=False)
+    m_income_c = _complete_months(m_income, df["date"], fallback=False)
     if len(m_spent_c) >= 1 and days >= 28:
-        m_income_c = _complete_months(m_income, df["date"]) if len(m_income) else m_income
         out["monthly"] = block(
             float(m_spent_c.mean()),
-            float(m_income_c.mean()) if len(m_income_c) else 0.0,
+            float(m_income_c.mean()),
         )
         out["months_used"] = int(len(m_spent_c))
     elif days > 0:
@@ -126,20 +131,20 @@ def detect_patterns(df, metrics, bills):
         expenses = df[df["flow"] == FLOW_EXPENSE].copy()
     else:
         expenses = df[df["amount"] < 0].copy()
-    expenses["amount_abs"] = expenses["amount"].abs()
+    expenses["net_spend"] = -expenses["amount"]
     breakdown = category_breakdown(df)
 
     if breakdown:
         top = breakdown[0]
         patterns.append({
             "type": "top_category",
-            "severity": "info",
+ "severity": "info",
             "message": f"{top['category']} is your biggest spend at {top['pct']}% (${top['amount']}).",
         })
 
     if "is_weekend" in expenses.columns:
-        weekend = expenses.loc[expenses["is_weekend"], "amount_abs"].sum()
-        weekday = expenses.loc[~expenses["is_weekend"], "amount_abs"].sum()
+        weekend = expenses.loc[expenses["is_weekend"], "net_spend"].sum()
+        weekday = expenses.loc[~expenses["is_weekend"], "net_spend"].sum()
         if weekend > weekday:
             patterns.append({
                 "type": "weekend_spend",
@@ -158,16 +163,16 @@ def detect_patterns(df, metrics, bills):
         elif save_pct >= 30:
             patterns.append({
                 "type": "strong_savings",
-                "severity": "info",
+ "severity": "info",
                 "message": f"Strong savings rate: {save_pct}% of income kept.",
             })
 
     if bills:
-        bill_total = sum(b["amount"] for b in bills)
+        bill_total = estimated_monthly_bill_total(bills)
         patterns.append({
             "type": "recurring_bills",
-            "severity": "info",
-            "message": f"{len(bills)} recurring bills totalling ${bill_total:.2f}/period.",
+ "severity": "info",
+ "message": f"{len(bills)} recurring bills, about ${bill_total:.2f} per month in total (estimated from their schedules).",
         })
 
     return patterns
@@ -194,9 +199,11 @@ def risk_score(df, metrics, bills):
     if breakdown and breakdown[0]["pct"] > 35:
         score += 20
 
-    if bills and income > 0:
-        bill_total = sum(b["amount"] for b in bills)
-        if (bill_total / income) > 0.15:
+    period_days = (metrics.get("date_range") or {}).get("days") or 0
+    if bills and income > 0 and period_days >= 28:
+        bill_total = estimated_monthly_bill_total(bills)
+        monthly_income = income / period_days * 30.44
+        if (bill_total / monthly_income) > 0.15:
             score += 20
 
     if metrics["daily_burn_rate"] > 50:

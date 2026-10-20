@@ -1,0 +1,13 @@
+{
+ "name": "finio-checks",
+ "private": true,
+ "scripts": {
+ "test:upload": "node --test tests/upload-picker.mjs",
+ "check:frontend": "node --experimental-vm-modules scripts/check_frontend.mjs",
+ "test:database": "node tests/database.mjs"
+  },
+ "devDependencies": {
+ "@electric-sql/pglite": "0.5.8",
+ "@electric-sql/pglite-pgvector": "0.0.9"
+  }
+}

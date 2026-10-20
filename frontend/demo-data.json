@@ -1,0 +1,202 @@
+[
+  {
+ "date": "2026-01-01",
+ "amount": 3200.0,
+ "merchant": "SALARY ACME PAYROLL",
+ "category": "Income",
+ "is_expense": false,
+ "flow": "income",
+ "balance": 5200.0,
+ "key": "a89cf4d5144cdafc"
+  },
+  {
+ "date": "2026-01-02",
+ "amount": -24.5,
+ "merchant": "UBER EATS",
+ "category": "Food & Dining",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 5175.5,
+ "key": "28496e4fb6a06df8"
+  },
+  {
+ "date": "2026-01-03",
+ "amount": -89.2,
+ "merchant": "WOOLWORTHS",
+ "category": "Groceries",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 5086.3,
+ "key": "fe632a353170e4f9"
+  },
+  {
+ "date": "2026-01-04",
+ "amount": -15.8,
+ "merchant": "STARBUCKS COFFEE",
+ "category": "Food & Dining",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 5070.5,
+ "key": "9830623c75a7d80d"
+  },
+  {
+ "date": "2026-01-05",
+ "amount": -22.0,
+ "merchant": "OPAL CARD TOP UP",
+ "category": "Transport",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 5048.5,
+ "key": "99e37e06d47305fd"
+  },
+  {
+ "date": "2026-01-06",
+ "amount": -19.99,
+ "merchant": "NETFLIX COM",
+ "category": "Subscriptions",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 5028.51,
+ "key": "9f32417b967907af"
+  },
+  {
+ "date": "2026-01-07",
+ "amount": -45.0,
+ "merchant": "COLES",
+ "category": "Groceries",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4983.51,
+ "key": "7364e2744eafbfcd"
+  },
+  {
+ "date": "2026-01-08",
+ "amount": -12.5,
+ "merchant": "7-ELEVEN",
+ "category": "Groceries",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4971.01,
+ "key": "fa8b0d2cbbe18ea9"
+  },
+  {
+ "date": "2026-01-10",
+ "amount": -65.0,
+ "merchant": "DOORDASH MCDONALDS",
+ "category": "Food & Dining",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4906.01,
+ "key": "9d70e27e50e39af3"
+  },
+  {
+ "date": "2026-01-11",
+ "amount": -120.0,
+ "merchant": "JB HI-FI",
+ "category": "Shopping",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4786.01,
+ "key": "f4558765db5deceb"
+  },
+  {
+ "date": "2026-01-12",
+ "amount": -18.4,
+ "merchant": "UBER TRIP",
+ "category": "Transport",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4767.61,
+ "key": "4a0700c9c60105e0"
+  },
+  {
+ "date": "2026-01-14",
+ "amount": -250.0,
+ "merchant": "RENT PAYMENT LANDLORD",
+ "category": "Housing & Rent",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4517.61,
+ "key": "4bb8e7ecaec2b50e"
+  },
+  {
+ "date": "2026-01-15",
+ "amount": -32.0,
+ "merchant": "GYMSHARK FITNESS",
+ "category": "Subscriptions",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4485.61,
+ "key": "32cf9280c0414055"
+  },
+  {
+ "date": "2026-01-17",
+ "amount": -78.5,
+ "merchant": "WOOLWORTHS",
+ "category": "Groceries",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4407.11,
+ "key": "c0a2144ce93233a4"
+  },
+  {
+ "date": "2026-01-18",
+ "amount": -28.9,
+ "merchant": "DELIVEROO PIZZA",
+ "category": "Food & Dining",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4378.21,
+ "key": "8d5cd1d8dac3f28b"
+  },
+  {
+ "date": "2026-01-20",
+ "amount": -14.99,
+ "merchant": "SPOTIFY PREMIUM",
+ "category": "Subscriptions",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4363.22,
+ "key": "e0ced433ba4e3c96"
+  },
+  {
+ "date": "2026-01-22",
+ "amount": -95.0,
+ "merchant": "AMAZON AU MARKETPLACE",
+ "category": "Shopping",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4268.22,
+ "key": "a1da8afbed06f7bc"
+  },
+  {
+ "date": "2026-01-24",
+ "amount": -16.2,
+ "merchant": "STARBUCKS COFFEE",
+ "category": "Food & Dining",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4252.02,
+ "key": "fba24d9b26b454ba"
+  },
+  {
+ "date": "2026-01-25",
+ "amount": -42.0,
+ "merchant": "OPAL CARD TOP UP",
+ "category": "Transport",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4210.02,
+ "key": "92209e045a25ea5e"
+  },
+  {
+ "date": "2026-01-28",
+ "amount": -55.0,
+ "merchant": "PRICELINE PHARMACY",
+ "category": "Health",
+ "is_expense": true,
+ "flow": "expense",
+ "balance": 4155.02,
+ "key": "e42594a68eb28960"
+  }
+]

@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.2';
 import * as cfg from './config.js';
 
 // config.js is a file the USER edits (it holds their Supabase keys), so this
@@ -16,10 +16,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Local dev talks to the backend on :8000; anywhere else (a deployed frontend)
 // must point at the deployed API, so the host is config, not a constant.
-const API_BASE = API_BASE_URL
+const API_BASE = API_BASE_URL.replace(/\/$/, '')
   || (['localhost', '127.0.0.1', '[::1]', ''].includes(location.hostname)
         ? 'http://127.0.0.1:8000'
-        : `${location.origin}/api`);
+        : '');
 
 export async function getSession() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -36,6 +36,7 @@ export async function requireAuth() {
 }
 
 export async function apiFetch(path, options = {}) {
+  if (!API_BASE) throw new Error('The service is being configured. Please try again later.');
   const session = await getSession();
   const headers = { ...(options.headers || {}) };
 
@@ -54,7 +55,7 @@ export async function apiFetch(path, options = {}) {
   } catch (e) {
     // fetch() rejects with a TypeError when the server is unreachable / CORS
     // blocked — turn that into a message a human can act on.
-    throw new Error('Could not reach the server. Is the backend running on :8000?');
+    throw new Error('Could not connect to Finio. Check your connection and try again.');
   }
 
   if (res.status === 401) {
@@ -71,7 +72,12 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Error ${res.status}`);
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map(e => `${(e.loc || []).slice(1).join(' ')}: ${e.msg}`).join('; ')
+      : body.detail;
+    const error = new Error(detail || `Something went wrong (${res.status}). Please try again.`);
+    error.status = res.status;
+    throw error;
   }
 
   return res.json();
@@ -143,10 +149,15 @@ export async function setupNav(activePage) {
   const hamburger = document.getElementById('nav-hamburger');
   const navLinks = document.querySelector('.nav-links');
   if (hamburger && navLinks) {
-    hamburger.addEventListener('click', () => navLinks.classList.toggle('open'));
+    hamburger.setAttribute('aria-expanded', 'false');
+    hamburger.addEventListener('click', () => {
+      const open = navLinks.classList.toggle('open');
+      hamburger.setAttribute('aria-expanded', String(open));
+    });
     document.addEventListener('click', (e) => {
       if (!hamburger.contains(e.target) && !navLinks.contains(e.target)) {
         navLinks.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
       }
     });
   }
@@ -197,7 +208,7 @@ export const formatAUD = formatMoney;
 
 // ── Dates: always shown as "June 2026" for easy reading ──
 const MONTHS = ['January','February','March','April','May','June',
-  'July','August','September','October','November','December'];
+ 'July','August','September','October','November','December'];
 
 export function formatMonthYear(value) {
   if (!value) return '';
@@ -220,11 +231,15 @@ export function formatDay(value) {
   return isNaN(d) ? String(value) : `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 }
 
-// Human label for a date range, in Month Year only.
+// Show exact coverage so a partial statement cannot masquerade as a full month.
 export function dateRangeLabel(dr) {
   if (!dr?.start) return '';
-  const start = formatMonthYear(dr.start);
-  const end = formatMonthYear(dr.end);
+  const format = value => {
+    const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${Number(m[3])} ${MONTHS_SHORT[Number(m[2]) - 1]} ${m[1]}` : String(value || '');
+  };
+  const start = format(dr.start);
+  const end = format(dr.end);
   return start === end ? start : `${start} to ${end}`;
 }
 
@@ -278,15 +293,17 @@ export function mountPeriodBar(container, months, onChange,
       <span class="period-tag">${tag}</span>
       <div class="segmented" role="group" aria-label="Time period">
         ${SEGMENTS.map(p =>
-          `<button type="button" data-period="${p.value}"${p.value === current ? ' class="active"' : ''}>${p.label}</button>`
+          `<button type="button" data-period="${p.value}" aria-pressed="${p.value === current}"${p.value === current ? ' class="active"' : ''}>${p.label}</button>`
         ).join('')}
       </div>
     </div>`;
   container.querySelectorAll('.segmented button').forEach(btn => {
     btn.addEventListener('click', () => {
       const value = btn.dataset.period;
-      container.querySelectorAll('.segmented button').forEach(b =>
-        b.classList.toggle('active', b === btn));
+      container.querySelectorAll('.segmented button').forEach(b => {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
       setStoredPeriod(value);   // platform-wide
       onChange(value);
     });

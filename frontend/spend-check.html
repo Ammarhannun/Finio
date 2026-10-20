@@ -30,7 +30,7 @@
   <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
     <div>
       <h1>Spend Check</h1>
-      <p>Should you buy it? Let your AI coach decide</p>
+      <p>See a rough cash-flow estimate based on a recent statement balance. Check your live balance and upcoming bills before deciding.</p>
     </div>
     <div id="period-mount"></div>
   </div>
@@ -50,6 +50,11 @@
           <label for="days-ahead">Days from now</label>
           <input type="number" id="days-ahead" value="30" min="1" max="90">
         </div>
+      </div>
+      <div class="form-group">
+        <label for="current-balance">Current available balance ($AUD) <span style="color:var(--muted);font-weight:400;">optional</span></label>
+        <input type="number" id="current-balance" placeholder="Check your banking app" step="0.01" autocomplete="off">
+        <p class="tx-help">A statement balance may be out of date. This number is used for this estimate and is not saved in check history.</p>
       </div>
       <div id="check-error" class="form-error"></div>
       <button type="submit" class="btn btn-primary btn-full" id="check-btn">
@@ -85,12 +90,13 @@
   let spendPeriod = storedPeriodParts();
 
   const VERDICTS = {
-    green: { icon: '✓', label: 'All good, go for it' },
+    green: { icon: '✓', label: 'Estimate above buffer' },
     yellow: { icon: '!', label: 'Proceed with caution' },
-    red: { icon: '✕', label: 'Not recommended right now' },
+    red: { icon: '✕', label: 'Estimate below zero' },
+    unknown: { icon: '?', label: 'Cannot assess from this statement' },
   };
 
-  const VERDICT_WORD = { green: 'Yes', yellow: 'Tight', red: 'No' };
+  const VERDICT_WORD = { green: 'Above buffer', yellow: 'Tight', red: 'Below zero', unknown: 'Unavailable' };
 
   function timeAgo(iso) {
     const then = new Date(iso);
@@ -165,9 +171,16 @@
     const merchant = document.getElementById('merchant').value.trim();
     const amount = parseFloat(document.getElementById('amount').value);
     const daysAhead = parseInt(document.getElementById('days-ahead').value) || 30;
+    const balanceText = document.getElementById('current-balance').value.trim();
+    const currentBalance = balanceText === '' ? null : Number(balanceText);
 
     if (!amount || amount <= 0) {
       errEl.textContent = 'Please enter a valid amount greater than $0';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (balanceText !== '' && !Number.isFinite(currentBalance)) {
+      errEl.textContent = 'Enter a valid current balance or leave it blank';
       errEl.style.display = 'block';
       return;
     }
@@ -181,7 +194,8 @@
     try {
       const res = await apiFetch('/spend-check', {
         method: 'POST',
-        body: JSON.stringify({ merchant, amount, days_ahead: daysAhead, ...spendPeriod }),
+        body: JSON.stringify({ merchant, amount, days_ahead: daysAhead,
+                               current_balance: currentBalance, ...spendPeriod }),
       });
 
       const verdict = (res.verdict || 'yellow').toLowerCase();
@@ -192,7 +206,7 @@
         <div class="verdict-card ${verdict}">
           <span class="verdict-icon">${v.icon}</span>
           <div class="verdict-label">${v.label}</div>
-          <p class="verdict-message">${res.message || ''}</p>
+          <p class="verdict-message">${escapeHtml(res.message || '')}</p>
           <div class="verdict-meta">
             ${res.projected_balance != null ? `
               <div class="verdict-meta-item">

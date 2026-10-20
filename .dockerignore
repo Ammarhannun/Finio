@@ -1,0 +1,15 @@
+*
+!Dockerfile
+!requirements.lock
+!main.py
+!config.py
+!schemas.py
+!api/
+!api/*.py
+!modules/
+!modules/*.py
+!data/
+!data/sample_transactions.csv
+!data/training_merchants.csv
+!data/kb/
+!data/kb/*.md

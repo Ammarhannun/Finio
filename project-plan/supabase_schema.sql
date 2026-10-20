@@ -73,6 +73,13 @@ alter table goals enable row level security;
 alter table streaks enable row level security;
 alter table chat_history enable row level security;
 
+drop policy if exists "users_own_row" on users;
+drop policy if exists "transactions_own_rows" on transactions;
+drop policy if exists "budgets_own_rows" on budgets;
+drop policy if exists "snapshots_own_rows" on snapshots;
+drop policy if exists "goals_own_rows" on goals;
+drop policy if exists "streaks_own_rows" on streaks;
+drop policy if exists "chat_own_rows" on chat_history;
 create policy "users_own_row" on users for all using (id = auth.uid());
 create policy "transactions_own_rows" on transactions for all using (user_id = auth.uid());
 create policy "budgets_own_rows" on budgets for all using (user_id = auth.uid());

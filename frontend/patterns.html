@@ -47,16 +47,17 @@
       </div>
       <div id="period-mount"></div>
     </div>
+    <p id="empty-window" class="card" style="display:none;">No transactions fall in this selected period. Change the period to see spending patterns.</p>
 
     <!-- Risk score -->
     <div id="risk-card" class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;">
       <div>
-        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:0.35rem;">Risk score</div>
+        <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:0.35rem;">Spending signal</div>
         <div id="risk-score" style="font-size:2.5rem;font-weight:800;letter-spacing:-0.03em;">—</div>
       </div>
       <div style="flex:1;">
         <div id="risk-label" style="font-size:1.125rem;font-weight:600;margin-bottom:0.35rem;">—</div>
-        <div style="font-size:0.875rem;color:var(--muted);">Based on your recent transactions</div>
+        <div style="font-size:0.875rem;color:var(--muted);">A simple rule-of-thumb from the selected period, not a credit score or assessment of your financial risk.</div>
       </div>
     </div>
 
@@ -75,7 +76,7 @@
       </div>
 
       <div class="card">
-        <div class="section-title">Recurring bills</div>
+        <div class="section-title">Recurring bills · full uploaded history</div>
         <div id="bills-list"></div>
       </div>
     </div>
@@ -95,8 +96,8 @@
 
 
   const CHART_COLORS = [
-    '#7c6fff','#22c55e','#f59e0b','#ef4444','#06b6d4',
-    '#a855f7','#f97316','#84cc16','#ec4899','#14b8a6',
+ '#7c6fff','#22c55e','#f59e0b','#ef4444','#06b6d4',
+ '#a855f7','#f97316','#84cc16','#ec4899','#14b8a6',
   ];
 
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -107,6 +108,11 @@
     document.getElementById('content').style.display = 'block';
 
     const { analysis, bills } = data;
+    const empty = Boolean(data.period?.empty);
+    document.getElementById('empty-window').style.display = empty ? 'block' : 'none';
+    document.getElementById('risk-card').style.display = empty ? 'none' : 'flex';
+    if (empty && chartInstance) { chartInstance.destroy(); chartInstance = null; }
+    if (empty) document.getElementById('category-legend').innerHTML = '';
 
     // Risk score
     const riskScore = analysis?.risk_score;

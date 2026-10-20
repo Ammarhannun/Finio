@@ -227,7 +227,7 @@ def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
     #    Bayes model has strictly less information than the thing that just
     #    abstained — and it does not abstain, it always returns its nearest
     #    label. On this account that put a $663 ENGIE energy bill in
-    #    "Food & Dining", which then also skewed the anomaly baseline and left
+    # "Food & Dining", which then also skewed the anomaly baseline and left
     #    Housing & Rent showing $15. An honest "Other" is better: it is what
     #    the quiz asks about, and what Re-classify can revisit.
     unknown_mask = expense_mask & df["category"].isna()

@@ -136,8 +136,10 @@ Phase 7 — API layer (DONE)
   - api/deps.py — JWT auth via Supabase
   - schemas.py — request models
   - project-plan/supabase_schema.sql — table + RLS reference
-Phase 8 — Frontend [NEXT]
-Phase 9 — Deploy (GitHub → Railway + Vercel)
+Phase 8 — Frontend (DONE; launch onboarding, demo, privacy and account controls added)
+Phase 9 — Deploy (local hardening/checks ready; live migration/auth/hosting pending)
+  - Next: DEPLOY.md staging checklist, backed-up migrations 001–004, host configuration,
+    email callback/recovery test, two-account isolation and end-to-end upload verification.
 
 ## Important rules
 - Keep `.cursor/rules/finio.mdc` and this file in sync whenever phase progress changes

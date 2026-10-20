@@ -31,10 +31,12 @@ log = logging.getLogger("finio")
 
 def warn(what, exc, *, hint=None):
     """Record a non-fatal degradation. `what` names the feature that fell back."""
-    detail = f"{type(exc).__name__}: {exc}"
+    # Provider/database exception messages can contain prompts, financial data
+    # or key fragments. Keep operational metadata, never raw exception bodies.
+    detail = type(exc).__name__
     log.warning("%s unavailable — %s%s", what, detail, f" ({hint})" if hint else "")
 
 
 def debug(what, exc):
     """An expected, uninteresting fallback (e.g. an optional column missing)."""
-    log.debug("%s fell back — %s: %s", what, type(exc).__name__, exc)
+    log.debug("%s fell back — %s", what, type(exc).__name__)

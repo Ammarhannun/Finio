@@ -11,7 +11,7 @@ from config import EMBED_MODEL
 
 
 def has_embeddings():
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(os.getenv("OPENAI_API_KEY")) and os.getenv("FINIO_DISABLE_LLM", "").lower() not in ("1", "true", "yes")
 
 
 _client = None
@@ -21,7 +21,7 @@ def _get_client():
     global _client
     if _client is None:
         from openai import OpenAI
-        _client = OpenAI()
+        _client = OpenAI(timeout=20.0, max_retries=1)
     return _client
 
 
@@ -30,7 +30,7 @@ def embed_texts(texts):
 
     Returns a list of float vectors aligned to `texts`, or None if there's no
     key or the call fails (callers then fall back gracefully).
-    """
+ """
     if not texts or not has_embeddings():
         return None
     try:

@@ -127,6 +127,8 @@ def extract_transactions(path):
     """Parse a text-based PDF into a date/description/amount/balance DataFrame."""
     lines = []
     with pdfplumber.open(path) as pdf:
+        if len(pdf.pages) > 200:
+            raise ValueError("PDF statements must contain no more than 200 pages.")
         for page in pdf.pages:
             text = page.extract_text() or ""
             lines.extend(text.split("\n"))

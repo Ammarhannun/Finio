@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finio · Your data</title>
+  <!-- Same theme bootstrap as every other page. This page used to hardcode
+       data-theme="light", so clicking through from the dark landing page
+       flashed into a white document. -->
+  <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="index.html"><span class="brand">finio</span></a>
+  <div class="nav-right">
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
+    <a href="profile.html" class="btn btn-outline btn-sm">Your account</a>
+  </div>
+</nav>
+
+<main class="reading-page">
+  <div class="page-header">
+    <h1>Your data, explained</h1>
+    <p class="lede">What happens when you upload a statement — in plain terms.</p>
+  </div>
+
+  <!-- The short version first. Most people read this and stop, so the four
+       things that actually matter go up top rather than buried in prose. -->
+  <div class="priv-summary">
+    <div class="priv-point">
+      <span class="priv-icon" aria-hidden="true">⌂</span>
+      <div><b>No bank login.</b> You upload a file. Finio never connects to your bank
+        and never asks for banking credentials.</div>
+    </div>
+    <div class="priv-point">
+      <span class="priv-icon" aria-hidden="true">⚿</span>
+      <div><b>Separated by account.</b> Transactions live in a Supabase database with
+        row-level access rules, so one account cannot read another's rows.</div>
+    </div>
+    <div class="priv-point">
+      <span class="priv-icon" aria-hidden="true">✦</span>
+      <div><b>AI sees merchant text, not your file.</b> Descriptions, amounts and
+        frequency go to OpenAI for categorisation. The file itself never does.</div>
+    </div>
+    <div class="priv-point">
+      <span class="priv-icon" aria-hidden="true">⌫</span>
+      <div><b>You can export and delete.</b> Your profile has both, covering saved
+        financial data, preferences and chats.</div>
+    </div>
+  </div>
+
+  <h2 class="priv-rule">In detail</h2>
+
+  <section class="card priv-card">
+    <h2>Statements and transactions</h2>
+    <p>Finio parses uploaded CSVs and text-based PDFs on its backend. Temporary uploaded
+      files are removed after processing. Parsed transactions, balances, analysis,
+      preferences and coach conversations are stored in the operator's Supabase database,
+      separated by account access rules.</p>
+  </section>
+
+  <section class="card priv-card">
+    <h2>Spend Check</h2>
+    <p>You can enter a current available balance to calculate a rough purchase estimate.
+      That entered balance is sent to Finio's backend for this calculation but is not saved
+      in check history. Check history does save the item or merchant, purchase amount, date,
+      result and any projected balance.</p>
+    <p class="priv-note">A bank-statement balance may be out of date; neither estimate is
+      an approval to spend.</p>
+  </section>
+
+  <section class="card priv-card">
+    <h2>AI processing</h2>
+    <p>When AI is enabled, Finio sends merchant descriptions (including examples from the
+      original bank text), amounts and frequency information to OpenAI for categorisation.
+      Coach messages, selected financial context and relevant transaction details may also
+      be sent to answer your questions. Merchant names may be embedded for search. Uploaded
+      files themselves are parsed by Finio, not sent as files to the coach.</p>
+    <p class="priv-note">A statement description can include personal information. Only
+      upload data you are comfortable having processed by these services. OpenAI and
+      Supabase apply their own processing and retention policies.</p>
+  </section>
+
+  <section class="card priv-card">
+    <h2>Retention and control</h2>
+    <p>Finio retains your saved data until you delete it. Profile includes an export and a
+      control to delete saved financial data, preferences and chats from the live database.
+      Your login account remains available.</p>
+    <p>Uploading a replacement statement replaces the saved transaction history. Finio asks
+      you to review the date range and confirm this first. Your goals, budgets and correction
+      rules are retained.</p>
+    <p class="priv-note">Provider backups and operational records may persist according to
+      the operator's provider settings; deleting Finio data does not promise immediate
+      removal from provider backups.</p>
+  </section>
+
+  <section class="card priv-card">
+    <h2>Browser storage and third parties</h2>
+    <p>Your browser stores sign-in/session information and display preferences. The frontend
+      loads fonts and JavaScript libraries from external content providers. The sample
+      dashboard uses synthetic data and does not require a bank statement.</p>
+  </section>
+
+  <div class="priv-actions">
+    <a href="profile.html" class="btn btn-primary btn-sm">Manage my data</a>
+    <a href="demo.html" class="btn btn-outline btn-sm">Try synthetic sample data</a>
+  </div>
+
+  <p class="disclaimer">General information only, not financial advice</p>
+</main>
+
+<script type="module">
+  import { initThemeToggle } from './api.js';
+  initThemeToggle();
+</script>
+</body>
+</html>

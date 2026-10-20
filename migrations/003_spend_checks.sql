@@ -12,7 +12,7 @@ create table if not exists spend_checks (
     merchant    text,
     amount      numeric(12, 2) not null,
     days_ahead  integer,
-    verdict     text not null,                  -- green | yellow | red
+    verdict     text not null,                  -- green | yellow | red | unknown
     projected_balance numeric(12, 2),
     checked_at  timestamptz not null default now()
 );

@@ -30,120 +30,174 @@
     </p>
     <div class="hero-cta">
       <a href="login.html?signup=1" class="btn btn-primary">Start for free →</a>
-      <a href="login.html" class="btn btn-outline">I already have an account</a>
+      <a href="demo.html" class="btn btn-outline">Try a sample dashboard</a>
     </div>
     <p class="hero-note">No spreadsheets. Just drop in your statement and read your money at a glance.</p>
   </div>
 
+  <!-- Interactive decoder. Rather than asserting that Finio reads messy bank
+       text, let the visitor try it: tap a line, watch it get decoded. Every
+       merchant here is INVENTED — no real statement data belongs on a public
+       page. -->
   <div class="hero-art">
-    <div class="receipt" aria-hidden="true">
-      <div class="r-head" style="--i:0">FINIO</div>
-      <div class="r-sub" style="--i:1">SPENDING SUMMARY</div>
-      <div class="r-rule" style="--i:2"></div>
-      <div class="r-line" style="--i:3"><span>Groceries</span><span>$182.40</span></div>
-      <div class="r-line" style="--i:4"><span>Coffee x12</span><span>$58.00</span></div>
-      <div class="r-line" style="--i:5"><span>Transport</span><span>$96.30</span></div>
-      <div class="r-line" style="--i:6"><span>Subscriptions</span><span>$44.97</span></div>
-      <div class="r-line" style="--i:7"><span>Dining out</span><span>$120.10</span></div>
-      <div class="r-rule" style="--i:8"></div>
-      <div class="r-total" style="--i:9"><span>SAVED</span><span>$612.83</span></div>
-      <div class="r-barcode" style="--i:10"></div>
-      <div class="r-thanks" style="--i:11">THANK YOU FOR SAVING</div>
-      <div class="receipt-scan"></div>
+    <div class="decoder">
+      <div class="dec-head">
+        <span class="dec-eyebrow">Try it</span>
+        <span class="dec-hint">tap a line from a bank statement</span>
+      </div>
+
+      <div class="dec-chips" role="group" aria-label="Sample bank statement lines">
+        <button type="button" class="dec-chip is-on" data-k="coffee">SQ *BLUE WREN ROASTERS 4471</button>
+        <button type="button" class="dec-chip" data-k="fuel">BP CONNECT WESTGATE 2210</button>
+        <button type="button" class="dec-chip" data-k="payid">PAYID FROM J. MERCER</button>
+        <button type="button" class="dec-chip" data-k="power">NORTHWIND ENERGY 884120</button>
+      </div>
+
+      <div class="dec-out" id="dec-out" aria-live="polite">
+        <!-- filled by script; this markup is the no-JS fallback -->
+        <div class="dec-row"><span class="dec-label">Merchant</span><span class="dec-val" id="dec-name">Blue Wren Roasters</span></div>
+        <div class="dec-row"><span class="dec-label">Category</span><span class="dec-tag" id="dec-cat">Food &amp; Dining</span></div>
+        <p class="dec-why" id="dec-why">The <b>SQ *</b> prefix is the card machine, not the shop. Finio strips it and reads the name underneath.</p>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="how">
-  <h2 class="reveal">How it works</h2>
-  <p class="sub reveal">Three steps, about two minutes.</p>
-  <div class="how-grid">
-    <div class="how-step reveal">
-      <span class="how-num">1</span>
-      <h3>Drop in your statement</h3>
-      <p>Export a CSV or PDF from your banking app and upload it. Finio reads the
-        formats real banks actually export.</p>
-    </div>
-    <div class="how-step reveal">
-      <span class="how-num">2</span>
-      <h3>Finio sorts it, and asks when unsure</h3>
-      <p>AI cleans up the merchant names and categorises every transaction. When it
-        genuinely cannot tell what something is, it asks you a handful of short
-        questions instead of guessing.</p>
-    </div>
-    <div class="how-step reveal">
-      <span class="how-num">3</span>
-      <h3>See what you actually do with money</h3>
-      <p>What you usually earn, spend and keep. Where it goes. What is coming.
-        Then ask your coach anything, or tell it to fix something.</p>
-    </div>
-  </div>
-</section>
+<!-- ───────────────────────────────────────────────────────────────────────
+     The scroll story. Finio's whole idea is "your money on one little
+     receipt", so rather than describing the product in feature cards, the
+     receipt prints ITSELF as you scroll: raw bank gibberish goes in, and you
+     watch it turn into clean, categorised lines. That transformation IS the
+     product, so it is shown rather than claimed.
 
-<section class="features">
-  <h2 class="reveal">Everything your statement was hiding</h2>
-  <p class="sub reveal">One upload, six honest answers.</p>
-  <div class="feature-grid">
-    <div class="feature-slip reveal">
-      <span class="emoji">≡</span>
-      <h3>Spending that adds up</h3>
-      <p>Transfers stripped out, merchant names cleaned, every dollar sorted by AI
-        into a category you recognise. Correct it once and it remembers forever.</p>
+     The <ol> carries the meaning for screen readers and for anyone with
+     animation turned off; the receipt is decorative and mirrors it.
+──────────────────────────────────────────────────────────────────────── -->
+<section class="story" id="story" data-active="1">
+  <div class="story-head reveal">
+    <h2>Watch it work</h2>
+    <p class="sub">Scroll. This is the whole product, in five steps.</p>
+  </div>
+
+  <div class="story-inner">
+    <!-- Sticky paper: stays put while the steps scroll past it. -->
+    <div class="story-paper">
+      <div class="receipt sreceipt" aria-hidden="true">
+        <div class="r-head">FINIO</div>
+        <div class="r-sub"><span class="s-caption">YOUR STATEMENT</span></div>
+        <div class="r-rule"></div>
+
+        <div class="srows">
+          <div class="srow" data-from="1">
+            <span class="srow-raw">CALTEX WOOLWORTHS FUEL SVC</span>
+            <span class="srow-clean"><span class="srow-cat">Transport</span><span class="srow-amt">$72.40</span></span>
+          </div>
+          <div class="srow" data-from="1">
+            <span class="srow-raw">SQ *THE COFFEE EMPORIUM NEWT</span>
+            <span class="srow-clean"><span class="srow-cat">Food &amp; Dining</span><span class="srow-amt">$5.80</span></span>
+          </div>
+          <div class="srow" data-from="1">
+            <span class="srow-raw">ENGIE ENERGY AU</span>
+            <span class="srow-clean"><span class="srow-cat">Electricity</span><span class="srow-amt">$663.73</span></span>
+          </div>
+          <div class="srow" data-from="1">
+            <span class="srow-raw">UBER *EATS HELP.UBER.C SYD</span>
+            <span class="srow-clean"><span class="srow-cat">Food &amp; Dining</span><span class="srow-amt">$31.00</span></span>
+          </div>
+          <div class="srow srow-ask" data-from="1">
+            <span class="srow-raw">FAST TRANSFER FROM SAM R</span>
+            <span class="srow-clean"><span class="srow-cat">Transfer</span><span class="srow-amt">not spending</span></span>
+          </div>
+        </div>
+
+        <!-- Step 3: the one it genuinely cannot tell. -->
+        <div class="s-quiz" data-from="3">
+          <div class="s-quiz-q">Is this money in, or your own transfer?</div>
+          <div class="s-quiz-opts"><span>Income</span><span class="picked">Transfer</span></div>
+        </div>
+
+        <div class="r-rule" data-from="4"></div>
+        <div class="r-line" data-from="4"><span>Usual income</span><span>$4,539</span></div>
+        <div class="r-line" data-from="4"><span>Usual spending</span><span>$2,897</span></div>
+        <div class="r-total" data-from="4"><span>KEPT</span><span>$1,642</span></div>
+
+        <!-- Step 5: the coach, printed on the same paper. -->
+        <div class="s-coach" data-from="5">
+          <div class="s-coach-q">“Can I afford a $900 laptop?”</div>
+          <div class="s-coach-a">Yes — you would still keep <b>$742</b> this month.</div>
+        </div>
+
+        <div class="r-barcode" data-from="4"></div>
+      </div>
     </div>
-    <div class="feature-slip reveal">
-      <span class="emoji">◷</span>
-      <h3>What you usually spend</h3>
-      <p>Not one noisy month. Your typical day, week and month, averaged across your
-        whole history, plus a chart of how it is changing.</p>
-    </div>
-    <div class="feature-slip reveal">
-      <span class="emoji">↻</span>
-      <h3>Bills and odd charges</h3>
-      <p>Finio finds the charges that keep repeating, and flags anything unusually
-        large for you before it becomes a nasty surprise.</p>
-    </div>
-    <div class="feature-slip reveal">
-      <span class="emoji">◎</span>
-      <h3>Goals you can actually hit</h3>
-      <p>Pick a pace, not a random number. Every target shows what it costs per month
-        and whether your saving already covers it.</p>
-    </div>
-    <div class="feature-slip reveal">
-      <span class="emoji">❝</span>
-      <h3>A coach that can act</h3>
-      <p>Ask anything about your money in plain English. Tell it to set a budget or
-        recategorise something and it does the work, with your one click to confirm.</p>
-    </div>
-    <div class="feature-slip reveal">
-      <span class="emoji">↗</span>
-      <h3>Know when you can invest</h3>
-      <p>A clear checklist of what stands between you and investing, how close you
-        are, and roughly when you will get there. Information, never pressure.</p>
-    </div>
+
+    <!-- The steps. These are the real content. -->
+    <ol class="story-steps">
+      <li class="story-step" data-step="1">
+        <span class="story-num">1</span>
+        <h3>Drop in your statement</h3>
+        <p>Export a CSV or PDF from your banking app. Finio reads the formats real
+          banks actually export — no bank login, no spreadsheet.</p>
+      </li>
+      <li class="story-step" data-step="2">
+        <span class="story-num">2</span>
+        <h3>It cleans the mess and sorts it</h3>
+        <p>Watch the lines change. <b>CALTEX WOOLWORTHS FUEL</b> is fuel, not
+          groceries. An AI reads every merchant, strips the card-machine noise and
+          files it where it belongs.</p>
+      </li>
+      <li class="story-step" data-step="3">
+        <span class="story-num">3</span>
+        <h3>It asks when it genuinely can’t tell</h3>
+        <p>Money from a friend could be income or just your own transfer. Finio
+          won’t guess at that — it asks a couple of short questions, and remembers
+          your answer forever.</p>
+      </li>
+      <li class="story-step" data-step="4">
+        <span class="story-num">4</span>
+        <h3>You see what you actually do</h3>
+        <p>What you <i>usually</i> earn, spend and keep — averaged over your whole
+          history, not one noisy month. Transfers between your own accounts never
+          count as spending.</p>
+      </li>
+      <li class="story-step" data-step="5">
+        <span class="story-num">5</span>
+        <h3>Then ask it anything</h3>
+        <p>Ask in plain English whether you can afford something. Tell it to set a
+          budget or recategorise a merchant and it does the work — you just confirm.</p>
+      </li>
+    </ol>
   </div>
 </section>
 
 <section class="trust reveal">
   <h2>Your statement stays yours</h2>
+  <p class="sub">The three questions people actually ask before uploading a bank file.</p>
+
+  <!-- Framed as questions, because that is how someone decides whether to
+       trust this with a bank statement. The full detail is one click away
+       rather than compressed into a bullet. -->
   <div class="trust-grid">
     <div class="trust-item">
-      <span class="trust-mark">◆</span>
-      <div><b>Your own database.</b> Finio runs on your Supabase project, with
-        row-level security so only your account can read your rows.</div>
+      <div class="trust-q">Do you need my bank login?</div>
+      <p>No. You upload a file you exported yourself. Finio never connects to your
+        bank and never asks for banking credentials.</p>
     </div>
     <div class="trust-item">
-      <span class="trust-mark">◆</span>
-      <div><b>Never sold, never shared.</b> No ads, no data brokers, no bank logins.
-        You upload a file; that is the whole handshake.</div>
+      <div class="trust-q">Who can see my transactions?</div>
+      <p>Only you. Rows live in a Supabase database with row-level access rules, so
+        one account cannot read another's data.</p>
     </div>
     <div class="trust-item">
-      <span class="trust-mark">◆</span>
-      <div><b>General information only.</b> Finio explains your money and the
-        concepts behind it. It will not tell you what to buy.</div>
+      <div class="trust-q">What does the AI get?</div>
+      <p>Merchant descriptions, amounts and frequency — never the file itself. It
+        categorises and answers questions; it never tells you what to buy.</p>
     </div>
   </div>
+
   <div class="trust-cta">
     <a href="login.html?signup=1" class="btn btn-primary">Start for free →</a>
+    <a href="privacy.html" class="btn btn-outline">Read how your data is used</a>
   </div>
 </section>
 
@@ -160,9 +214,9 @@
   // Already signed in? Jump straight to the dashboard.
   getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
 
-  // Reveal feature slips as they scroll into view. Content is visible by
-  // default — html.js opts INTO the animation, and a safety timer force-shows
-  // everything so nothing can ever stay invisible.
+  // Reveal blocks as they scroll into view. Content is visible by default —
+  // html.js opts INTO the animation, and a safety timer force-shows everything
+  // so nothing can ever stay invisible.
   if ('IntersectionObserver' in window) {
     document.documentElement.classList.add('js');
     const io = new IntersectionObserver((entries) => {
@@ -171,6 +225,152 @@
     document.querySelectorAll('.reveal').forEach(el => io.observe(el));
     setTimeout(() => document.querySelectorAll('.reveal').forEach(el => el.classList.add('in', 'force')), 2500);
   }
+
+  // ── Hero decoder ────────────────────────────────────────────────────────
+  // Tap a statement line, see what Finio makes of it. Every example is
+  // invented; real statement data must never ship on a public page.
+  (function decoder() {
+    const DECODES = {
+      coffee: {
+        name: 'Blue Wren Roasters',
+        cat: 'Food &amp; Dining',
+        tone: 'ok',
+        why: 'The <b>SQ *</b> prefix is the card machine, not the shop. Finio strips it and reads the name underneath.',
+      },
+      fuel: {
+        name: 'BP Connect',
+        cat: 'Transport',
+        tone: 'ok',
+        why: 'A service station. It sells coffee and pies, but you went for fuel — so it is Transport, not Groceries.',
+      },
+      payid: {
+        name: 'J. Mercer',
+        cat: 'Finio asks you',
+        tone: 'ask',
+        why: 'Money in from a person could be income, or just your own account. Finio will not guess at that — it asks once and remembers.',
+      },
+      power: {
+        name: 'Northwind Energy',
+        cat: 'Housing &amp; Rent',
+        tone: 'ok',
+        why: 'A power bill. That long number is a customer reference, not part of the name — utilities belong with housing.',
+      },
+    };
+
+    const chips = [...document.querySelectorAll('.dec-chip')];
+    const nameEl = document.getElementById('dec-name');
+    const catEl = document.getElementById('dec-cat');
+    const whyEl = document.getElementById('dec-why');
+    const out = document.getElementById('dec-out');
+    if (!chips.length || !out) return;
+
+    const show = (key) => {
+      const d = DECODES[key];
+      if (!d) return;
+      // Content updates SYNCHRONOUSLY. Deferring it to requestAnimationFrame
+      // meant the answer lagged a click behind whenever rAF was throttled, and
+      // never updated at all while the page was hidden — the text is the
+      // point, so it must not depend on an animation frame.
+      nameEl.textContent = d.name;
+      catEl.innerHTML = d.cat;
+      catEl.dataset.tone = d.tone;
+      whyEl.innerHTML = d.why;
+      // Restart the entrance by forcing a reflow between the two classes.
+      out.classList.remove('is-in');
+      void out.offsetWidth;
+      out.classList.add('is-in');
+    };
+
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.toggle('is-on', c === chip));
+        show(chip.dataset.k);
+      });
+    });
+    out.classList.add('is-in');
+  })();
+
+  // ── The scroll story ────────────────────────────────────────────────────
+  // One attribute drives the whole thing: .story[data-active="N"]. CSS owns
+  // every visual consequence, so there is no scroll-position arithmetic here
+  // to drift out of step with the layout.
+  (function story() {
+    const section = document.getElementById('story');
+    if (!section) return;
+    const steps = [...section.querySelectorAll('.story-step')];
+    if (!steps.length) return;
+
+    const setStep = (n) => {
+      if (section.dataset.active === String(n)) return;
+      section.dataset.active = String(n);
+      steps.forEach(s => s.classList.toggle('active', s.dataset.step === String(n)));
+    };
+
+    // Without IntersectionObserver (or with motion turned off) show the
+    // finished receipt rather than a half-printed one.
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!('IntersectionObserver' in window) || reduced) {
+      setStep(5);
+      steps.forEach(s => s.classList.add('active'));
+      return;
+    }
+
+    // A step becomes active once its top crosses the trigger line, and the
+    // LAST such step wins.
+    //
+    // Two earlier attempts were wrong in instructive ways. A thin
+    // IntersectionObserver band skipped steps, because the callback only
+    // reports entries that changed — when one step left the band without
+    // another entering in the same batch, the active step stuck. Nearest-to-
+    // viewport-centre then failed at the end of the page: fully scrolled, the
+    // last step's centre was still ~400px above the middle, so it could never
+    // win and the story stopped at step 3. A "has it passed the line" rule has
+    // neither problem — it is monotonic, and the final step stays active all
+    // the way to the bottom however short the remaining page is.
+    // Where the trigger line sits, as a fraction down the viewport. In the
+    // stacked phone layout the receipt is pinned across the top of the screen,
+    // so the step being read is much lower down and the line has to follow.
+    //
+    // Measuring the receipt to find that line seemed smarter and was wrong: on
+    // a phone the receipt GROWS as it prints, so the line moved as a result of
+    // the step changing, which pushed further steps past it — a feedback loop
+    // that skipped step 4 entirely. A fixed fraction per layout has no such
+    // coupling.
+    const stacked = () => getComputedStyle(section.querySelector('.story-inner'))
+      .gridTemplateColumns.split(' ').length === 1;
+    const triggerLine = () => window.innerHeight * (stacked() ? 0.8 : 0.58);
+
+    let queued = false;
+    const update = () => {
+      queued = false;
+      const line = triggerLine();
+      let active = steps[0];
+      for (const step of steps) {
+        if (step.getBoundingClientRect().top <= line) active = step;
+      }
+      setStep(Number(active.dataset.step));
+    };
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      // requestAnimationFrame is PAUSED in a hidden or backgrounded tab. Used
+      // on its own it never fires there, so `queued` stays true forever and the
+      // handler is permanently dead even after the tab comes back. setTimeout
+      // keeps running, so it is the safe fallback whenever the page is hidden.
+      if (document.hidden) setTimeout(update, 16);
+      else requestAnimationFrame(update);
+    };
+
+    // Listen unconditionally. This was gated behind an IntersectionObserver
+    // so it only ran while the story was on screen — but that made the whole
+    // feature depend on IO callbacks being delivered, and they are not while a
+    // page is hidden, so the listener could end up never attached at all. The
+    // work it saves is one getBoundingClientRect over five elements, already
+    // throttled to a frame. Not worth a failure mode.
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onScroll, { passive: true });
+    update();
+  })();
 </script>
 </body>
 </html>

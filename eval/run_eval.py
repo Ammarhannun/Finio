@@ -12,7 +12,7 @@ Run from the project root:
 
     source venv/bin/activate
     python -m eval.run_eval              # all suites
-    python -m eval.run_eval --no-coach   # offline only (no API calls)
+    FINIO_DISABLE_LLM=1 python -m eval.run_eval --no-coach # offline (no API calls)
 
 Results are appended to eval/results/<timestamp>.json so regressions are
 traceable over time.
@@ -105,7 +105,7 @@ def eval_holdout():
         model-first                     86.7%
 
     Those two numbers look nearly identical on the tuned set. They are not.
-    """
+ """
     import pandas as pd
 
     from modules.categoriser import categorise_data

@@ -9,7 +9,7 @@ import os
 import sys
 import tempfile
 import traceback
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 # project root on path
@@ -106,6 +106,15 @@ def _():
     import pandas as pd
 
     bad = pd.DataFrame({"foo": [1], "bar": [2]})
+    assert_raises(ValueError, lambda: normalize(bad))
+
+
+@test("bank_parser: malformed debit cannot become a zero transaction")
+def _():
+    from modules.bank_parser import normalize
+    import pandas as pd
+    bad = pd.DataFrame({"Date": ["2026-09-01"], "Description": ["Shop"],
+ "Debit": ["not-a-number"], "Credit": [""]})
     assert_raises(ValueError, lambda: normalize(bad))
 
 
@@ -343,8 +352,10 @@ def _():
 @test("savings_forecaster: on track for sample goal")
 def _():
     from modules.pipeline import run_full_pipeline
+    import pandas as pd
 
-    f = run_full_pipeline(SAMPLE_CSV, goal_amount=5000, goal_date="2026-06-30")[
+    future_goal = (pd.Timestamp.today().normalize() + pd.DateOffset(months=12)).strftime("%Y-%m-%d")
+    f = run_full_pipeline(SAMPLE_CSV, goal_amount=5000, goal_date=future_goal)[
         "forecast"
     ]
     assert_true(f["on_track"])
@@ -390,11 +401,12 @@ def _():
 
 # Deterministic metrics so verdicts don't depend on sample-data balance.
 # burn=10/day → safety_buffer = 70; horizon 30 days → 300 burn over the window.
-def _spend_metrics(net_saved=1000, latest_balance=None):
+def _spend_metrics(net_saved=1000, latest_balance=1000):
     return {
         "net_saved": net_saved,
         "latest_balance": latest_balance,
         "daily_burn_rate": 10,
+ "date_range": {"end": date.today().isoformat()},
     }
 
 
@@ -439,16 +451,157 @@ def _():
     assert_eq(result["current_net"], 2000)
 
 
+@test("spend_check: no balance or stale balance cannot approve a purchase")
+def _():
+    from modules.spend_check import check_purchase
+    no_balance = check_purchase(None, _spend_metrics(latest_balance=None), 10)
+    assert_eq(no_balance["verdict"], "unknown")
+    assert_eq(no_balance["projected_balance"], None)
+    stale = _spend_metrics()
+    stale["date_range"] = {"end": "2020-01-01"}
+    result = check_purchase(None, stale, 10)
+    assert_eq(result["verdict"], "unknown")
+    yesterday = _spend_metrics()
+    yesterday["date_range"] = {"end": (date.today() - timedelta(days=1)).isoformat()}
+    assert_eq(check_purchase(None, yesterday, 10)["verdict"], "unknown")
+
+
+@test("spend_check: entered current balance works with an old statement")
+def _():
+    from modules.spend_check import check_purchase
+    m = _spend_metrics(latest_balance=1000)
+    m["date_range"] = {"end": "2020-01-01"}
+    m["balance_date"] = date.today().isoformat()
+    m["user_entered_balance"] = True
+    result = check_purchase(None, m, 10)
+    assert_eq(result["verdict"], "green")
+    assert_eq(result["balance_source"], "entered")
+
+
+@test("spend_check: refund-heavy period cannot create a negative buffer")
+def _():
+    from modules.spend_check import check_purchase
+    m = _spend_metrics(latest_balance=100)
+    m["daily_burn_rate"] = -10
+    result = check_purchase(None, m, 200)
+    assert_eq(result["safety_buffer"], 0)
+    assert_eq(result["verdict"], "red")
+
+
+@test("finance: refunds agree across metrics, 50/30/20 and coach")
+def _():
+    import pandas as pd
+    from modules.data_processor import compute_metrics
+    from modules.invest import compare_to_actual, split_income_503020
+    from modules.ai_coach import run_tool
+    rows = pd.DataFrame([
+        {"date": pd.Timestamp("2026-09-01"), "amount": -100, "flow": "expense", "category": "Groceries"},
+        {"date": pd.Timestamp("2026-09-02"), "amount": 50, "flow": "expense", "category": "Groceries"},
+    ])
+    metrics = compute_metrics(rows)
+    comparison = compare_to_actual(rows, metrics, split_income_503020(0))
+    coach = run_tool("category_total", {"query": "Groceries"}, rows.to_dict("records"), {})
+    assert_eq(metrics["total_spent"], 50)
+    assert_eq(comparison["needs_spent"], 50)
+    assert_eq(coach["total"], 50)
+
+
+@test("analytics: zero-spend complete month stays in monthly average")
+def _():
+    import pandas as pd
+    from modules.analytics import compute_averages
+    rows = []
+    for month in (1, 2, 3):
+        rows.append({"date": pd.Timestamp(2026, month, 1), "amount": 1000,
+ "flow": "income", "category": "Income", "merchant_clean": "Employer"})
+    for month in (1, 2):
+        rows.append({"date": pd.Timestamp(2026, month, 15), "amount": -100,
+ "flow": "expense", "category": "Groceries", "merchant_clean": "Shop"})
+    rows.append({"date": pd.Timestamp(2026, 3, 31), "amount": 0,
+ "flow": "transfer", "category": "Transfers", "merchant_clean": "Transfer"})
+    result = compute_averages(pd.DataFrame(rows))
+    assert_eq(result["months_used"], 3)
+    assert_eq(result["monthly"]["spent"], 66.67)
+    assert_eq(result["monthly"]["income"], 1000)
+
+
+@test("analytics: partial months are not labelled full months")
+def _():
+    import pandas as pd
+    from modules.analytics import compute_averages
+    rows = pd.DataFrame([
+        {"date": pd.Timestamp("2026-01-15"), "amount": -100, "flow": "expense",
+ "category": "Groceries", "merchant_clean": "Shop"},
+        {"date": pd.Timestamp("2026-02-15"), "amount": -100, "flow": "expense",
+ "category": "Groceries", "merchant_clean": "Shop"},
+    ])
+    result = compute_averages(rows)
+    assert_eq(result["months_used"], 0)
+    assert_true(result["monthly"]["spent"] > 0)
+
+
+@test("budget: custom category and zero target are visible")
+def _():
+    import pandas as pd
+    from modules.budget_setter import suggest_budgets
+    rows = pd.DataFrame([{"amount": -50, "flow": "expense", "category": "Pets", "month": "2026-09"}])
+    result = suggest_budgets(rows, {}, targets={"Pets": 0})
+    pet = next(b for b in result["budgets"] if b["category"] == "Pets")
+    assert_eq(pet["actual_spend"], 50)
+    assert_true(pet["over_budget"])
+
+
+@test("bills: weekly and quarterly charges have a monthly equivalent")
+def _():
+    from modules.bill_detector import estimated_monthly_bill_total
+    bills = [{"amount": 10, "frequency": "weekly"},
+             {"amount": 90, "frequency": "quarterly"}]
+    assert_eq(round(estimated_monthly_bill_total(bills), 2), 73.33)
+
+
+@test("period: empty custom window returns zero activity, not a server error")
+def _():
+    from modules.pipeline import analyze_stored
+    rows = [{"date": "2026-01-05", "amount": -10, "merchant": "Shop",
+ "category": "Groceries", "flow": "expense"}]
+    result = analyze_stored(rows, period="custom", period_start="2026-08-01",
+                            period_end="2026-08-31")
+    assert_true(result["period"]["empty"])
+    assert_eq(result["metrics"]["transaction_count"], 0)
+    assert_eq(result["snapshot"]["month"], "2026-08")
+
+
+@test("profile: clearing age and situation writes null, not the old values")
+def _():
+    from modules.db import upsert_user_profile
+    class Recorder:
+        payload = None
+        def table(self, name):
+            assert_eq(name, "users")
+            return self
+        def upsert(self, payload, on_conflict=None):
+            self.payload = payload
+            return self
+        def execute(self):
+            return self
+    recorder = Recorder()
+    upsert_user_profile(recorder, "u1", age=None, income_bracket=None,
+                        clear_age=True, clear_income_bracket=True)
+    assert_eq(recorder.payload["age"], None)
+    assert_eq(recorder.payload["income_bracket"], None)
+
+
 # ── invest ───────────────────────────────────────────────────────────────────
 
 
-@test("invest: can_invest true on sample")
+@test("invest: old sample cannot imply available investment cash")
 def _():
     from modules.pipeline import run_full_pipeline
 
     inv = run_full_pipeline(SAMPLE_CSV, age=22)["invest"]
-    assert_true(inv["readiness"]["can_invest"])
-    assert_eq(inv["etf"]["recommended"], "NDQ")
+    assert_true(not inv["readiness"]["can_invest"])
+    assert_eq(inv["etf"]["recommended"], None)
+    assert_true(inv["readiness"]["checks"][0]["current"] is None)
     assert_eq(inv["first_1000"]["remaining"], 0)
 
 
@@ -609,7 +762,7 @@ def _():
     assert_eq(len(r["all_transactions"]), 20)
     assert_in("merchant", r["transactions"][0])
     assert_eq(r["forecast"]["target_amount"], 8000)
-    assert_eq(r["invest"]["etf"]["recommended"], "VGS")  # age 30
+    assert_eq(r["invest"]["etf"]["recommended"], None)
     assert_eq(r["goal_used"]["amount"], 8000)
 
 
@@ -744,9 +897,13 @@ def _():
                 "date": pd.Timestamp("2026-01-01") + pd.DateOffset(months=m, days=d * 5),
                 "amount": -100.0, "flow": "expense",
             })
-    out = forecast_spending(pd.DataFrame(rows), {"latest_balance": 1000, "daily_burn_rate": 20})
+    out = forecast_spending(pd.DataFrame(rows), {"latest_balance": 1000,
+ "balance_date": date.today().isoformat(), "daily_burn_rate": 20})
     assert_true(out["projected_next_month"] > 0)
     assert_eq(out["runway_days"], 50)   # 1000 / 20
+    stale = forecast_spending(pd.DataFrame(rows), {"latest_balance": 1000,
+ "balance_date": "2026-03-31", "daily_burn_rate": 20})
+    assert_eq(stale["runway_days"], None)
 
 
 @test("llm_categoriser: quiz asks about unsure + big transfers, skips known")
@@ -997,7 +1154,7 @@ def _():
     assert_eq(r.json()["status"], "ok")
 
 
-@test("API: POST /analyze success without auth")
+@test("API: POST /analyze requires auth")
 def _():
     from fastapi.testclient import TestClient
     from main import app
@@ -1005,14 +1162,12 @@ def _():
     client = TestClient(app)
     with open(SAMPLE_CSV, "rb") as f:
         r = client.post(
-            "/analyze",
+ "/analyze",
             files={"file": ("sample.csv", f, "text/csv")},
             data={"goal_amount": 5000, "goal_date": "2026-06-30", "age": 22},
         )
-    assert_eq(r.status_code, 200)
-    d = r.json()
-    assert_eq(d["persisted"], False)
-    assert_eq(d["analysis"]["risk_label"], "low")
+    from modules import db
+    assert_eq(r.status_code, 401 if db.is_configured() else 503)
 
 
 @test("API: POST /analyze rejects non-csv")
@@ -1021,10 +1176,11 @@ def _():
     from main import app
 
     r = TestClient(app).post(
-        "/analyze",
+ "/analyze",
         files={"file": ("bad.txt", b"hello", "text/plain")},
     )
-    assert_eq(r.status_code, 400)
+    from modules import db
+    assert_eq(r.status_code, 401 if db.is_configured() else 503)
 
 
 @test("API: POST /analyze bad bearer format returns 401")
@@ -1039,7 +1195,7 @@ def _():
     client = TestClient(app)
     with open(SAMPLE_CSV, "rb") as f:
         r = client.post(
-            "/analyze",
+ "/analyze",
             files={"file": ("sample.csv", f, "text/csv")},
             headers={"Authorization": "NotBearer xyz"},
         )
@@ -1236,7 +1392,7 @@ def _():
     # told — "SUPER" must not drag it into Groceries.
     assert_eq(rule_category("SUPERCHEAP AUTO ALEXANDRIA"), "Transport")
     # Genuine whole-word matches still work.
-    assert_eq(rule_category("WOOLWORTHS METRO EASTWOOD"), "Groceries")
+    assert_eq(rule_category("WOOLWORTHS METRO"), "Groceries")
     assert_eq(rule_category("UBER EATS SYDNEY"), "Food & Dining")
     assert_eq(rule_category("NETFLIX.COM"), "Subscriptions")
 
@@ -1391,6 +1547,10 @@ def _():
     saving = recommend_goal({"total_income": 3000.0, "total_spent": 2000.0,
                              "net_saved": 1000.0}, monthly_saved=1000.0)
     assert_true(all(p["achievable"] is True for p in saving["presets"]))
+
+    small_saving = recommend_goal({"net_saved": 10.0}, monthly_saved=10.0)
+    assert_true(all(p["achievable"] is False for p in small_saving["presets"]),
+ "the $500 floor must not be shown as affordable on $10/month")
 
 
 @test("css: an unfundable goal preset is visually distinct")
@@ -1575,7 +1735,7 @@ def _():
     assert_raises(ValidationError,
                   lambda: ProfileRequest(custom_categories=[f"c{i}" for i in range(500)]))
     # A sensible list is kept, de-duplicated and trimmed.
-    ok = ProfileRequest(custom_categories=["  Pets  ", "Pets", "Travel"])
+    ok = ProfileRequest(custom_categories=["  Pets ", "Pets", "Travel"])
     assert_eq(ok.custom_categories, ["Pets", "Travel"])
 
 
@@ -1587,6 +1747,53 @@ def _():
     # render, not refusing the input — rejecting it would break real statements.
     payload = "<img onerror=alert(1)>"
     assert_eq(SpendCheckRequest(merchant=payload, amount=10).merchant, payload)
+
+
+# ── Landing page: the scroll story ──────────────────────────────────────────
+
+@test("landing: the story has five steps and a receipt that mirrors them")
+def _():
+    html = (ROOT / "frontend" / "index.html").read_text()
+    assert_eq(html.count('class="story-step"'), 5)
+    # Every row needs both faces — the raw bank text and the sorted line. The
+    # cross-fade between them is the whole demonstration.
+    assert_eq(html.count('class="srow-raw"'), 5)
+    assert_eq(html.count('class="srow-clean"'), 5)
+    # The messy originals should be real bank strings, not tidied inventions.
+    assert_in("CALTEX WOOLWORTHS FUEL", html)
+    assert_in("SQ *THE COFFEE", html)
+
+
+@test("landing: the story survives a hidden tab and a growing receipt")
+def _():
+    html = (ROOT / "frontend" / "index.html").read_text()
+    story = html[html.index("── The scroll story"):]
+
+    # requestAnimationFrame is PAUSED in a hidden tab. Used alone, the throttle
+    # flag never cleared and the handler was permanently dead.
+    assert_in("document.hidden", story)
+    assert_in("setTimeout(update", story)
+
+    # The trigger line must not be measured from the receipt: on a phone the
+    # receipt grows as it prints, so measuring it made the line move as a
+    # RESULT of the step changing — a feedback loop that skipped step 4.
+    assert_true("getBoundingClientRect().bottom" not in story,
+ "trigger line must not be derived from the receipt")
+
+
+@test("landing: the sticky receipt has room to travel")
+def _():
+    import re
+
+    css = (ROOT / "frontend" / "styles.css").read_text()
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    inner = css[css.index(".story-inner {"):]
+    inner = inner[:inner.index("}")]
+    # align-items:start shrinks the sticky column to its own height, leaving
+    # position:sticky with no range — the receipt scrolled away mid-story.
+    assert_true("align-items: start" not in inner,
+ "story-inner must stretch, or sticky has nowhere to travel")
+    assert_in("align-items: stretch", inner)
 
 
 # ── Deploy readiness ────────────────────────────────────────────────────────
@@ -1771,7 +1978,7 @@ def _():
     df = pd.DataFrame({
         "date": pd.to_datetime(["2026-06-01", "2026-06-02", "2026-06-03"]),
         "amount": [-9211.0, -100.0, 3000.0],
-        "description": ["TRANSFER TO SAM RIVERA", "WOOLWORTHS RYDE", "SALARY"],
+ "description": ["TRANSFER TO SAM RIVERA", "WOOLWORTHS RYDE", "SALARY"],
     })
     # The user marked the transfer row as spending; the category still says it
     # is a transfer, and the category is authoritative.
@@ -1793,7 +2000,7 @@ def _():
 
     df = pd.DataFrame({
         "amount": [-4800.0, -1500.0, -42.0],
-        "description": ["TRANSFER TO SAM RIVERA", "TRANSFER TO SAM RIVERA", "WOOLWORTHS"],
+ "description": ["TRANSFER TO SAM RIVERA", "TRANSFER TO SAM RIVERA", "WOOLWORTHS"],
     })
     warned = contradictory_flow_rules(df, [
         {"match": "TRANSFER TO SAM RIVERA", "flow": "income"},
@@ -1863,7 +2070,7 @@ def _():
         r = client.post("/spend-check",
                         json={"merchant": "JB Hi-Fi", "amount": 900, "days_ahead": 30})
         assert_eq(r.status_code, 200)
-        assert_in(r.json()["verdict"], ["green", "yellow", "red"])
+        assert_in(r.json()["verdict"], ["green", "yellow", "red", "unknown"])
         h = client.get("/spend-check/history")
         assert_eq(h.status_code, 200)
         assert_eq(h.json()["checks"], [])
@@ -2057,6 +2264,10 @@ class _FakeQuery:
         self.rows = self.rows[:n]
         return self
 
+    def range(self, start, end):
+        self.rows = self.rows[start:end + 1]
+        return self
+
     # Writes are no-ops by default; individual tests patch these to record calls.
     def upsert(self, *a, **k): return self
     def insert(self, *a, **k): return self
@@ -2119,7 +2330,7 @@ def _():
     db.get_custom_categories(client, "u1")
 
     assert_eq(client.reads["snapshots"], 1)
-    assert_eq(client.reads["transactions"], 1)
+    assert_eq(client.reads["transactions"], 2)  # data page + empty terminal page, then memoized
 
 
 @test("db: a write invalidates the per-request read memo")

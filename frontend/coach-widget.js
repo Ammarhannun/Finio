@@ -435,9 +435,9 @@ export function mountCoachWidget(page) {
     profile: ['How much do I usually spend a month?', 'Am I on track to save?'],
   };
   const STARTERS_GENERAL = [
-    'How much did I spend last month?',
-    'What is my biggest category?',
-    'Set a $200 takeaway budget',
+ 'How much did I spend last month?',
+ 'What is my biggest category?',
+ 'Set a $200 takeaway budget',
   ];
 
   // A chat is never blank: an empty thread shows a welcome with one-tap
@@ -932,6 +932,7 @@ export function mountCoachWidget(page) {
     if (!open) {
       exitSplit({ keepOpen: false });
       setChatsOpen(false);
+      fab.focus();
       return;
     }
     applyDockSide(preferredSide());
@@ -987,7 +988,7 @@ export function mountCoachWidget(page) {
     autoGrow();                 // shrink back after sending
     addMsg('user', fmtMsg(msg), msg);
     const typing = addMsg(
-      'assistant typing',
+ 'assistant typing',
       `<span class="cw-coin" aria-label="Thinking">
         <span class="cw-coin-face"></span>
       </span>`

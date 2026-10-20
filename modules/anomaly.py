@@ -44,7 +44,7 @@ def _robust_scores(values):
     happens whenever more than half the charges are the same amount (a $25
     coffee every day), which is common in real statements and would otherwise
     make the whole category unscoreable.
-    """
+ """
     median = values.median()
     mad = (values - median).abs().median()
     if mad > 0:
@@ -73,10 +73,10 @@ def detect_anomalies(df, limit=5):
     is the question worth answering.
 
     Pass the user's FULL history so the baselines are stable.
-    """
+ """
     if df is None or df.empty or "flow" not in df.columns:
         return []
-    exp = df[df["flow"] == "expense"].copy()
+    exp = df[(df["flow"] == "expense") & (df["amount"] < 0)].copy()
     if exp.empty:
         return []
     exp["amt"] = exp["amount"].abs()
@@ -91,7 +91,7 @@ def detect_anomalies(df, limit=5):
         only the other leftovers would strand exactly the case this exists to
         catch — one big charge at a merchant never seen before, which has no
         history of its own to be measured against.
-        """
+ """
         scores, typical = _robust_scores(baseline["amt"])
         if scores is None:
             return []

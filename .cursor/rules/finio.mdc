@@ -37,7 +37,8 @@ Do this in the same turn as marking work done. Never leave the two files out of 
 | 5 Core logic | DONE |
 | 6 AI layer (`ai_coach.py`, OpenAI) | DONE |
 | 7 API layer (`main.py`, `db.py`, auth) | DONE |
-| 8–9 | Not started |
+| 8 Frontend | DONE; launch UX/account controls added |
+| 9 Deployment | Local hardening and checks ready; live migration/auth/hosting pending |
 
 ### Phase 5 modules
 
@@ -58,14 +59,20 @@ Do this in the same turn as marking work done. Never leave the two files out of 
 
 ## Next step
 
-Phase 8 — Frontend (5 pages: Dashboard, Patterns, Coach, Spend Check, Invest)
+Phase 9 — Run the staging checklist in DEPLOY.md: backup and apply migrations 001–004,
+configure backend/frontend origins and auth email callbacks, verify two test accounts, then deploy.
 
 ## Phase 7 API routes
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | GET | `/` | — | Health |
-| POST | `/analyze` | optional | CSV/PDF upload (file only) → full pipeline JSON + AI goal recommendation; persists if Bearer token |
+| POST | `/analyze` | required | CSV/PDF upload → atomic saved analysis; explicit confirmation to replace existing history |
+| POST | `/analyze/preview` | required | Read-only parse and date-range preview |
+| GET | `/ready` | — | Database/schema readiness |
+| GET | `/demo` | — | Fixed offline synthetic example |
+| GET | `/data/export` | required | Export own saved data |
+| POST | `/data/delete` | required | Typed confirmation deletes saved data; retains login account |
 | GET | `/dashboard` | required | Latest snapshot + streak + budgets + goal recommendation from Supabase |
 | GET | `/invest` | required | Invest summary + forecast + goal |
 | POST | `/goal` | required | Set/update savings goal (amount, date, age) → recomputes forecast + invest |
@@ -79,7 +86,7 @@ Schema reference: `project-plan/supabase_schema.sql`
 
 ```text
 POST /analyze → run_full_pipeline (parse → process → categorise → bills → forecast → analyze → budgets → invest → personality → snapshot)
-  → optional db.persist_analysis (transactions, snapshots, streaks, goals, budgets)
+  → atomic db.persist_analysis (transactions, snapshots, streaks, goals, budgets)
 ```
 
 Training data: `data/training_merchants.csv` (31 rows). Test data: `data/sample_transactions.csv`.

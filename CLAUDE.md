@@ -22,12 +22,16 @@ The owner (Ammar) is building this to learn.
 
 ## Status
 
-All phases are built and tested. 131 tests, plus an evaluation harness.
-Deployment config exists (`DEPLOY.md`) but the app is **not deployed yet**.
+Frontend/backend built. Launch hardening includes atomic uploads, explicit replacement,
+refund/balance preservation, pagination, authenticated bounded uploads and account controls.
+131 baseline checks plus launch regressions, database/RLS tests and an evaluation harness.
+Deployment config exists (`DEPLOY.md`); live migrations/auth/hosting are **not verified yet**.
 
 ```bash
 source venv/bin/activate
 python -m tests.test_full_suite     # 131 tests, offline (no API calls)
+python -m pytest tests/test_launch_safety.py -q
+npm ci --ignore-scripts && npm run test:database && npm run check:frontend
 python -m eval.run_eval             # categoriser + retrieval + coach quality
 ```
 
@@ -39,6 +43,9 @@ is what measures the model path.
 - Backend: Python + FastAPI (`main.py`), logic in `modules/`, constants in `config.py`.
 - Frontend: **vanilla HTML/CSS/JS, no framework**, in `frontend/`.
 - Never commit `.env`.
+- Python 3.11+. Install hashed `requirements.lock`; regenerate and re-audit after upgrades.
+- Apply schema + migrations 001–004 before running this release. `/ready` gates deployment.
+- Anonymous upload is forbidden; use `/demo` or `frontend/demo.html` for sample data.
 - Every page showing financial figures carries:
   **"General information only, not financial advice"** — as its own element,
   never appended to a sentence.

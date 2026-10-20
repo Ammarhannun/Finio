@@ -65,7 +65,7 @@ def _classify_interval(dates):
 
 def detect_bills(df):
     if "flow" in df.columns:
-        expenses = df[df["flow"] == FLOW_EXPENSE].copy()
+        expenses = df[(df["flow"] == FLOW_EXPENSE) & (df["amount"] < 0)].copy()
     else:
         expenses = df[df["amount"] < 0].copy()
     if expenses.empty:
@@ -95,3 +95,11 @@ def detect_bills(df):
 
     bills.sort(key=lambda b: b["amount"], reverse=True)
     return bills
+
+
+def estimated_monthly_bill_total(bills):
+    """Normalise mixed recurring frequencies before adding their amounts."""
+    factors = {"weekly": 52 / 12, "fortnightly": 26 / 12,
+    "monthly": 1, "quarterly": 1 / 3}
+    return sum(float(b["amount"]) * factors.get(b.get("frequency"), 0)
+               for b in (bills or []))

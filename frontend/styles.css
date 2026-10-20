@@ -31,7 +31,7 @@
   --coin-edge: #a9781a;
 
   --text: #2b2620;
-  --muted: #8a7d63;
+  --muted: #71634c;
 
   --green: #2f8f4e;
   --yellow: #c9821a;
@@ -301,9 +301,13 @@ nav {
 /* ── Profile page ── */
 .profile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.5rem;
   align-items: start;
+}
+#profile-form .form-grid-2 { grid-template-columns: 1fr; }
+@container page (max-width: 700px) {
+  .profile-grid { grid-template-columns: 1fr; }
 }
 /* Unusual transactions (anomaly card) */
 .anomaly-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6rem 0; border-bottom: 1px dashed var(--border); }
@@ -580,11 +584,13 @@ textarea { resize: vertical; min-height: 80px; }
 .verdict-card.green { background: color-mix(in srgb, var(--green) 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, var(--green) 32%, transparent); }
 .verdict-card.yellow { background: color-mix(in srgb, var(--yellow) 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, var(--yellow) 32%, transparent); }
 .verdict-card.red { background: color-mix(in srgb, var(--red) 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, var(--red) 32%, transparent); }
+.verdict-card.unknown { background: var(--bg-card); border: 1px solid var(--border-strong); }
 .verdict-icon { font-size: 3.5rem; margin-bottom: 0.75rem; display: block; }
 .verdict-label { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.75rem; }
 .verdict-card.green .verdict-label { color: var(--green); }
 .verdict-card.yellow .verdict-label { color: var(--yellow); }
 .verdict-card.red .verdict-label { color: var(--red); }
+.verdict-card.unknown .verdict-label { color: var(--text); }
 .verdict-message { font-size: 1rem; color: var(--text); line-height: 1.6; max-width: 480px; margin: 0 auto; }
 .verdict-meta { margin-top: 1.5rem; display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap; }
 .verdict-meta-item .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -806,6 +812,12 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ── Upload zone ── */
 .upload-zone {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
   border: 2px dashed var(--border-strong);
   border-radius: var(--radius);
   padding: 2.5rem 2rem;
@@ -813,9 +825,10 @@ textarea { resize: vertical; min-height: 80px; }
   transition: border-color 0.2s, background 0.2s;
   margin-bottom: 1.5rem;
 }
-.upload-zone:hover { border-color: var(--accent); background: var(--accent-dim); }
-.upload-zone .upload-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
-.upload-zone p { color: var(--muted); font-size: 0.9375rem; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: var(--accent-dim); }
+.upload-zone .upload-icon { display: block; font-size: 2.5rem; margin-bottom: 0.75rem; }
+.upload-zone #statement-file-status { display: block; color: var(--muted); font-size: 0.9375rem; overflow-wrap: anywhere; }
+.upload-zone:disabled { cursor: wait; opacity: 0.65; }
 
 /* ── Auth page ── */
 .auth-page {
@@ -1432,7 +1445,9 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 
 @media (max-width: 640px) {
   .tx-row { grid-template-columns: 20px 1fr 90px; row-gap: 0.4rem; }
-  .tx-row .tx-date { display: none; }
+  .tx-row .tx-date { grid-column: 2; grid-row: 2; display: block; }
+  .tx-row .tx-merchant { grid-column: 2; grid-row: 1; }
+  .tx-row .tx-amount { grid-column: 3; grid-row: 1; }
   .tx-row select { grid-column: span 3; }
 }
 
@@ -2620,6 +2635,24 @@ main {
   width: 100%;
 }
 
+/* Launch onboarding, privacy and account controls share the product palette. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.onboarding-steps { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; color: var(--muted); font-size: 0.85rem; margin: 1rem 0; }
+.upload-privacy, .auth-footnote { color: var(--muted); font-size: 0.8rem; line-height: 1.65; }
+.upload-privacy a, .auth-footnote a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.upload-preview { padding: 1rem; margin: 1rem 0; border: 1px solid var(--border); border-radius: var(--radius, 12px); background: var(--bg); line-height: 1.65; }
+.confirm-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.8rem 0; font-size: 0.875rem; line-height: 1.5; }
+.confirm-row input { flex: 0 0 auto; width: 1.1rem; height: 1.1rem; margin-top: 0.2rem; }
+.auth-recovery { margin: 0.85rem 0; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.data-delete { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.data-delete summary { cursor: pointer; color: var(--red); font-weight: 600; }
+.data-delete p { line-height: 1.65; }
+.reading-page { max-width: 760px; line-height: 1.8; padding-bottom: 4rem; }
+.reading-page h2 { margin-top: 2rem; }
+.demo-category { display: flex; justify-content: space-between; gap: 1.5rem; padding: 0.7rem 0; margin: 0; border-bottom: 1px solid var(--border); }
+.demo-category strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* Narrow screens: a single unbreakable string (a long URL) is wider than the
    whole column, so it has to be allowed to break mid-word or it sticks out of
    the panel. `anywhere` is safe HERE because at this size bubbles are near
@@ -2628,3 +2661,457 @@ main {
 @media (max-width: 560px) {
   .cw-msg { overflow-wrap: anywhere; }
 }
+
+/* ══ Landing: the scroll story ═══════════════════════════════════════════
+   A receipt that prints itself as the steps scroll past. Everything is
+   driven by one attribute — .story[data-active="N"] — set by an
+   IntersectionObserver, so there is a single source of truth for "which
+   step are we on" and no scroll-position maths to drift. */
+.story { max-width: 1100px; margin: 0 auto; padding: 5rem 1.5rem 4rem; }
+.story-head { text-align: center; margin-bottom: 3rem; }
+.story-head .sub { color: var(--muted); margin-top: 0.5rem; }
+
+.story-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 3rem;
+  /* NOT align-items:start. That shrinks the paper's grid area to its own
+     height, which leaves position:sticky with no range to travel in — the
+     receipt stuck for a moment and then scrolled away, leaving an empty
+     screen for the last two steps. Stretching gives the sticky column the
+     full height of the row to move within. */
+  align-items: stretch;
+}
+
+/* The paper stays in view while the steps move. */
+/* The column stretches to the full height of the row; the RECEIPT is what
+   sticks inside it. Making the column itself sticky looked right but centred
+   the receipt in an 1,800px box, so it rendered far below the fold. */
+.story-paper {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 0;
+}
+.sreceipt {
+  position: sticky;
+  /* The receipt grows as it prints — tallest at the final step (~580px). A
+     fixed offset pushed it off the bottom of a short laptop screen, so this
+     centres it when there is room and hugs the top when there is not.
+     --sreceipt-tall is its full height; keep them in step. */
+  --sreceipt-tall: 600px;
+  top: clamp(1rem, calc((100vh - var(--sreceipt-tall)) / 2), 18vh);
+  width: 320px;
+  max-width: 100%;
+}
+
+/* The hero receipt auto-prints on load via --i delays. This one is driven by
+   scroll instead, so that animation must be switched off or both would run. */
+.sreceipt .r-line, .sreceipt .r-head, .sreceipt .r-sub, .sreceipt .r-rule,
+.sreceipt .r-total, .sreceipt .r-barcode, .sreceipt .r-thanks {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* Anything with data-from appears only once the story reaches that step. */
+.sreceipt [data-from] {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.story[data-active="1"] .sreceipt [data-from="1"],
+.story[data-active="2"] .sreceipt [data-from="1"],
+.story[data-active="2"] .sreceipt [data-from="2"],
+.story[data-active="3"] .sreceipt [data-from="1"],
+.story[data-active="3"] .sreceipt [data-from="2"],
+.story[data-active="3"] .sreceipt [data-from="3"],
+.story[data-active="4"] .sreceipt [data-from="1"],
+.story[data-active="4"] .sreceipt [data-from="2"],
+.story[data-active="4"] .sreceipt [data-from="3"],
+.story[data-active="4"] .sreceipt [data-from="4"],
+.story[data-active="5"] .sreceipt [data-from] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Rows stagger in like a till printing, rather than appearing all at once. */
+.srows { display: flex; flex-direction: column; gap: 0.1rem; }
+.srow:nth-child(1) { transition-delay: 0.00s; }
+.srow:nth-child(2) { transition-delay: 0.08s; }
+.srow:nth-child(3) { transition-delay: 0.16s; }
+.srow:nth-child(4) { transition-delay: 0.24s; }
+.srow:nth-child(5) { transition-delay: 0.32s; }
+
+/* The centrepiece: raw and clean occupy the SAME grid cell, so the row keeps
+   its height and the two faces cross-fade in place instead of the receipt
+   jumping as the text changes length. */
+.srow { display: grid; font-size: 0.72rem; line-height: 1.5; padding: 0.22rem 0; }
+.srow-raw, .srow-clean {
+  grid-area: 1 / 1;
+  transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;
+}
+.srow-raw {
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.srow-clean {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  opacity: 0;
+  transform: translateY(4px);
+}
+.srow-cat { color: var(--text); font-weight: 700; }
+.srow-amt { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* From step 2 the raw text gives way to the sorted line. */
+.story[data-active="2"] .srow-raw,
+.story[data-active="3"] .srow-raw,
+.story[data-active="4"] .srow-raw,
+.story[data-active="5"] .srow-raw {
+  opacity: 0;
+  transform: translateY(-4px);
+  filter: blur(2px);
+}
+.story[data-active="2"] .srow-clean,
+.story[data-active="3"] .srow-clean,
+.story[data-active="4"] .srow-clean,
+.story[data-active="5"] .srow-clean { opacity: 1; transform: none; }
+
+/* The row Finio is unsure about gets marked while it asks. */
+.story[data-active="3"] .srow-ask {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 3px;
+}
+
+.s-quiz {
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px dashed var(--accent-border);
+  border-radius: 6px;
+  font-size: 0.66rem;
+}
+.s-quiz-q { color: var(--muted); margin-bottom: 0.35rem; }
+.s-quiz-opts { display: flex; gap: 0.35rem; }
+.s-quiz-opts span {
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+.s-quiz-opts .picked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #09261f;
+  font-weight: 700;
+}
+
+.s-coach { margin-top: 0.7rem; font-size: 0.68rem; }
+.s-coach-q { color: var(--muted); font-style: italic; }
+.s-coach-a {
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.55rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 5px 5px 0;
+}
+
+/* Steps: the inactive ones dim so the live one reads as "you are here". */
+.story-steps { list-style: none; margin: 0; padding: 0; }
+.story-step {
+  padding: 2.5rem 0 2.5rem 3.25rem;
+  position: relative;
+  min-height: 46vh;
+  opacity: 0.38;
+  transition: opacity 0.4s ease;
+}
+.story-step.active { opacity: 1; }
+.story-step h3 { margin: 0 0 0.5rem; font-size: 1.12rem; letter-spacing: -0.01em; }
+.story-step p { margin: 0; color: var(--muted); line-height: 1.65; }
+.story-num {
+  position: absolute;
+  left: 0; top: 2.5rem;
+  width: 2.25rem; height: 2.25rem;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+  transition: background 0.35s ease, color 0.35s ease, border-color 0.35s ease;
+}
+.story-step.active .story-num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #09261f;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .story-inner { grid-template-columns: 1fr; gap: 1.5rem; }
+  /* On a phone the paper sits above the text and stays pinned there, so the
+     receipt is still visible while you read the step describing it. */
+  .story-paper {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 2;
+    padding: 0.75rem 0;
+    background: linear-gradient(var(--bg) 72%, transparent);
+  }
+  .sreceipt { width: 260px; font-size: 0.92em; }
+  .sreceipt .r-barcode { display: none; }   /* buy back height on a phone */
+
+  /* The paper column gets a FIXED height. The receipt grows inside it as it
+     prints, but the page below never moves.
+     Letting it change the page height caused a feedback loop: growing the
+     receipt pushed the steps down, a step that had crossed the trigger line
+     slid back above it, the story stepped backwards, the receipt shrank, and
+     it oscillated 4 -> 3 -> 4. Reserving the space removes the coupling. */
+  .story-paper { height: 56vh; align-items: flex-start; }
+
+  /* On desktop the unrevealed lines keep their space so the paper never jumps.
+     On a phone that made the receipt ~1,100px tall — it swallowed the screen
+     and the step text slid behind it. Here the paper GROWS as it prints
+     instead, which is both compact and truer to the metaphor. */
+  .sreceipt [data-from] { display: none; }
+  .story[data-active="1"] .sreceipt [data-from="1"],
+  .story[data-active="2"] .sreceipt [data-from="1"],
+  .story[data-active="2"] .sreceipt [data-from="2"],
+  .story[data-active="3"] .sreceipt [data-from="1"],
+  .story[data-active="3"] .sreceipt [data-from="2"],
+  .story[data-active="3"] .sreceipt [data-from="3"],
+  .story[data-active="4"] .sreceipt [data-from="1"],
+  .story[data-active="4"] .sreceipt [data-from="2"],
+  .story[data-active="4"] .sreceipt [data-from="3"],
+  .story[data-active="4"] .sreceipt [data-from="4"],
+  .story[data-active="5"] .sreceipt [data-from] { display: block; }
+  .story .sreceipt .srow[data-from] { display: grid; }
+  .story[data-active="1"] .sreceipt .r-line[data-from],
+  .story[data-active="5"] .sreceipt .r-line[data-from],
+  .story[data-active="4"] .sreceipt .r-line[data-from] { display: flex; }
+
+  /* Each step still needs its own stretch of scroll, or they all sit above the
+     trigger line at once and the story jumps to the last one. */
+  .story-step { min-height: 52vh; padding: 1.5rem 0 1.5rem 3rem; }
+  .story-num { top: 1.5rem; }
+}
+
+/* Motion off: show the finished receipt and every step, no transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .sreceipt [data-from],
+  .srow-clean { opacity: 1 !important; transform: none !important; }
+  .srow-raw { display: none; }
+  .story-step { opacity: 1; }
+  .sreceipt [data-from], .srow-raw, .srow-clean, .story-step, .story-num {
+    transition: none;
+  }
+}
+
+/* Landing nav: the buttons were wrapping onto two lines on a phone ("Log in"
+   rendering 61px tall instead of 38px), because nothing stopped the labels
+   breaking once the row got tight. They are two or three short words — they
+   should shrink, never wrap. */
+.landing-nav .btn,
+.landing-nav a,
+.landing-nav button { white-space: nowrap; }
+@media (max-width: 420px) {
+  .landing-nav { gap: 0.4rem; }
+  .landing-nav .btn { padding-left: 0.75rem; padding-right: 0.75rem; font-size: 0.82rem; }
+}
+
+/* ══ Hero: the interactive decoder ═══════════════════════════════════════
+   The visitor taps a messy statement line and watches Finio read it. Showing
+   the product beats asserting it, and it gives the hero something to DO.
+   Every merchant in the markup is invented. */
+.decoder {
+  width: min(430px, 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: 0 26px 52px -28px rgba(0, 0, 0, 0.6);
+  padding: 1.1rem 1.15rem 1.25rem;
+}
+.dec-head {
+  display: flex; align-items: baseline; gap: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+.dec-eyebrow {
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent);
+}
+.dec-hint { font-size: 0.75rem; color: var(--muted); }
+
+.dec-chips { display: flex; flex-direction: column; gap: 0.4rem; }
+.dec-chip {
+  width: 100%;
+  text-align: left;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.73rem;
+  letter-spacing: 0.01em;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dec-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.dec-chip.is-on {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.dec-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The answer. Arrow points from the taps above down into the result. */
+.dec-out {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--border);
+}
+html.js .dec-out { opacity: 0; transform: translateY(4px); }
+html.js .dec-out.is-in {
+  opacity: 1; transform: none;
+  transition: opacity 0.32s ease, transform 0.32s ease;
+}
+.dec-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.4rem;
+}
+.dec-label {
+  font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.dec-val { font-weight: 650; }
+.dec-tag {
+  font-size: 0.74rem; font-weight: 650;
+  padding: 0.15rem 0.55rem; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* When Finio genuinely cannot tell, say so in a different colour — not
+   knowing is a feature here, and it should not look like a category. */
+.dec-tag[data-tone="ask"] {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 45%, transparent);
+}
+.dec-why {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.dec-why b { color: var(--text); font-weight: 650; }
+
+@media (prefers-reduced-motion: reduce) {
+  html.js .dec-out, html.js .dec-out.is-in {
+    opacity: 1; transform: none; transition: none;
+  }
+}
+@media (max-width: 560px) {
+  .dec-chip { font-size: 0.68rem; }
+}
+
+/* ══ Privacy page ════════════════════════════════════════════════════════
+   A privacy disclosure only works if people actually read it, so the four
+   things that matter are a scannable summary at the top and the full detail
+   sits underneath for anyone who wants it. */
+.reading-page { max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
+.reading-page .lede { color: var(--muted); font-size: 1.02rem; margin-top: 0.4rem; }
+
+.priv-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.75rem 0 2.5rem;
+}
+.priv-point {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-card));
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+  min-width: 0;
+}
+.priv-point b { color: var(--text); font-weight: 650; }
+.priv-icon {
+  flex-shrink: 0;
+  width: 1.6rem; height: 1.6rem;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+/* A quiet divider so "In detail" reads as a second tier, not a new topic. */
+.priv-rule {
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 1.1rem;
+  margin: 0 0 1.1rem;
+}
+
+.priv-card { margin-bottom: 1rem; }
+.priv-card h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
+.priv-card p { margin: 0 0 0.7rem; line-height: 1.65; color: var(--muted); }
+.priv-card p:last-child { margin-bottom: 0; }
+/* Caveats are the part people most need to notice, so they are set apart
+   rather than buried as the third sentence of a paragraph. */
+.priv-note {
+  border-left: 2px solid var(--border-strong);
+  padding-left: 0.8rem;
+  font-size: 0.88rem;
+}
+
+.priv-actions {
+  display: flex; flex-wrap: wrap; gap: 0.6rem;
+  margin: 1.75rem 0 0.5rem;
+}
+
+@media (max-width: 620px) {
+  .priv-summary { grid-template-columns: 1fr; }
+}
+
+/* Trust block: questions, not slogans. Someone deciding whether to hand over a
+   bank statement is asking specific things, so the headings are those
+   questions and the answer sits directly under each. */
+.trust .sub { color: var(--muted); margin: 0.4rem 0 2rem; }
+/* The original .trust-item was a flex row (icon beside text). These cards are
+   a question ABOVE its answer, so the row direction has to be reset or the two
+   end up side by side in a cramped column. */
+.trust-item { display: block; text-align: left; }
+.trust-q {
+  font-weight: 650;
+  margin-bottom: 0.45rem;
+  color: var(--text);
+}
+.trust-q::before {
+  content: "?";
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem; height: 1.35rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  vertical-align: -0.2em;
+}
+.trust-item p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 0.92rem; }
+.trust-cta { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; }

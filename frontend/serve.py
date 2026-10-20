@@ -36,7 +36,7 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5500
     handler = partial(NoCacheHandler, directory=str(__file__.rsplit("/", 1)[0]))
-    with ThreadingHTTPServer(("", port), handler) as httpd:
+    with ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
         print(f"Finio frontend → http://localhost:{port}  (no-cache, Ctrl-C to stop)")
         httpd.serve_forever()
 

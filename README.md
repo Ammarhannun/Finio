@@ -2,12 +2,12 @@
 
 **An AI personal-finance app.** Upload a bank statement (CSV or PDF) and Finio turns it into a clear picture of your money: LLM-categorised spending, what you *usually* earn and spend, recurring bills, unusual charges, forecasts, and a coach that answers questions about your real numbers and can fix its own mistakes when you tell it to.
 
-![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-locked-009688?logo=fastapi&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-F7931E?logo=scikitlearn&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Auth%20%2B%20pgvector-3ECF8E?logo=supabase&logoColor=white)
 ![OpenAI](https://img.shields.io/badge/OpenAI-optional-412991?logo=openai&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-131%20passing-2f8f4e)
+![Tests](https://img.shields.io/badge/tests-launch%20regressions-2f8f4e)
 
 > ⚠️ **General information only, not financial advice.**
 
@@ -15,17 +15,19 @@
 
 ## Features
 
-- **Statement parsing** — CSV and text-based PDF statements, normalised across bank export formats, with merchant-name cleaning (`ENGIE 138808 AU AUS` → `ENGIE`).
-- **Categorisation that actually works** — an **LLM classifies every merchant**, with keyword rules and Naive Bayes as offline fallbacks, and every classification cached. The keyword rules have since been tuned against the main eval set, so its score no longer measures generalisation; a **held-out set of merchants no rule matches** does: **87% with the model, 20% offline** (`python -m eval.run_eval`). That four-fold gap is the case for the architecture. On a real 733-transaction statement the uncategorised "Other" pile is **under 1%**.
-- **Quick questions** — when Finio genuinely can't tell (a person-to-person transfer, an opaque reference) it asks you up to **6 short questions**, ranked by money at stake. Recurring incoming transfers are recognised as likely income; your own banking-app transfers are not. Every answer becomes a permanent rule.
+- **Statement parsing** — CSV and text-based PDF statements, normalised across bank export formats, with merchant-name cleaning (`ENGIE ENERGY AU` → `ENGIE`).
+- **Categorisation with review** — when AI is enabled, an LLM classifies merchants, with keyword rules and Naive Bayes as offline fallbacks. Uncertain cases are shown to the user. A held-out evaluation of 15 merchants found **86.7% accuracy with the model and 20% offline** (`python -m eval.run_eval`); this small test is not a guarantee for every bank or merchant.
+- **Quick questions** — when Finio cannot confidently classify a merchant or transfer, it asks up to **6 short questions**, ranked by money at stake. Corrections can be reused on future uploads.
 - **"What I usually spend"** — Day / Week / Month show your real averages over your whole history (complete calendar months only), not a partial latest slice. "All" shows true all-time totals.
 - **Spending over time** — a month-by-month chart of what you spent versus kept, plus your top merchants.
 - **Recurring bill detection** — statistical (interval regularity + amount stability), not keyword guessing.
-- **Anomaly detection** — per-category z-scores flag charges that are unusually large *for you*.
-- **Forecasts** — next-month spend projection and a balance "runway", plus an achievable savings goal sized to your situation.
-- **Spend check** — a green/yellow/red verdict on a planned purchase using your real balance.
+- **Unusual-charge detection** — compares charges with a merchant's history where available, otherwise with the category. It works only on uploaded transactions, not live bank activity.
+- **Forecasts** — rough next-month spending and goal projections from uploaded history. A cash runway appears only when a same-day statement balance is available; historical net savings are not an account balance.
+- **Spend Check** — a rough purchase scenario using an optional current balance entered by the user or a same-day statement balance. Without one it says it cannot assess; it does not approve purchases.
 - **AI coach, everywhere** — a floating assistant on every page that you can split-screen with the app. It uses **tool-calling** over your real transactions for exact figures, answers concept questions from a **RAG** knowledge base, keeps **multiple named conversations**, and can **propose transaction fixes you apply with one click**.
-- **Privacy-first** — statements and keys stay in your own Supabase project and `.env`; per-user Row Level Security.
+- **Account isolation and control** — per-user Supabase access rules, financial-data export/deletion, explicit replacement confirmation. Parsed data is hosted in the operator's Supabase project; AI-enabled features send relevant context to OpenAI. See `frontend/privacy.html`.
+- **Safe uploads** — authenticated, preview-before-save, 10 MB / 20,000 rows / 200 PDF pages, atomic database commit, saved goals and budget preferences retained.
+- **Public sample** — `frontend/demo.html` works without an account or AI request.
 
 ## Tech stack
 
@@ -37,7 +39,7 @@
 | Retrieval | TF-IDF by default; **embeddings + Supabase pgvector** when configured |
 | Data / auth | **Supabase** (Postgres, Auth, pgvector, RLS) |
 | Frontend | Dependency-free **HTML / CSS / JS** + Chart.js |
-| Quality | 131-test suite + an **AI evaluation harness** with quality floors |
+| Quality | 140+ Python checks, launch regressions, isolated PostgreSQL/RLS tests, frontend checks and an **AI evaluation harness** |
 
 ## AI / ML highlights
 
@@ -52,7 +54,7 @@
 
 ```bash
 python -m eval.run_eval              # all suites
-python -m eval.run_eval --no-coach   # offline only, no API calls
+FINIO_DISABLE_LLM=1 python -m eval.run_eval --no-coach # offline, no API calls
 ```
 
 | Suite | Metric | Baseline |
@@ -70,7 +72,7 @@ The coach suite includes adversarial probes (a "put everything in Bitcoin" reque
 
 ## Getting started
 
-**Prerequisites:** Python 3.9+, a [Supabase](https://supabase.com) project (free tier). An OpenAI key is optional but unlocks the LLM categoriser, coach and semantic search.
+**Prerequisites:** Python 3.11+, a [Supabase](https://supabase.com) project. An OpenAI key is optional but unlocks the LLM categoriser, coach and semantic search. Use Node 22 for database/frontend checks.
 
 ```bash
 # 1. Clone
@@ -78,15 +80,17 @@ git clone https://github.com/Ammarhannun/Finio.git finio && cd finio
 
 # 2. Environment
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 
 # 3. Secrets
 cp .env.example .env      # fill in SUPABASE_URL, SUPABASE_ANON_KEY (OPENAI_API_KEY optional)
 
 # 4. Database — run these in the Supabase SQL editor
 #    project-plan/supabase_schema.sql   (core tables + RLS)
-#    migrations/001_pgvector.sql        (optional: semantic search)
-#    migrations/002_chats.sql           (optional: multiple coach chats)
+#    migrations/001_pgvector.sql        (semantic search tables)
+#    migrations/002_chats.sql           (multiple coach chats)
+#    migrations/003_spend_checks.sql    (spend-check history)
+#    migrations/004_launch_safety.sql   (required atomic upload + flow/balance)
 
 # 5. Optional: index the knowledge base for semantic RAG
 #    (needs SUPABASE_SERVICE_ROLE_KEY in .env — RLS blocks anon writes)
@@ -118,7 +122,7 @@ main/
 ├── data/kb/                   # RAG knowledge base (AU finance)
 ├── migrations/                # pgvector + chats SQL
 ├── frontend/                  # vanilla HTML/CSS/JS (+ coach widget)
-└── tests/                     # 131-test suite
+└── tests/                     # Python, frontend and database checks
 ```
 
 ## Testing

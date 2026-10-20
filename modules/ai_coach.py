@@ -6,6 +6,7 @@ load_dotenv()
 from openai import OpenAI
 
 from config import COACH_SYSTEM_PROMPT, CURRENCY, DISCLAIMER, OPENAI_MODEL
+from modules.bill_detector import estimated_monthly_bill_total
 
 QUICK_QUESTIONS = [
     "How much did I spend?",
@@ -40,13 +41,13 @@ def _plain(text):
 
 
 def has_llm():
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return bool(os.getenv("OPENAI_API_KEY")) and os.getenv("FINIO_DISABLE_LLM", "").lower() not in ("1", "true", "yes")
 
 
 def get_client():
     if not has_llm():
         return None
-    return OpenAI()
+    return OpenAI(timeout=30.0, max_retries=1)
 
 
 def build_context(metrics, analysis, bills, budgets=None, invest=None, personality=None,
@@ -62,12 +63,14 @@ def build_context(metrics, analysis, bills, budgets=None, invest=None, personali
         "saved": saved,
         "daily_burn_rate": metrics["daily_burn_rate"],
         "date_range": metrics["date_range"],
+ "latest_balance": metrics.get("latest_balance"),
         "risk_label": analysis.get("risk_label"),
         "risk_score": analysis.get("risk_score"),
         "top_categories": breakdown,
         "patterns": patterns,
         "bill_count": len(bills),
-        "bills_total": round(sum(b["amount"] for b in bills), 2) if bills else 0,
+ "bills_total": round(estimated_monthly_bill_total(bills), 2),
+ "bills_total_basis": "estimated monthly",
     }
 
     if budgets:
@@ -75,7 +78,6 @@ def build_context(metrics, analysis, bills, budgets=None, invest=None, personali
     if invest:
         context["can_invest"] = invest.get("readiness", {}).get("can_invest", False)
         context["invest_readiness_reason"] = invest.get("readiness", {}).get("reason")
-        context["etf_recommended"] = invest.get("etf", {}).get("recommended")
     if income_bracket:
         # Lets the coach tailor advice (a student and a full-time earner need
         # different framing) instead of giving one generic answer.
@@ -197,7 +199,7 @@ COACH_TOOLS = [
         "name": "propose_reclassification",
         "description": (
             "Propose changing how transactions are counted when the user asks "
-            "(e.g. 'count PAYID SAM as income', 'make all Uber Eats takeaway'). "
+ "(e.g. 'count PAYID SAM as income', 'make all Uber Eats takeaway'). "
             "Matches every transaction whose description contains `match`. The "
             "change is NOT applied directly — the user sees it as a card and "
             "confirms with one click. Use `category` for spend categories, "
@@ -302,7 +304,7 @@ def run_tool(name, args, transactions, context):
     if name == "category_total":
         query = args.get("query", "")
         rows = [r for r in _expense_rows(transactions) if _matches(r, query)]
-        total = round(sum(abs(float(r["amount"])) for r in rows), 2)
+        total = round(sum(-float(r["amount"]) for r in rows), 2)
         return {"query": query, "total": total, "count": len(rows), "currency": CURRENCY}
 
     if name == "filter_transactions":
@@ -312,7 +314,7 @@ def run_tool(name, args, transactions, context):
         rows = sorted(rows, key=lambda r: r.get("date", ""), reverse=True)[:limit]
         return {"query": query, "transactions": [
             {"date": r.get("date"), "merchant": r.get("merchant"),
-             "amount": round(abs(float(r["amount"])), 2), "category": r.get("category")}
+ "amount": round(-float(r["amount"]), 2), "category": r.get("category")}
             for r in rows
         ]}
 
@@ -323,6 +325,9 @@ def run_tool(name, args, transactions, context):
             "daily_burn_rate": context.get("daily_burn_rate", 0),
             "total_income": context.get("income", 0),
             "total_spent": context.get("spent", 0),
+ "latest_balance": context.get("latest_balance"),
+ "balance_date": context.get("balance_date"),
+ "date_range": context.get("date_range"),
         }
         result = check_purchase(
             None, metrics, float(args["amount"]), int(args.get("days_ahead") or 30)
@@ -343,7 +348,7 @@ def run_tool(name, args, transactions, context):
             return {"ok": False, "error": "amount must be a number"}
         if not category or amount < 0:
             return {"ok": False, "error": "need a category and a non-negative amount"}
-        spent = sum(abs(float(r["amount"])) for r in _expense_rows(transactions)
+        spent = sum(-float(r["amount"]) for r in _expense_rows(transactions)
                     if str(r.get("category", "")).lower() == category.lower())
         return {"ok": True, "kind": "budget",
                 "proposal": {"kind": "budget", "category": category, "amount": amount,
@@ -427,8 +432,7 @@ def fallback_coach_response(user_message, context, transactions=None):
                 + (f" ({rate}% of income)." if rate is not None else "."))
     elif "invest" in msg:
         if context.get("can_invest"):
-            etf = context.get("etf_recommended") or "an ETF"
-            text = f"You may have savings headroom. Research {etf} and fees before investing."
+            text = "Your uploaded data meets some basic savings checks, but it cannot tell whether investing is suitable. Research diversification, fees and risk, and check your live cash and bills."
         else:
             text = context.get("invest_readiness_reason",
                                "Focus on building a cash buffer before investing.")
@@ -632,12 +636,12 @@ def explain_etf_nudge(invest_result, context):
     etf = invest_result.get("etf", {})
     system = (
         f"{COACH_SYSTEM_PROMPT}\n\n"
-        "Explain why this kind of ETF might suit a long-term investor. "
-        "Do not say buy or sell. Under 80 words.\n\n"
+ "Explain how to compare ETF fees, diversification and risk in general terms. "
+ "Do not select a product or say buy or sell. Under 80 words.\n\n"
         f"Context:\n{json.dumps(context)}\n\n"
         f"ETF info:\n{json.dumps(etf)}"
     )
-    text = call_llm(system, [{"role": "user", "content": "Explain this ETF suggestion."}])
+    text = call_llm(system, [{"role": "user", "content": "Explain how to compare ETF examples."}])
     if text is None:
         text = etf.get("reason", "Research fees and risk before investing.")
         source = "fallback"

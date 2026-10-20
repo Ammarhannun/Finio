@@ -1,4 +1,5 @@
 import pandas as pd
+from modules.serialization import json_safe
 
 from config import DISCLAIMER, FLOW_EXPENSE
 from modules.ai_coach import build_context
@@ -24,7 +25,6 @@ from modules.savings_forecaster import (
     recommend_goal,
 )
 
-DEFAULT_AGE = 22
 
 
 def _category_spend(df):
@@ -46,7 +46,7 @@ def _records(df):
     `merchant` is the CLEANED trading name (merchant_clean) when available, not
     the raw bank description. Storing the clean name means a later re-slice
     rebuilds identical names — so dashboards show "ENGIE" rather than
-    "ENGIE 138808 AU AUS", and `tx_key` (derived from the name) stays stable
+ "ENGIE ENERGY AU", and `tx_key` (derived from the name) stays stable
     between the upload and every re-slice.
 
     Each row carries that stable `key` so the frontend can reclassify exactly
@@ -56,13 +56,15 @@ def _records(df):
 
     cols = ["date", "amount", "description", "category", "is_expense", "flow"]
     tx = df[cols].copy()
+    if "balance" in df.columns:
+        tx["balance"] = df["balance"]
     if "merchant_clean" in df.columns:
         clean = df["merchant_clean"].astype(str).str.strip()
         tx["description"] = clean.where(clean != "", tx["description"])
     tx["key"] = key_series(tx)
     tx["date"] = tx["date"].dt.strftime("%Y-%m-%d")
     tx = tx.rename(columns={"description": "merchant"})
-    return tx.to_dict("records")
+    return json_safe(tx.to_dict("records"))
 
 
 def analyze_window(
@@ -89,7 +91,18 @@ def analyze_window(
     df = filter_window(full, *periods["current"])
     prior_df = filter_window(full, *periods["prior"])
 
-    metrics = compute_metrics(df)
+    if df.empty:
+        start, end = periods["current"]
+        metrics = {
+ "total_income": 0.0, "total_spent": 0.0, "net_saved": 0.0,
+ "savings_rate": None, "latest_balance": None,
+ "transaction_count": 0, "daily_burn_rate": 0.0,
+ "date_range": {"start": start.strftime("%Y-%m-%d"),
+ "end": end.strftime("%Y-%m-%d"),
+ "days": (end - start).days + 1},
+        }
+    else:
+        metrics = compute_metrics(df)
     bills = detect_bills(full)
     # Unusual charges are judged against the user's WHOLE history (stable baseline).
     anomalies = detect_anomalies(full)
@@ -106,8 +119,6 @@ def analyze_window(
         goal_amount = recommendation["amount"]
     if goal_date is None:
         goal_date = recommendation["target_date"]
-    if age is None:
-        age = DEFAULT_AGE
 
     # Forecast the goal from the WHOLE history, not just this slice, so the
     # running total and monthly trend stay realistic on a daily/weekly view.
@@ -115,15 +126,23 @@ def analyze_window(
     spend_forecast = forecast_spending(full, metrics)
     analysis = analyze(df, metrics, bills)
     baseline = _category_spend(prior_df) or None
-    budgets = suggest_budgets(df, metrics, targets=budget_targets, baseline=baseline)
-    invest = invest_summary(df, metrics, forecast, goal_amount, age=age,
+    budgets = suggest_budgets(df, metrics, targets=budget_targets, baseline=baseline,
+                              period=periods["period"])
+    # Investment foundations refer to the latest statement balance, not an
+    # older day/week the user happens to be viewing.
+    full_balance_metrics = compute_metrics(full)
+    invest_metrics = {**metrics,
+ "latest_balance": full_balance_metrics["latest_balance"],
+ "balance_date": full_balance_metrics["date_range"]["end"]}
+    invest = invest_summary(df, invest_metrics, forecast, goal_amount, age=age,
                             monthly_saved=monthly_net_average(full))
     personality = score_personality(df, metrics, analysis, bills)
-    snapshot = build_snapshot(df, metrics, analysis, bills)
+    snapshot = build_snapshot(df, metrics, analysis, bills,
+                              month=periods["current"][0].strftime("%Y-%m") if df.empty else None)
     context = build_context(metrics, analysis, bills, budgets, invest, personality,
                            income_bracket=income_bracket)
 
-    return {
+    return json_safe({
         "metrics": metrics,
         "analysis": analysis,
         "bills": bills,
@@ -145,9 +164,10 @@ def analyze_window(
             "start": periods["current"][0].strftime("%Y-%m-%d"),
             "end": periods["current"][1].strftime("%Y-%m-%d"),
             "available_months": available_months(full),
+ "empty": bool(df.empty),
         },
         "disclaimer": DISCLAIMER,
-    }
+    })
 
 
 def run_full_pipeline(
@@ -260,7 +280,10 @@ def _restore_flow(df):
     if "flow" not in df.columns:
         df["flow"] = FLOW_EXPENSE
         df.loc[df.get("category") == TRANSFERS_LABEL, "flow"] = FLOW_TRANSFER
-        df.loc[(df["flow"] != FLOW_TRANSFER) & (df["amount"] > 0), "flow"] = FLOW_INCOME
+        positive_income = (df["amount"] > 0)
+        if "is_expense" in df.columns:
+            positive_income &= ~df["is_expense"].fillna(False).astype(bool)
+        df.loc[(df["flow"] != FLOW_TRANSFER) & positive_income, "flow"] = FLOW_INCOME
     df["is_transfer"] = df["flow"] == FLOW_TRANSFER
     df["is_expense"] = df["flow"] == FLOW_EXPENSE
     return df
@@ -306,7 +329,7 @@ def recompute_for_goal(transactions, metrics, *, goal_amount, goal_date, age):
     df = _transactions_to_df(transactions)
     forecast = forecast_goal(df, goal_amount, goal_date)
     invest = invest_summary(df, metrics, forecast, goal_amount, age=age,
-                            monthly_saved=monthly_net_average(full))
+                            monthly_saved=monthly_net_average(df))
     return {"forecast": forecast, "invest": invest}
 
 

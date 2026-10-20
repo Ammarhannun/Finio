@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finio · Sample dashboard</title><link rel="stylesheet" href="styles.css"></head>
+<body><nav><a class="nav-logo" href="index.html"><span class="brand">finio</span></a>
+<div class="nav-right"><button id="demo-theme" class="btn btn-outline">Switch theme</button>
+<a href="login.html?signup=1" class="btn btn-primary">Use my statement</a></div></nav>
+<main><div class="page-header"><span class="hero-eyebrow">Sample dashboard · synthetic data</span>
+<h1>A clearer picture of your money.</h1><p>No account, upload or AI call required. Explore a fictional statement.</p></div>
+<div class="period-bar"><span class="period-tag">Actual totals</span><div class="segmented" role="group" aria-label="Sample period">
+<button data-period="monthly" class="active" aria-pressed="true">Latest month</button>
+<button data-period="all" aria-pressed="false">All history</button></div></div>
+<p id="demo-range" class="tx-help"></p>
+<div class="cards-row" aria-live="polite">
+<div class="card metric-card"><div class="label">Income</div><div id="demo-income" class="value">—</div></div>
+<div class="card metric-card"><div class="label">Spending</div><div id="demo-spent" class="value">—</div></div>
+<div class="card metric-card"><div class="label">Saved</div><div id="demo-saved" class="value">—</div></div></div>
+<div class="dash-two-col"><section class="card"><h2>Where it went</h2><div id="demo-categories"></div></section>
+<section class="card"><h2>One useful next step</h2><p>Review your largest spending category, then set a budget
+that leaves room for the things you enjoy.</p><p class="tx-help">Your own dashboard adds recurring bills,
+unusual charges, savings goals and a coach grounded in your transactions.</p>
+<a href="login.html?signup=1" class="btn btn-primary">Create my account →</a></section></div>
+<p id="demo-error" role="alert"></p><p class="disclaimer">General information only, not financial advice</p></main>
+<script type="module">
+import { CURRENCY, LOCALE } from './config.js';
+const money = value => new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY }).format(value);
+let rows = [];
+function render(period) {
+  if (!rows.length) return;
+  const latest = rows.map(r => r.date.slice(0, 7)).sort().at(-1);
+  const selected = rows.filter(r => period === 'all' || r.date.startsWith(latest));
+  const income = selected.filter(r => r.flow === 'income').reduce((s,r) => s+r.amount, 0);
+  const spending = -selected.filter(r => r.flow === 'expense').reduce((s,r) => s+r.amount, 0);
+  document.getElementById('demo-income').textContent = money(income);
+  document.getElementById('demo-spent').textContent = money(spending);
+  document.getElementById('demo-saved').textContent = money(income-spending);
+  const dates = selected.map(r => r.date).sort();
+  document.getElementById('demo-range').textContent = `${dates[0]} to ${dates.at(-1)} · ${selected.length} sample transactions · Actual totals for the available dates`;
+  const totals = {};
+  for (const r of selected.filter(r => r.flow === 'expense')) totals[r.category] = (totals[r.category] || 0)-r.amount;
+  const list = document.getElementById('demo-categories'); list.replaceChildren();
+  for (const [category, amount] of Object.entries(totals).sort((a,b) => b[1]-a[1])) {
+    const row = document.createElement('p'); row.className = 'demo-category';
+    const label = document.createElement('span'); label.textContent = category;
+    const value = document.createElement('strong'); value.textContent = money(amount);
+    row.append(label, value); list.append(row);
+  }
+}
+document.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-period]').forEach(b => { b.classList.toggle('active', b === button); b.setAttribute('aria-pressed', String(b === button)); });
+  render(button.dataset.period);
+}));
+document.getElementById('demo-theme').addEventListener('click', () => {
+  document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+});
+try { const response = await fetch('./demo-data.json'); if (!response.ok) throw new Error(); rows = await response.json(); render('monthly'); }
+catch { document.getElementById('demo-error').textContent = 'The sample could not load. Refresh to try again.'; }
+</script></body></html>

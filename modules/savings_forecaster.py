@@ -1,5 +1,7 @@
 import pandas as pd
+from datetime import date
 from config import DISCLAIMER
+from modules.spend_check import recent_statement_balance
 
 
 def forecast_spending(df, metrics):
@@ -24,16 +26,18 @@ def forecast_spending(df, metrics):
         return out
 
     # Runway (balance / daily burn) is meaningful even with little history.
-    balance = (metrics or {}).get("latest_balance")
+    balance, balance_date = recent_statement_balance(metrics or {})
     burn = (metrics or {}).get("daily_burn_rate") or 0
-    if balance is not None and burn > 0:
+    # A historic running balance cannot establish today's cash runway.
+    if balance is not None and balance_date == date.today().isoformat() and burn > 0:
         runway = int(balance / burn)
         out["runway_days"] = runway
-        last_date = exp["date"].max()
-        out["run_short_date"] = (last_date + pd.Timedelta(days=runway)).strftime("%Y-%m-%d")
+        out["run_short_date"] = (pd.Timestamp.today().normalize() + pd.Timedelta(days=runway)).strftime("%Y-%m-%d")
 
-    monthly = exp.set_index("date")["amount"].abs().resample("MS").sum()
-    monthly = _complete_months(monthly, exp["date"])
+    months = pd.date_range(df["date"].min().to_period("M").to_timestamp(),
+                           df["date"].max().to_period("M").to_timestamp(), freq="MS")
+    monthly = (-exp.set_index("date")["amount"].resample("MS").sum()).reindex(months, fill_value=0.0)
+    monthly = _complete_months(monthly, df["date"])
     # One (possibly partial) month is not a trend — don't project from it.
     if len(monthly) < 2:
         return out
@@ -46,7 +50,7 @@ def forecast_spending(df, metrics):
     return out
 
 
-def _complete_months(series_by_month, dates):
+def _complete_months(series_by_month, dates, fallback=True):
     """Drop incomplete EDGE months from a monthly resample.
 
     A statement rarely starts on the 1st or ends on the 31st; counting a half
@@ -64,7 +68,7 @@ def _complete_months(series_by_month, dates):
         keep = keep.iloc[1:]
     if len(keep) and last_day != (last_day + pd.offsets.MonthEnd(0)):
         keep = keep.iloc[:-1]
-    return keep if len(keep) else series_by_month
+    return keep if len(keep) or not fallback else series_by_month
 
 
 def monthly_net_average(df):
@@ -113,7 +117,10 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
         saved = metrics.get("net_saved", 0) or 0
         monthly_saved = (saved / days) * 30 if days else 0
 
-    base = pd.Timestamp(end) if end else pd.Timestamp.today()
+    # Goals are future-facing even when the most recent uploaded statement is
+    # months old. Do not suggest a target date that has already passed.
+    today = pd.Timestamp.today().normalize()
+    base = max(pd.Timestamp(end).normalize(), today) if end else today
     target_date = (base + pd.DateOffset(months=horizon_months)).strftime("%Y-%m-%d")
 
     def _round100(x):
@@ -133,10 +140,17 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
         )
     else:
         amount = max(_round100(monthly_saved * horizon_months), 500)
-        rationale = (
-            f"You save about ${monthly_saved:,.0f} a month. At that pace, "
-            f"${amount:,} in {horizon_months} months is realistic."
-        )
+        if amount / horizon_months > monthly_saved:
+            rationale = (
+                f"You save about ${monthly_saved:,.0f} a month. The starter "
+                f"${amount:,} goal over {horizon_months} months would need "
+                f"${amount / horizon_months:,.0f} a month, so it is a stretch at your current pace."
+            )
+        else:
+            rationale = (
+                f"You save about ${monthly_saved:,.0f} a month. At that pace, "
+                f"${amount:,} in {horizon_months} months is realistic."
+            )
 
     # Offer three honest options instead of one number. A goal you can't reach
     # is demotivating, so each preset states what it costs PER MONTH and whether
@@ -153,7 +167,7 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
                 "months": months,
                 "per_month": round(preset_amount / months, 2),
                 "target_date": (base + pd.DateOffset(months=months)).strftime("%Y-%m-%d"),
-                "achievable": True,   # built from what they already save
+ "achievable": preset_amount / months <= monthly_saved,
             })
     else:
         # Not saving yet: frame the buffer by how fast they want to build it,
@@ -161,7 +175,7 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
         for label, months in (("Sooner", 3), ("Balanced", 6), ("Relaxed", 12)):
             presets.append({
                 "label": label,
-                "amount": amount,
+ "amount": amount,
                 "months": months,
                 "per_month": round(amount / months, 2),
                 "target_date": (base + pd.DateOffset(months=months)).strftime("%Y-%m-%d"),
@@ -169,7 +183,7 @@ def recommend_goal(metrics, horizon_months=6, monthly_saved=None,
             })
 
     return {
-        "amount": amount,
+ "amount": amount,
         "target_date": target_date,
         "horizon_months": horizon_months,
         "monthly_saved": round(monthly_saved, 2),
@@ -217,20 +231,22 @@ def forecast_goal(df, target_amount, target_date):
 
     df["date"] = pd.to_datetime(df["date"])
     last_date = df["date"].max()
+    as_of = max(last_date.normalize(), pd.Timestamp.today().normalize())
     current_saved = float(df["amount"].sum())
 
     # Average net per calendar month = the robust monthly savings rate.
     monthly_rate = monthly_net_average(df)
 
-    # Whole calendar months from the last data point to the target month.
+    # Do not project additional saving through the gap since the last upload.
+    # There is no evidence of what happened to the account in that interval.
     months_remaining = max(
-        (target_date.year - last_date.year) * 12
-        + (target_date.month - last_date.month),
+        (target_date.year - as_of.year) * 12
+        + (target_date.month - as_of.month),
         0,
     )
     projected_total = current_saved + monthly_rate * months_remaining
-    days_remaining = max((target_date - last_date).days, 0)
-    on_track = projected_total >= target_amount
+    days_remaining = max((target_date - as_of).days, 0)
+    on_track = target_date >= as_of and projected_total >= target_amount
     return {
         "on_track": bool(on_track),
         "current_saved": round(current_saved, 2),
@@ -242,6 +258,7 @@ def forecast_goal(df, target_amount, target_date):
         "net_savings_rate": round(monthly_rate / 30.44, 2),
         "months_remaining": months_remaining,
         "days_remaining": days_remaining,
+ "as_of_date": as_of.strftime("%Y-%m-%d"),
         "disclaimer": DISCLAIMER,
     }
 

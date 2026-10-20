@@ -222,8 +222,9 @@ def compute_metrics(df):
     # Transfers (own-account / P2P) are internal movements, not income or spend.
     income_rows = df.loc[df["flow"] == FLOW_INCOME, "amount"]
     expense_rows = df.loc[df["flow"] == FLOW_EXPENSE, "amount"]
-    total_income = income_rows.sum()
-    total_spent = abs(expense_rows.sum())
+    total_income = float(income_rows.sum())
+    # Positive expense rows are refunds, including net-refund periods.
+    total_spent = -float(expense_rows.sum())
     net_saved = total_income - total_spent
 
     min_date = df["date"].min()
@@ -233,11 +234,11 @@ def compute_metrics(df):
 
     # Real account balance at the end of the window, when the statement carried a
     # running-balance column. Lets spend-check reason about actual money on hand
-    # instead of period net savings. None when no balance data (e.g. re-sliced
-    # stored rows, which don't persist balance) → callers fall back to net_saved.
+    # instead of period net savings. Older saved rows may lack balance data;
+    # callers then fall back to net_saved.
     latest_balance = None
     if "balance" in df.columns:
-        bal = pd.to_numeric(df.sort_values("date")["balance"], errors="coerce").dropna()
+        bal = pd.to_numeric(df.sort_values("date", kind="stable")["balance"], errors="coerce").dropna()
         if not bal.empty:
             latest_balance = round(float(bal.iloc[-1]), 2)
 

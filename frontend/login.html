@@ -19,8 +19,8 @@
       <button class="auth-tab" data-tab="signup">Sign up</button>
     </div>
 
-    <div id="auth-error" class="auth-error"></div>
-    <div id="auth-success" class="auth-success"></div>
+    <div id="auth-error" class="auth-error" role="alert"></div>
+    <div id="auth-success" class="auth-success" role="status"></div>
 
     <!-- Shown after signup: the account is not usable until the email link is
          clicked, so say that plainly instead of dropping them on a login form
@@ -32,6 +32,7 @@
         Click it to activate your account, then come back and log in.
       </p>
       <p class="verify-hint">No email after a minute? Check your spam folder.</p>
+      <button type="button" class="btn btn-outline btn-full" id="resend-email">Resend confirmation</button>
       <button type="button" class="btn btn-outline btn-full" id="verify-back">Back to log in</button>
     </div>
 
@@ -43,27 +44,23 @@
       <div class="form-group">
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="Your password" required autocomplete="current-password" minlength="6">
-      </div>
-      <div class="form-group" id="age-group" style="display:none;">
-        <label for="age">Your age <span style="color:var(--muted);font-weight:400;">(for personalised invest tips)</span></label>
-        <input type="number" id="age" min="16" max="100" placeholder="24">
+        <button type="button" id="show-password" class="link-btn" aria-pressed="false">Show password</button>
       </div>
       <button type="submit" class="btn btn-primary btn-full" id="auth-btn">Log in</button>
     </form>
+    <button type="button" id="forgot-password" class="link-btn auth-recovery">Forgot password?</button>
+    <p class="auth-footnote"><a href="demo.html">Explore a sample</a> · <a href="privacy.html">Your data and privacy</a></p>
 
     <p class="disclaimer" style="margin-top:1.5rem;">General information only, not financial advice</p>
   </div>
 </div>
 
 <script type="module">
-  import { supabase, getSession, initThemeToggle, apiFetch } from './api.js';
+  import { supabase, getSession, initThemeToggle } from './api.js';
 
   initThemeToggle();
 
-  // Already signed in → skip to dashboard
-  getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
-
-  let mode = 'login';
+  let mode = new URLSearchParams(location.search).get('reset') === '1' ? 'reset' : 'login';
   const tabs = document.querySelectorAll('.auth-tab');
   const btn = document.getElementById('auth-btn');
   const errorEl = document.getElementById('auth-error');
@@ -72,22 +69,16 @@
   function setMode(m) {
     mode = m;
     tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === m));
-    btn.textContent = m === 'login' ? 'Log in' : 'Create account';
+    btn.textContent = m === 'reset' ? 'Save new password' : m === 'login' ? 'Log in' : 'Create account';
     errorEl.style.display = 'none';
     successEl.style.display = 'none';
-    document.getElementById('age-group').style.display = m === 'signup' ? 'block' : 'none';
     document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
-  }
-
-  // Age is captured at signup but email confirmation means there's no session
-  // yet — stash it and save it to the profile on the first successful login.
-  async function flushPendingAge() {
-    const pending = localStorage.getItem('finio-signup-age');
-    if (!pending) return;
-    try {
-      await apiFetch('/profile', { method: 'POST', body: JSON.stringify({ age: parseInt(pending, 10) }) });
-    } catch (_) { /* non-fatal; they can set it on the profile page */ }
-    localStorage.removeItem('finio-signup-age');
+    document.getElementById('password').minLength = m === 'login' ? 6 : 12;
+    document.getElementById('email').required = m !== 'reset';
+    document.getElementById('email').closest('.form-group').hidden = m === 'reset';
+    document.querySelector('.auth-tabs').hidden = m === 'reset';
+    document.getElementById('forgot-password').hidden = m !== 'login';
+    document.getElementById('password').placeholder = m === 'login' ? 'Your password' : 'At least 12 characters';
   }
 
   const verifyPanel = document.getElementById('verify-panel');
@@ -111,6 +102,47 @@
   });
 
   tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.tab)));
+  setMode(mode);
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') setMode('reset');
+  });
+  getSession().then(async s => {
+    if (s && mode !== 'reset') { await flushPendingAge(); window.location.href = 'dashboard.html'; }
+  });
+  const callbackError = new URLSearchParams(location.hash.slice(1)).get('error_description');
+  if (callbackError) { errorEl.textContent = 'This email link has expired or could not be used. Request a new link.'; errorEl.style.display = 'block'; }
+  document.getElementById('show-password').addEventListener('click', (e) => {
+    const field = document.getElementById('password');
+    field.type = field.type === 'password' ? 'text' : 'password';
+    e.currentTarget.textContent = field.type === 'password' ? 'Show password' : 'Hide password';
+    e.currentTarget.setAttribute('aria-pressed', String(field.type === 'text'));
+  });
+  document.getElementById('forgot-password').addEventListener('click', async (e) => {
+    const email = document.getElementById('email');
+    if (!email.reportValidity()) return;
+    e.currentTarget.disabled = true;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.value.trim(), {
+        redirectTo: new URL('login.html?reset=1', location.href).href,
+      });
+      if (error) throw error;
+      successEl.textContent = 'If an account exists, a password reset link will arrive shortly.';
+      successEl.style.display = 'block';
+    } catch (err) { errorEl.textContent = err.message; errorEl.style.display = 'block'; }
+    finally { document.getElementById('forgot-password').disabled = false; }
+  });
+  document.getElementById('resend-email').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup',
+        email: document.getElementById('verify-email').textContent,
+        options: { emailRedirectTo: new URL('login.html', location.href).href } });
+      if (error) throw error;
+      successEl.textContent = 'Confirmation requested. Please check your inbox and spam folder.';
+      successEl.style.display = 'block';
+    } catch (err) { errorEl.textContent = err.message; errorEl.style.display = 'block'; }
+    finally { document.getElementById('resend-email').disabled = false; }
+  });
 
   // Arriving from the landing "Get started" button → open on the signup tab.
   if (new URLSearchParams(location.search).get('signup') === '1') setMode('signup');
@@ -126,16 +158,25 @@
     btn.textContent = mode === 'login' ? 'Logging in…' : 'Creating account…';
 
     try {
-      if (mode === 'login') {
+      if (mode === 'reset') {
+        if (!(await getSession())) throw new Error('Open a fresh password reset link from your email first.');
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        await supabase.auth.signOut();
+        history.replaceState(null, '', 'login.html');
+        setMode('login');
+        successEl.textContent = 'Password updated. Log in with your new password.';
+        successEl.style.display = 'block';
+      } else if (mode === 'login') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        await flushPendingAge();
         window.location.href = 'dashboard.html';
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password, options: {
+          emailRedirectTo: new URL('login.html', location.href).href,
+        } });
         if (error) throw error;
-        const ageVal = document.getElementById('age').value;
-        if (ageVal) localStorage.setItem('finio-signup-age', ageVal);
+        if (data.session) { window.location.href = 'dashboard.html'; return; }
         showVerifyPanel(email);
       }
     } catch (err) {
@@ -143,7 +184,7 @@
       errorEl.style.display = 'block';
     } finally {
       btn.disabled = false;
-      btn.textContent = mode === 'login' ? 'Log in' : 'Create account';
+      btn.textContent = mode === 'reset' ? 'Save new password' : mode === 'login' ? 'Log in' : 'Create account';
     }
   });
 </script>

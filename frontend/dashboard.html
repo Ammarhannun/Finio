@@ -29,20 +29,21 @@
 
 <main>
   <!-- Loading -->
-  <div id="loading" class="loading"><div class="spinner"></div> Loading your data…</div>
+  <div id="loading" class="loading" role="status"><div class="spinner" aria-hidden="true"></div> Loading your data…</div>
 
   <!-- Upload section (no analysis yet) -->
   <div id="upload-section" style="display:none;">
     <div class="page-header">
       <h1>Welcome to Finio</h1>
-      <p>Upload your bank statement (CSV or PDF) to get your personal money analysis</p>
+      <p>Turn your statement into a clear picture of your money.</p>
+      <p class="onboarding-steps">1. Choose a statement &nbsp; → &nbsp; 2. Review the dates &nbsp; → &nbsp; 3. See your spending</p>
     </div>
 
     <div class="card">
-      <div class="upload-zone">
-        <div class="upload-icon">↑</div>
-        <p>Upload a CSV or PDF bank statement from your banking app</p>
-      </div>
+      <button type="button" class="upload-zone" id="statement-drop-zone" aria-label="Choose or drop a bank statement" aria-describedby="statement-file-status">
+        <span class="upload-icon" aria-hidden="true">↑</span>
+        <span id="statement-file-status" role="status">Drop one CSV or PDF here, or click to choose a file</span>
+      </button>
 
       <form id="upload-form">
         <div class="form-group">
@@ -50,12 +51,20 @@
           <input type="file" id="csv-file" accept=".csv,.pdf" required>
         </div>
         <p style="color:var(--muted);font-size:0.8125rem;margin:-0.25rem 0 1rem;">
-          Upload your whole statement — Finio works out what you usually earn,
-          spend and save.
+          CSV or unlocked, text-based PDF · up to 10 MB and 20,000 transactions.
+          Scanned PDFs are not supported. Upload your complete history for reliable averages.
         </p>
-        <div id="upload-error" class="form-error"></div>
+        <p class="upload-privacy">Your transactions are stored in Finio’s database. When AI is enabled,
+          merchant descriptions and spending context are processed by OpenAI.
+          <a href="privacy.html">How your data is used</a></p>
+        <div id="upload-preview" class="upload-preview" aria-live="polite" hidden></div>
+        <label id="replacement-label" class="confirm-row" hidden>
+          <input type="checkbox" id="confirm-replace">
+          <span>Replace my saved transaction history with this file. My goals, budgets and corrections will be kept.</span>
+        </label>
+        <div id="upload-error" class="form-error" role="alert"></div>
         <button type="submit" class="btn btn-primary btn-full" id="upload-btn">
-          Analyse my spending →
+          Review statement →
         </button>
       </form>
     </div>
@@ -177,7 +186,7 @@
 
       <div class="dash-col">
       <div class="card" id="budgets-card">
-        <div class="section-title">Budget breakdown</div>
+        <div class="section-title">Latest statement month · budgets</div>
         <div id="budget-bars"></div>
       </div>
 
@@ -209,6 +218,7 @@
            formatMonthYear, formatDay, dateRangeLabel, escapeHtml,
            getStoredPeriod, setStoredPeriod, renderMarkdown } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
+  import { initUploadPicker } from './upload-picker.js';
 
   setupNav('dashboard');
   mountCoachWidget('dashboard');
@@ -216,6 +226,8 @@
   const loadingEl = document.getElementById('loading');
   const uploadSection = document.getElementById('upload-section');
   const dataSection = document.getElementById('data-section');
+  let reviewedFile = null;
+  let hasHistory = false;
 
   // The span selector shows your USUAL money per day/week/month (averages over
   // your whole history) or the all-time totals. Purely client-side — instant.
@@ -225,7 +237,7 @@
   let chart = null;
 
   function showLoading(msg = 'Loading your data…') {
-    loadingEl.innerHTML = `<div class="spinner"></div> ${msg}`;
+    loadingEl.innerHTML = `<div class="spinner"></div> ${escapeHtml(msg)}`;
     loadingEl.style.display = 'flex';
     uploadSection.style.display = 'none';
     dataSection.style.display = 'none';
@@ -282,8 +294,11 @@
     document.getElementById('s-spent').textContent = subSpent;
     document.getElementById('s-saved').textContent = subSaved;
 
-    document.querySelectorAll('#period-segments button').forEach(b =>
-      b.classList.toggle('active', b.dataset.period === span));
+    document.querySelectorAll('#period-segments button').forEach(b => {
+      const active = b.dataset.period === span;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-pressed', String(active));
+    });
   }
 
   document.querySelectorAll('#period-segments button').forEach(btn => {
@@ -411,7 +426,11 @@
 
     if (data.metrics?.date_range) {
       document.getElementById('date-range').textContent =
-        'Statement: ' + dateRangeLabel(data.metrics.date_range);
+ 'Statement: ' + dateRangeLabel(data.metrics.date_range);
+      const saved = data.snapshot?.saved_at;
+      if (saved && !Number.isNaN(Date.parse(saved))) {
+        document.getElementById('date-range').textContent += ' · Analysed ' + new Date(saved).toLocaleDateString();
+      }
     }
 
     renderMetrics();
@@ -445,15 +464,19 @@
     const barsEl = document.getElementById('budget-bars');
     barsEl.innerHTML = budgetList.length ? budgetList.map(b => {
       const cat = escapeHtml(b.category);
-      const hasLimit = b.suggested_limit != null && b.suggested_limit > 0;
+      const hasLimit = b.suggested_limit != null;
       const isMine = b.limit_source === 'target';
       let bar, footer, amounts;
       if (hasLimit) {
-        const headroom = b.headroom_pct ?? 0;
-        const usedPct = Math.min(100, Math.max(0, Math.round(100 - headroom)));
-        const colorClass = usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
+        const headroom = b.headroom_pct;
+        const usedPct = b.suggested_limit === 0
+          ? (b.actual_spend > 0 ? 100 : 0)
+          : Math.min(100, Math.max(0, Math.round(100 - (headroom ?? 0))));
+        const colorClass = b.over_budget || usedPct >= 90 ? 'red' : usedPct >= 70 ? 'yellow' : 'green';
         bar = `<div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${usedPct}%"></div></div>`;
-        footer = `${headroom.toFixed(0)}% headroom left`
+        footer = (b.suggested_limit === 0
+          ? (b.actual_spend > 0 ? 'Over your zero-spend target' : 'Zero-spend target met')
+          : `${(headroom ?? 0).toFixed(0)}% headroom left`)
           + (isMine ? ' · your limit' : ' · suggested');
         amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> `
           + `<button type="button" class="budget-limit" data-cat="${cat}" title="Set your own limit">${formatAUD(b.suggested_limit)}</button>`;
@@ -574,7 +597,9 @@
     document.getElementById('goal-amount-display').textContent =
       amount ? formatAUD(amount) : '—';
     document.getElementById('goal-rationale').textContent =
-      rec?.rationale || 'Set a savings goal and your coach will track your progress.';
+      (goal?.target_amount != null ? 'Your saved goal. ' : 'Suggested goal. ')
+      + (rec?.rationale ? `Finio's separate suggestion: ${rec.rationale}`
+         : 'Review the amount and date before using this as a plan.');
 
     // Preset pace options — each says what it costs per month, so the choice
     // is about pace rather than a number plucked from nowhere.
@@ -614,14 +639,15 @@
       const target = (goal?.target_amount ?? rec?.amount) || 1;
       const pct = Math.min(100, Math.max(0, Math.round((current / target) * 100)));
       const onTrack = forecast.on_track;
+      const expired = forecast.target_date && forecast.target_date < new Date().toISOString().slice(0, 10);
       progressEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;margin-bottom:0.4rem;font-size:0.875rem;">
-          <span>${formatAUD(current)} of ${formatAUD(target)}</span>
-          <span style="color:${onTrack ? 'var(--green)' : 'var(--red)'};font-weight:600;">${onTrack ? 'On track' : 'Not on track yet'}</span>
+          <span>Net movement in uploaded history: ${formatAUD(current)} · goal ${formatAUD(target)}</span>
+          <span style="color:${onTrack ? 'var(--green)' : 'var(--red)'};font-weight:600;">${expired ? 'Target date passed' : onTrack ? 'Projected pace meets target' : 'Below projected pace'}</span>
         </div>
         <div class="progress-bar"><div class="progress-fill ${onTrack ? 'green' : 'yellow'}" style="width:${pct}%"></div></div>
         <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem;">
-          Projected ${formatAUD(forecast.projected_total)} by ${formatMonthYear(forecast.target_date)}
+          Estimate from transaction history, not your savings account balance. Projected ${formatAUD(forecast.projected_total)} by ${formatMonthYear(forecast.target_date)}
           ${forecast.months_remaining != null ? `· ${forecast.months_remaining} months to go` : ''}
         </div>`;
     } else {
@@ -699,6 +725,7 @@
   // ── Load everything (single fetch; span switching is client-side) ──
   async function loadDashboard() {
     renderDashboard(await apiFetch('/dashboard'));
+    hasHistory = true;
     loadTransactions();
     loadInsight();
   }
@@ -728,6 +755,25 @@
   });
 
   // ── Upload form ──
+  const statementInput = document.getElementById('csv-file');
+  const statementDropZone = document.getElementById('statement-drop-zone');
+  initUploadPicker({
+    zone: statementDropZone, input: statementInput,
+    status: document.getElementById('statement-file-status'),
+    isBusy: () => document.getElementById('upload-btn').disabled,
+    onChange: () => {
+      reviewedFile = null;
+      document.getElementById('upload-preview').hidden = true;
+      document.getElementById('replacement-label').hidden = true;
+      document.getElementById('confirm-replace').checked = false;
+      document.getElementById('upload-btn').textContent = 'Review statement →';
+    },
+    onError: message => {
+      const error = document.getElementById('upload-error');
+      error.textContent = message;
+      error.style.display = message ? 'block' : 'none';
+    },
+  });
   document.getElementById('upload-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('upload-btn');
@@ -735,10 +781,43 @@
     errEl.style.display = 'none';
     const file = document.getElementById('csv-file').files[0];
     if (!file) { errEl.textContent = 'Please select a CSV or PDF file'; errEl.style.display = 'block'; return; }
+    if (file.size > 10 * 1024 * 1024) {
+      errEl.textContent = 'Choose a statement smaller than 10 MB.'; errEl.style.display = 'block'; return;
+    }
 
     const fd = new FormData();
     fd.append('file', file);
+    if (reviewedFile !== file) {
+      btn.disabled = true;
+      statementInput.disabled = statementDropZone.disabled = true;
+      btn.textContent = 'Reading statement…';
+      try {
+        const preview = await apiFetch('/analyze/preview', { method: 'POST', body: fd });
+        const panel = document.getElementById('upload-preview');
+        panel.textContent = `${file.name} · ${preview.count} transactions · ${preview.start} to ${preview.end}. `
+          + `Money out ${formatAUD(preview.money_out)} · money in ${formatAUD(preview.money_in)}. `
+          + (preview.best_effort_pdf
+            ? 'PDF extraction is best-effort: compare the count, dates and totals with your bank statement before confirming. If they differ, export a CSV instead.'
+            : 'Check the dates and totals against your statement before confirming.');
+        panel.hidden = false;
+        document.getElementById('replacement-label').hidden = !hasHistory;
+        reviewedFile = file;
+      } catch (err) {
+        errEl.textContent = err.message; errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        statementInput.disabled = statementDropZone.disabled = false;
+        btn.textContent = reviewedFile === file ? 'Confirm and analyse →' : 'Review statement →';
+      }
+      return;
+    }
+    if (hasHistory && !document.getElementById('confirm-replace').checked) {
+      errEl.textContent = 'Confirm replacement before continuing. You can export your current data from Profile first.';
+      errEl.style.display = 'block'; return;
+    }
+    fd.append('confirm_replace', String(document.getElementById('confirm-replace').checked));
     btn.disabled = true;
+    statementInput.disabled = statementDropZone.disabled = true;
     btn.textContent = 'Analysing…';
     showLoading('Analysing your spending… this may take a moment');
     try {
@@ -747,11 +826,16 @@
       showToast('Analysis complete!');
     } catch (err) {
       showUpload();
+      if (err.status === 409) {
+        hasHistory = true;
+        document.getElementById('replacement-label').hidden = false;
+      }
       errEl.textContent = err.message || 'Upload failed — please try again';
       errEl.style.display = 'block';
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Analyse my spending →';
+      statementInput.disabled = statementDropZone.disabled = false;
+      btn.textContent = 'Confirm and analyse →';
     }
   });
 

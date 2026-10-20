@@ -1,5 +1,6 @@
 import pandas as pd
 import math
+from modules.spend_check import recent_statement_balance
 
 from config import CRYPTO_OPTIONS, DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
 
@@ -37,15 +38,16 @@ def compare_to_actual(df, metrics, split):
         expenses = df[df["flow"] == FLOW_EXPENSE].copy()
     else:
         expenses = df[df["amount"] < 0].copy()
-    expenses["amount_abs"] = expenses["amount"].abs()
+    # Refunds are positive expense-flow rows and offset spending.
+    expenses["net_spend"] = -expenses["amount"]
 
     needs_spent = expenses.loc[
-        expenses["category"].isin(NEEDS_CATEGORIES), "amount_abs"
+        expenses["category"].isin(NEEDS_CATEGORIES), "net_spend"
     ].sum()
     # Everything that isn't a need — including Entertainment and any category
     # the user invented — so no spending can fall out of the comparison.
     wants_spent = expenses.loc[
-        ~expenses["category"].isin(NEEDS_CATEGORIES), "amount_abs"
+        ~expenses["category"].isin(NEEDS_CATEGORIES), "net_spend"
     ].sum()
     actual_saved = metrics["net_saved"]
 
@@ -103,7 +105,7 @@ def first_1000_plan(current_saved):
     remaining = max(target - current_saved, 0)
     if remaining == 0:
         steps = [
-            "You've hit your first $1,000. Keep building your emergency buffer.",
+            "Your uploaded history shows $1,000 in net savings. Check your actual savings account balance before treating this as an emergency buffer.",
             "Only consider investing money you won't need for bills or emergencies.",
             "Research fees and risk before choosing an ETF.",
         ]
@@ -122,8 +124,7 @@ def first_1000_plan(current_saved):
 
 
 def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
-    """Are they ready to invest, and if not, WHAT is missing and WHEN will it
-    clear?
+    """Show educational financial-foundation checks, not investment advice.
 
     Returns a transparent checklist instead of a single verdict, so the user can
     see every gate, how close they are, and the first thing to fix. `saved` is
@@ -131,13 +132,11 @@ def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
     net — someone with months of savings shouldn't look broke because this
     month was quiet.
     """
-    saved = forecast_result.get("current_saved")
-    if saved is None:
-        saved = metrics.get("net_saved", 0) or 0
+    saved, balance_date = recent_statement_balance(metrics)
     # Single source of truth (may be None when income is negligible → treat as 0%).
     # Cast out of numpy: numpy.bool_/float leak into the JSON response and
     # FastAPI cannot serialise them.
-    saved = float(saved)
+    saved = float(saved) if saved is not None else None
     savings_rate = float(metrics.get("savings_rate") or 0)
     gap = float(compare.get("savings_gap", 0) or 0)
     on_track = bool(forecast_result.get("on_track", False))
@@ -145,12 +144,14 @@ def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
     checks = [
         {
             "id": "emergency_fund",
-            "label": f"Cash buffer of ${MIN_BUFFER_TO_INVEST:,}",
-            "passed": bool(saved >= MIN_BUFFER_TO_INVEST),
-            "current": round(float(saved), 2),
+            "label": f"Recent statement balance of ${MIN_BUFFER_TO_INVEST:,}",
+            "passed": bool(saved is not None and saved >= MIN_BUFFER_TO_INVEST),
+            "current": round(saved, 2) if saved is not None else None,
             "target": float(MIN_BUFFER_TO_INVEST),
             "unit": "aud",
-            "fix": f"Save ${max(MIN_BUFFER_TO_INVEST - saved, 0):,.0f} more before investing.",
+            "fix": ("Upload a recent statement with a balance to assess this check."
+                    if saved is None else
+                    f"This statement balance is ${max(MIN_BUFFER_TO_INVEST - saved, 0):,.0f} below the guide. Check your live cash and bills."),
         },
         {
             "id": "stabilise_spending",
@@ -190,7 +191,7 @@ def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
     # When could the FIRST blocker clear? Only the cash buffer has an honest,
     # arithmetic answer (money needed ÷ money saved per month).
     ready_when = None
-    if blockers and blockers[0]["id"] == "emergency_fund" and (monthly_saved or 0) > 0:
+    if saved is not None and blockers and blockers[0]["id"] == "emergency_fund" and (monthly_saved or 0) > 0:
         months = math.ceil((MIN_BUFFER_TO_INVEST - saved) / monthly_saved)
         if 0 < months <= 60:
             ready_when = {
@@ -200,7 +201,7 @@ def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
             }
 
     if can_invest:
-        reason = "You have savings headroom. Investing may be an option after research."
+        reason = "Your uploaded data meets these simple checks. It cannot establish whether investing is suitable or whether that balance is still available."
         priority = "consider_etfs"
     else:
         reason = blockers[0]["fix"]
@@ -215,22 +216,15 @@ def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
         "steps_total": len(checks),
         "next_step": blockers[0]["label"] if blockers else None,
         "ready_when": ready_when,
+        "balance_date": balance_date,
     }
 
 
 def etf_nudge(age=None):
-    if age is not None and age < 25:
-        pick = "NDQ"
-        reason = "Younger horizon with a growth tilt (higher risk)."
-    elif age is not None and age >= 40:
-        pick = "A200"
-        reason = "Broader AU market, lower cost."
-    else:
-        pick = "VGS"
-        reason = "Diversified global exposure, a common starter for Aussies."
+    reason = "These are examples to research, not selections based on your age or statement. Compare diversification, fees, risk and your time horizon."
     return {
-        "recommended": pick,
-        "options": ETF_OPTIONS,
+            "recommended": None,
+            "options": ETF_OPTIONS,
         "reason": reason,
         "note": "Research fees and risk before investing.",
     }
@@ -242,7 +236,7 @@ def investment_menu(can_invest, age=None):
     Goes beyond ETFs so the user sees the full picture: cash, index funds,
     crypto and super, each with its risk band. Crypto is listed for awareness
     only, with a heavy caveat, never as a recommendation. The whole menu is
-    information only and unlocks once the buffer and savings are in place.
+    information only and remains visible regardless of the checklist result.
     """
     etf = etf_nudge(age)
     return [
@@ -285,15 +279,7 @@ def invest_summary(df, metrics, forecast_result, target_amount, age=None,
     readiness = invest_readiness(metrics, actual_vs_target, forecast_result,
                                 monthly_saved=monthly_saved)
 
-    if readiness["can_invest"]:
-        etf = etf_nudge(age)
-    else:
-        etf = {
-            "recommended": None,
-            "options": ETF_OPTIONS,
-            "reason": readiness["reason"],
-            "note": f"Focus on saving first ({readiness['priority']}).",
-        }
+    etf = etf_nudge(age)
 
     return {
         "split_503020": split,
@@ -305,4 +291,3 @@ def invest_summary(df, metrics, forecast_result, target_amount, age=None,
         "options": investment_menu(readiness["can_invest"], age),
         "disclaimer": DISCLAIMER,
     }
-

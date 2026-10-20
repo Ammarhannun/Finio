@@ -1,0 +1,32 @@
+name: Finio checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FINIO_DISABLE_LLM: '1'
+      OPENAI_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: pip install --require-hashes -r requirements.lock
+      - run: pip install pytest pip-audit
+      - run: python -m tests.test_full_suite
+      - run: python -m pytest tests/test_launch_safety.py -q
+      - run: pip-audit -r requirements.lock --no-deps --disable-pip
+      - run: npm ci --ignore-scripts
+      - run: npm run check:frontend
+      - run: npm run test:upload
+      - run: npm run test:database
+      - run: docker build -t finio-check .
