@@ -42,3 +42,63 @@ try {
 } finally {
   await rm(temporary, { recursive: true });
 }
+
+// ── Content-Security-Policy ────────────────────────────────────────────────
+// Scripts are allowed by hash, never by 'unsafe-inline', so an edit to any
+// inline <script> changes its hash and the browser silently refuses to run
+// it — a break that only ever shows up in production. Recompute the hashes
+// here so that drift fails this gate instead.
+{
+  const { createHash } = await import('node:crypto');
+  const expected = [];
+  for (const file of (await readdir(root)).sort()) {
+    if (!file.endsWith('.html')) continue;
+    const source = await readFile(join(root, file), 'utf8');
+    for (const match of source.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+      if (!match[1].trim()) continue;
+      const hash = `sha256-${createHash('sha256').update(match[1]).digest('base64')}`;
+      if (!expected.includes(hash)) expected.push(hash);
+    }
+  }
+
+  const config = JSON.parse(await readFile(join(root, 'vercel.json'), 'utf8'));
+  const header = config.headers
+    .flatMap(entry => entry.headers)
+    .find(entry => entry.key === 'Content-Security-Policy');
+  assert.ok(header, 'vercel.json must set a Content-Security-Policy');
+  const policy = header.value;
+
+  const missing = expected.filter(hash => !policy.includes(hash));
+  assert.deepEqual(missing, [], `inline scripts changed — add to script-src in frontend/vercel.json:\n${
+    missing.map(hash => `  '${hash}'`).join('\n')}`);
+
+  const stale = [...policy.matchAll(/'(sha256-[^']+)'/g)]
+    .map(match => match[1])
+    .filter(hash => !expected.includes(hash));
+  assert.deepEqual(stale, [], `script-src has hashes matching no inline script:\n${
+    stale.map(hash => `  '${hash}'`).join('\n')}`);
+
+  // 'unsafe-inline' in script-src would defeat the hashes entirely. It stays
+  // allowed for style-src only: a style= attribute cannot carry a hash.
+  const scriptSrc = policy.match(/script-src ([^;]*)/)?.[1] ?? '';
+  assert.ok(!scriptSrc.includes('unsafe-inline'), "script-src must not allow 'unsafe-inline'");
+  assert.ok(!scriptSrc.includes('unsafe-eval'), "script-src must not allow 'unsafe-eval'");
+
+  // Every external origin the pages actually reach must be in the policy, or
+  // the resource is blocked at runtime.
+  for (const [origin, directive] of [
+    ['https://cdn.jsdelivr.net', 'script-src'],   // Chart.js
+    ['https://esm.sh', 'script-src'],             // Supabase client
+    ['https://fonts.googleapis.com', 'style-src'],
+    ['https://fonts.gstatic.com', 'font-src'],
+    ['https://*.supabase.co', 'connect-src'],
+  ]) {
+    const value = policy.match(new RegExp(`${directive} ([^;]*)`))?.[1] ?? '';
+    assert.ok(value.includes(origin), `${directive} must allow ${origin}`);
+  }
+
+  for (const directive of ["frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'"]) {
+    assert.ok(policy.includes(directive), `CSP must include ${directive}`);
+  }
+  console.log(`PASS: CSP covers ${expected.length} inline scripts by hash, no unsafe-inline for scripts`);
+}

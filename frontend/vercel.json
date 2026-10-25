@@ -1,20 +1,54 @@
 {
- "$schema": "https://openapi.vercel.sh/vercel.json",
- "cleanUrls": true,
- "buildCommand": "node build-config.mjs",
- "outputDirectory": ".",
- "headers": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "buildCommand": "node build-config.mjs",
+  "outputDirectory": ".",
+  "headers": [
     {
- "source": "/(.*)",
- "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'sha256-Vzix8ovgKHp+BEWmYysXzFLdD6F3OUPQNrTaT6bZBWo=' 'sha256-Ezg0rEPlISfh8Q9tn/iC4JF8HwQIB/DRKO6hjd/Dajg=' 'sha256-BFbiy++HNCwrYKHYnamoCkQc5PFQ8WqmaE4rVPWydSU=' 'sha256-VDOqbty05ZBRSxenQgKY720uoSSI7hbQTnbmn0FuJx0=' 'sha256-iuWf51MGDcnEaVGpJEjCwoLt52MOdiJT95w0IjkLDIA=' 'sha256-PnTYhAFYIccgFjOCHhNqk9FEHcvl/6nFiAZNY0WqpME=' 'sha256-LKDnjPuiBhLnehjKFyROsn5ghdyinMKVy6hBe/CJSQU=' 'sha256-+aSZPl1xZEGnC6wYFkyxfcIbASJxzeKhdRFifgXmXvo=' 'sha256-NPSQfxfWBnbxmzLBDP3RvtTNJq2nwySlrYcUm+LfKN0=' 'sha256-0l4lXhecVOxAsR3bnt3MJN6ivYWPuGG3ZcsYWQNH8+o=' 'sha256-MtwUGBLwXPPEUoerpbj95Bjcu4mfuA1BusBvE6EvkEI=' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.up.railway.app https://*.railway.app; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "X-DNS-Prefetch-Control",
+          "value": "off"
+        }
       ]
     },
     {
- "source": "/config.js",
- "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }]
+      "source": "/config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
     }
   ]
 }

@@ -170,6 +170,76 @@
   </div>
 </section>
 
+<!-- The file's whole journey, in order, with the thing that stops each step
+     going wrong. Someone about to hand over a bank statement wants to know
+     where the file goes and when it is gone — so the section follows the file
+     rather than listing features. Every claim here is enforced in code and
+     pinned by a test in tests/test_launch_safety.py; do not add a line here
+     that the code does not actually do. -->
+<section class="safety reveal" id="security">
+  <h2>What happens to the file you upload</h2>
+  <p class="sub">Four steps, and what protects each one.</p>
+
+  <ol class="safe-path">
+    <li class="safe-step">
+      <div class="safe-head"><span class="safe-num">1</span>
+        <h3>You export it yourself</h3></div>
+      <p>You download your own statement from your bank and choose the file.
+        Finio never connects to your bank and never asks for banking
+        credentials, so there is nothing for anyone to steal.</p>
+      <span class="safe-chip">No bank login, ever</span>
+    </li>
+    <li class="safe-step">
+      <div class="safe-head"><span class="safe-num">2</span>
+        <h3>It travels encrypted, to your account</h3></div>
+      <p>The upload goes over HTTPS. An upload without a valid session is
+        refused before the file is even read, so a statement can only ever
+        arrive attached to a signed-in account — yours.</p>
+      <span class="safe-chip">Sign-in required first</span>
+    </li>
+    <li class="safe-step">
+      <div class="safe-head"><span class="safe-num">3</span>
+        <h3>It is read once, then deleted</h3></div>
+      <p>The file is written to a temporary location only the server itself can
+        read, parsed as plain text, and deleted the moment parsing ends —
+        including when it fails. It is never run as code, and the file is never
+        kept.</p>
+      <span class="safe-chip">Gone within seconds</span>
+    </li>
+    <li class="safe-step">
+      <div class="safe-head"><span class="safe-num">4</span>
+        <h3>Only the rows stay, locked to you</h3></div>
+      <p>What remains is date, description and amount. The database enforces
+        row-level rules, so another account cannot read your transactions even
+        if it tries. You can export or permanently delete all of it whenever
+        you want.</p>
+      <span class="safe-chip">Yours alone</span>
+    </li>
+  </ol>
+
+  <div class="safe-guards">
+    <h3>And what Finio refuses to do</h3>
+    <ul class="safe-list">
+      <li><b>Only .csv and .pdf.</b> Anything else is rejected, and a file that
+        claims to be a CSV but is actually binary is rejected too.</li>
+      <li><b>10 MB and 20,000 transactions.</b> Checked as the file arrives. An
+        oversized statement is refused, never silently trimmed, because
+        quietly dropping rows would report the wrong numbers.</li>
+      <li><b>No third-party trackers.</b> No analytics, no ads, no selling
+        data. The browser is told which code it is allowed to run at all, so
+        anything unexpected simply never executes.</li>
+      <li><b>The AI never sees the file.</b> It gets merchant names, amounts
+        and dates — enough to categorise and answer questions, and nothing
+        more.</li>
+      <li><b>No change without your say-so.</b> When the AI suggests a
+        recategorisation, a budget or a goal, nothing is saved until you press
+        Apply.</li>
+      <li><b>Pages are never cached.</b> Your figures are not left behind in a
+        browser or proxy cache for someone else to find.</li>
+    </ul>
+  </div>
+</section>
+
 <section class="trust reveal">
   <h2>Your statement stays yours</h2>
   <p class="sub">The three questions people actually ask before uploading a bank file.</p>

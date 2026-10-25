@@ -3115,3 +3115,85 @@ html.js .dec-out.is-in {
 }
 .trust-item p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 0.92rem; }
 .trust-cta { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; }
+
+/* ── Landing: upload security ───────────────────────────────────────────────
+   Follows the uploaded file in order (1→4) rather than listing features,
+   because the question being answered is "where does my statement go?".
+   The numbered steps form a connected path; the refusals sit under it as a
+   plain list, since they are limits rather than stages. */
+.safety {
+  max-width: 1100px; margin: 0 auto 4rem; padding: 2.4rem 1.5rem;
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); text-align: center;
+}
+.safety h2 { font-size: 1.6rem; letter-spacing: -0.03em; margin: 0; }
+.safety .sub { color: var(--muted); margin: 0.4rem 0 2rem; }
+
+.safe-path {
+  list-style: none; margin: 0 0 2rem; padding: 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+  text-align: left; counter-reset: none;
+}
+.safe-step {
+  position: relative; display: flex; flex-direction: column;
+  padding: 1.1rem 1rem 1rem;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* The connector that makes four cards read as one path. Drawn between cards,
+   so it is suppressed on the last one and whenever the grid stacks. */
+.safe-step::after {
+  content: ''; position: absolute; top: 1.85rem; right: -1rem; width: 1rem;
+  border-top: 1px dashed var(--border-strong);
+}
+.safe-step:last-child::after { content: none; }
+
+/* Top-aligned, not centred: these headings wrap to two lines on some
+   cards and one on others, and centring put the badges at different
+   heights across the row. */
+.safe-head { display: flex; align-items: flex-start; gap: 0.55rem; margin-bottom: 0.6rem; }
+.safe-num {
+  flex-shrink: 0; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--accent); background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+}
+.safe-step h3 { margin: 0.1rem 0 0; font-size: 0.95rem; letter-spacing: -0.01em; line-height: 1.35; }
+.safe-step p { margin: 0 0 0.9rem; color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+.safe-chip {
+  margin-top: auto; align-self: flex-start;
+  padding: 0.2rem 0.55rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.01em;
+  color: var(--accent); background: var(--accent-dim);
+  border: 1px solid var(--border-strong);
+}
+
+.safe-guards { text-align: left; border-top: 1px solid var(--border); padding-top: 1.6rem; }
+.safe-guards h3 {
+  margin: 0 0 1rem; font-size: 1.05rem; letter-spacing: -0.02em; text-align: center;
+}
+.safe-list {
+  margin: 0; padding: 0; list-style: none;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem 1.4rem;
+}
+.safe-list li {
+  position: relative; padding-left: 1.1rem;
+  color: var(--muted); font-size: 0.87rem; line-height: 1.55;
+}
+.safe-list li::before {
+  content: '—'; position: absolute; left: 0; color: var(--accent);
+}
+.safe-list b { color: var(--text); font-weight: 600; }
+
+@media (max-width: 980px) {
+  .safe-path { grid-template-columns: repeat(2, 1fr); }
+  /* Only the connector that still points at a neighbour survives. */
+  .safe-step:nth-child(2)::after { content: none; }
+  .safe-list { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  .safe-path, .safe-list { grid-template-columns: 1fr; }
+  .safe-step::after { content: none; }
+}

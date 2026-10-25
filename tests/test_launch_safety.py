@@ -216,3 +216,101 @@ def test_same_user_mutations_are_serialized_and_guard_releases():
         assert error.value.status_code == 409
         with mutation_guard('two'): pass
     with mutation_guard('one'): pass
+
+
+# ── Upload hardening ────────────────────────────────────────────────────────
+# An upload is untrusted input, and its extension is just a string the browser
+# sent. These pin the refusals a statement upload must make.
+
+def test_anonymous_upload_is_rejected_before_the_body_is_read():
+    """No auth, no parsing. Anonymous upload is forbidden; /demo exists for that."""
+    main.app.dependency_overrides.clear()
+    response = TestClient(main.app, raise_server_exceptions=False).post(
+        '/analyze', files={'file': ('statement.csv', CSV, 'text/csv')})
+    assert response.status_code == 401
+
+
+def test_extension_allowlist(client):
+    response = client.post('/analyze', files={'file': ('payload.exe', b'MZ\x90\x00', 'application/octet-stream')})
+    assert response.status_code == 400
+    db.persist_analysis.assert_not_called()
+
+
+@pytest.mark.parametrize('name,payload', [
+    # Binary content renamed .csv is never executed, but it must be refused
+    # clearly rather than surfacing as a parser traceback.
+    ('zip', b'PK\x03\x04\x00\x00\x00binary\x00payload'),
+    ('elf', b'\x7fELF\x02\x01\x01\x00' + b'\x00' * 40),
+])
+def test_binary_disguised_as_csv_is_refused(client, name, payload):
+    response = client.post('/analyze', files={'file': ('statement.csv', payload, 'text/csv')})
+    assert response.status_code == 422
+    assert 'binary' in response.json()['detail'].lower()
+    db.persist_analysis.assert_not_called()
+
+
+def test_row_cap_refuses_rather_than_truncating(client):
+    """Truncating would silently report the wrong finances, so it must refuse.
+
+    The cap is checked while reading, so a 10 MB file is never fully loaded.
+    """
+    from config import MAX_TRANSACTION_ROWS
+    rows = b''.join(b'2026-01-03,SHOP %d,-1.00\n' % i for i in range(MAX_TRANSACTION_ROWS + 5))
+    response = client.post('/analyze', files={
+        'file': ('statement.csv', b'Date,Description,Amount\n' + rows, 'text/csv')})
+    assert response.status_code == 422
+    assert str(MAX_TRANSACTION_ROWS) in response.json()['detail'].replace(',', '')
+    db.persist_analysis.assert_not_called()
+
+
+def test_statement_just_under_the_cap_is_accepted(client):
+    from config import MAX_TRANSACTION_ROWS
+    rows = b''.join(b'2026-01-%02d,SHOP %d,-1.00\n' % ((i % 28) + 1, i)
+                    for i in range(MAX_TRANSACTION_ROWS - 1))
+    response = client.post('/analyze', files={
+        'file': ('statement.csv', b'Date,Description,Amount\n' + rows, 'text/csv')})
+    assert response.status_code == 200
+
+
+def test_empty_upload_is_refused(client):
+    response = client.post('/analyze', files={'file': ('statement.csv', b'', 'text/csv')})
+    assert response.status_code == 400
+    db.persist_analysis.assert_not_called()
+
+
+def test_parse_failures_stay_generic_but_our_own_limits_do_not(client):
+    """Don't leak pandas/pdfminer internals; do explain our own refusals."""
+    unparseable = client.post('/analyze', files={
+        'file': ('statement.csv', b'this is not a statement\njust prose\n', 'text/csv')})
+    assert unparseable.status_code == 422
+    assert 'date, description and amount' in unparseable.json()['detail']
+
+    ours = client.post('/analyze', files={
+        'file': ('statement.csv', b'Date,Description,Amount\n2026-01-03,X,-999999999999\n', 'text/csv')})
+    assert ours.status_code == 422
+    assert 'supported range' in ours.json()['detail']
+
+
+def test_uploads_are_not_left_on_disk(client, tmp_path, monkeypatch):
+    """A failed parse must still remove the temporary file."""
+    import tempfile
+    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
+    client.post('/analyze', files={'file': ('statement.csv', b'PK\x03\x04\x00bin\x00', 'text/csv')})
+    client.post('/analyze', files={'file': ('statement.csv', CSV, 'text/csv')})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_api_responses_are_never_cached_or_framed(client):
+    response = client.get('/')
+    assert 'no-store' in response.headers['cache-control']
+    assert response.headers['x-frame-options'] == 'DENY'
+    assert response.headers['x-content-type-options'] == 'nosniff'
+    assert "default-src 'none'" in response.headers['content-security-policy']
+    assert response.headers['referrer-policy'] == 'no-referrer'
+    # HSTS only behind a real certificate, or local dev gets pinned to HTTPS.
+    assert 'strict-transport-security' not in response.headers
+
+
+def test_hsts_is_sent_behind_a_proxy_terminating_tls(client):
+    response = client.get('/', headers={'x-forwarded-proto': 'https'})
+    assert 'max-age=31536000' in response.headers['strict-transport-security']

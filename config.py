@@ -222,6 +222,16 @@ COACH_CONTEXT_MESSAGES = 20
 MAX_UPLOAD_MB = 10
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
+# A byte ceiling alone is not enough. 10 MB of narrow CSV is ~250,000 rows, and
+# every row is categorised, embedded and written to the snapshot — so a file
+# that passes the size check can still tie up the single worker for minutes and
+# run up a model bill. This is the one transaction ceiling: it is checked while
+# reading, so an oversized file is refused before pandas loads all of it into
+# memory, and again after parsing. ~16 years of heavy card use, so no real
+# statement comes close. Refuse rather than truncate — silently dropping rows
+# would quietly report the wrong finances.
+MAX_TRANSACTION_ROWS = 20_000
+
 # Per-user ceilings on the endpoints that cost money (each call is one or more
 # OpenAI requests). Generous for real use, but they stop a stuck retry loop or a
 # stolen token from running up an unbounded bill.

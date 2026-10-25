@@ -22,7 +22,7 @@ from config import (
 )
 from modules import db
 from modules.serialization import json_safe
-from modules.bank_parser import parse_bank_csv
+from modules.bank_parser import StatementRejected, parse_bank_csv
 from modules.logs import log, warn
 from modules.ai_coach import (
     QUICK_QUESTIONS, coach_chat, generate_insight, strip_disclaimer, title_chat,
@@ -88,8 +88,41 @@ async def response_security(request: Request, call_next):
     if not length.isdigit() or int(length) > MAX_UPLOAD_BYTES + 1024 * 1024:
         return JSONResponse({"detail": "Request too large. Upload a file under 10 MB."}, status_code=413)
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+
+    # Financial data: never let a response sit in a shared or browser cache.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+
+    # Never let a browser second-guess a declared content type.
     response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # This API returns JSON only — there is no legitimate reason for any of it
+    # to be framed, scripted, or embedded, so lock the lot down.
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    )
+
+    # Do not leak the path a user was on (which can name a page, a filter, or a
+    # merchant) to any third party they click through to.
+    response.headers["Referrer-Policy"] = "no-referrer"
+
+    # Nothing here needs a camera, microphone, location or payment handler.
+    response.headers["Permissions-Policy"] = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+
+    # Tell browsers to refuse plain HTTP in future. Only meaningful once a real
+    # certificate is in front of this, so it is sent on HTTPS requests only —
+    # sending it in local dev would pin localhost to HTTPS and break it.
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+
+    # uvicorn announces itself by default; no reason to name the stack.
+    response.headers["Server"] = "finio"
     return response
 
 
@@ -333,6 +366,9 @@ def analyze_csv(
             period_start=period_start,
             period_end=period_end,
             )
+        except StatementRejected as exc:
+            # Our own limit, written for the user — say which one they hit.
+            raise HTTPException(422, str(exc)) from None
         except (ValueError, UnicodeError) as exc:
             raise HTTPException(422, "Could not read this statement. Use a CSV with date, description and amount columns, or a text-based PDF.") from None
         except Exception as exc:
@@ -433,6 +469,8 @@ def preview_statement(file: UploadFile = File(...), user: AuthUser = Depends(upl
                 tmp.write(chunk)
         try:
             frame = parse_bank_csv(path)
+        except StatementRejected as exc:
+            raise HTTPException(422, str(exc)) from None
         except Exception:
             raise HTTPException(422, "Could not read the statement. Try a CSV with date, description and amount columns, or an unlocked text-based PDF.") from None
         return {"count": len(frame), "start": frame.date.min().strftime("%Y-%m-%d"),

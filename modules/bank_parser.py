@@ -11,12 +11,23 @@ from config import (
     COMMON_BALANCE_HEADERS,
     COMMON_TYPE_HEADERS,
     DATE_FORMATS,
+    MAX_TRANSACTION_ROWS,
     NORMALIZED_COLUMNS,
     MERCHANT_PREFIXES,
     MERCHANT_NOISE,
     MERCHANT_TRAILING,
     SUBURB_STOPWORDS,
 )
+
+class StatementRejected(ValueError):
+    """A statement we understood but are refusing, with a message for the user.
+
+    Parse failures stay generic on purpose — their text comes from pandas or
+    pdfminer and could leak internals. These are our own limits (too many
+    rows, empty file, implausible amount), and the user can only act on them
+    if they are told which one they hit.
+    """
+
 
 _KNOWN_HEADERS = (
     COMMON_DATE_HEADERS
@@ -96,11 +107,38 @@ def _assign_headerless_columns(df):
     return df.rename(columns=rename)
 
 
+def _reject_non_text(path):
+    """Refuse a file that is not actually text before pandas touches it.
+
+    An upload is trusted only as far as its extension, which is just a string
+    the browser sent. Binary content renamed `.csv` is never dangerous here —
+    nothing is executed and the bytes only ever reach a parser — but it would
+    surface as a confusing pandas traceback instead of a clear message. A NUL
+    byte is the cheapest reliable tell: it cannot occur in a text statement.
+    """
+    with open(path, "rb") as handle:
+        head = handle.read(8192)
+    if b"\x00" in head:
+        raise StatementRejected(
+            "That looks like a binary file, not a CSV. Export your statement "
+            "as CSV (or an unlocked text-based PDF) and try again."
+        )
+
+
 def load_csv(path):
-    df = pd.read_csv(path)
+    _reject_non_text(path)
+    # Read one row past the ceiling so an oversized file is detectable rather
+    # than quietly cut off at the limit.
+    limit = MAX_TRANSACTION_ROWS + 1
+    df = pd.read_csv(path, nrows=limit)
     if not _has_header(df):
-        df = pd.read_csv(path, header=None)
+        df = pd.read_csv(path, header=None, nrows=limit)
         df = _assign_headerless_columns(df)
+    if len(df) > MAX_TRANSACTION_ROWS:
+        raise StatementRejected(
+            f"A statement can contain at most {MAX_TRANSACTION_ROWS:,} "
+            "transactions. Please upload a shorter date range."
+        )
     return df
 
 
@@ -179,17 +217,19 @@ def normalize(df):
     out = out[cols]
     invalid = out["date"].isna() | out["amount"].isna() | ~np.isfinite(out["amount"])
     if invalid.any():
-        raise ValueError("Some transaction dates or amounts could not be read. Check the CSV format and try again.")
+        raise StatementRejected("Some transaction dates or amounts could not be read. Check the CSV format and try again.")
     if out.empty:
-        raise ValueError("No transactions found. Upload a statement containing transactions.")
-    if len(out) > 20000:
-        raise ValueError("A statement can contain at most 20,000 transactions.")
+        raise StatementRejected("No transactions found. Upload a statement containing transactions.")
+    if len(out) > MAX_TRANSACTION_ROWS:
+        raise StatementRejected(
+            f"A statement can contain at most {MAX_TRANSACTION_ROWS:,} transactions."
+        )
     if out["amount"].abs().gt(100_000_000).any():
-        raise ValueError("A transaction amount is outside the supported range.")
+        raise StatementRejected("A transaction amount is outside the supported range.")
     out["amount"] = out["amount"].astype(float)
     out["description"] = out["description"].fillna("").astype(str).str.replace(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", regex=True)
     if out["description"].str.len().gt(2000).any():
-        raise ValueError("A transaction description is too long.")
+        raise StatementRejected("A transaction description is too long.")
     return out.reset_index(drop=True)
 
 
