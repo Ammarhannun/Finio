@@ -68,6 +68,15 @@ infrastructure workflows.
 | `FINIO_DISABLE_LLM` | `0` for AI, `1` for offline tests |
 | `PORT` | Host-supplied; container defaults to 8000 |
 
+Optional, and safe to leave unset:
+
+| Server variable | Value |
+| --- | --- |
+| `SUPABASE_JWT_SECRET` | Verifies the access token locally (HS256) instead of calling Supabase on every request. Unset means one extra network round-trip per request; RLS still guards the data either way. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS. Only `scripts/index_kb.py` needs it, to write the shared knowledge base. **Do not set it on the web service** — nothing there uses it, and it is the one key that can read every user's rows. |
+| `FINIO_LOG_LEVEL` | Defaults to `INFO`. |
+| `WEB_CONCURRENCY` / `UVICORN_WORKERS` | Leave unset. The rate limiter and period-view cache are per-process, so more than one worker multiplies the effective limit; the app logs a warning if you do. |
+
 Use a dedicated OpenAI project with spend alerts/limits. Uploads require login,
 are rate limited, allow two concurrent analyses per process, and cap new LLM
 classification at 600 merchants and embeddings at 500 merchants per upload.

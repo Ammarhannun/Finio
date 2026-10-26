@@ -10,4 +10,4 @@ COPY --chown=finio:finio data/sample_transactions.csv data/training_merchants.cs
 COPY --chown=finio:finio data/kb ./data/kb
 USER finio
 EXPOSE 8000
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-server-header"]

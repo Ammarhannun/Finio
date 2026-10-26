@@ -230,8 +230,8 @@ def _check_configuration():
     if not os.getenv("OPENAI_API_KEY"):
         log.warning(
             "OPENAI_API_KEY is not set — the coach, insights and the model "
-            "categoriser fall back to the offline path (measured 20%% accuracy "
-            "on unseen merchants vs 87%% with the model).",
+            "categoriser fall back to the offline path (measured 20% accuracy "
+            "on unseen merchants vs 87% with the model).",
         )
 
 
