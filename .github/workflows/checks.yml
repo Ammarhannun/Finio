@@ -42,6 +42,8 @@ jobs:
       - name: Scan the complete runtime image
         run: |
           docker save --output finio-image.tar finio-check
+          # Trivy runs as a non-root user; Docker creates the tar owner-readable only.
+          chmod 0644 finio-image.tar
           docker run --rm --cap-drop ALL --security-opt no-new-privileges \
             -v "$PWD/finio-image.tar:/input/finio.tar:ro" \
             aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
