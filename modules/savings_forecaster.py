@@ -38,7 +38,7 @@ def forecast_spending(df, metrics):
                            df["date"].max().to_period("M").to_timestamp(), freq="MS")
     monthly = (-exp.set_index("date")["amount"].resample("MS").sum()).reindex(months, fill_value=0.0)
     monthly = _complete_months(monthly, df["date"])
-    # One (possibly partial) month is not a trend — don't project from it.
+    # One (possibly partial) month is not a trend. don't project from it.
     if len(monthly) < 2:
         return out
     avg = float(monthly.mean())

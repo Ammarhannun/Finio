@@ -17,11 +17,11 @@
         },
         {
           "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
+          "value": "no-referrer"
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-Vzix8ovgKHp+BEWmYysXzFLdD6F3OUPQNrTaT6bZBWo=' 'sha256-Ezg0rEPlISfh8Q9tn/iC4JF8HwQIB/DRKO6hjd/Dajg=' 'sha256-BFbiy++HNCwrYKHYnamoCkQc5PFQ8WqmaE4rVPWydSU=' 'sha256-VDOqbty05ZBRSxenQgKY720uoSSI7hbQTnbmn0FuJx0=' 'sha256-iuWf51MGDcnEaVGpJEjCwoLt52MOdiJT95w0IjkLDIA=' 'sha256-PnTYhAFYIccgFjOCHhNqk9FEHcvl/6nFiAZNY0WqpME=' 'sha256-LKDnjPuiBhLnehjKFyROsn5ghdyinMKVy6hBe/CJSQU=' 'sha256-+aSZPl1xZEGnC6wYFkyxfcIbASJxzeKhdRFifgXmXvo=' 'sha256-NPSQfxfWBnbxmzLBDP3RvtTNJq2nwySlrYcUm+LfKN0=' 'sha256-0l4lXhecVOxAsR3bnt3MJN6ivYWPuGG3ZcsYWQNH8+o=' 'sha256-MtwUGBLwXPPEUoerpbj95Bjcu4mfuA1BusBvE6EvkEI=' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.up.railway.app https://*.railway.app; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+          "value": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'sha256-Vzix8ovgKHp+BEWmYysXzFLdD6F3OUPQNrTaT6bZBWo=' 'sha256-kQ3EEYi15g7scZ7yAjs1AZzBeXTfuTCmH++LtjQb6Ew=' 'sha256-2Zbsy4F0NzKqFOPaWSBIENKTdBIGOwPThQv+0TI8AD8=' 'sha256-IPZtjJaB8RUG3mBmhtpvRd41m+c7QE5IlmQzSYvjUuM=' 'sha256-wYw5sEoXCwM+XdHAs7YdPuUqRWgmMCbmRw0VmrquFxU=' 'sha256-7Vru7bgKLzHJXXSlA+lIyf9OdOAVkA9qUAY6emx64e4=' 'sha256-jRGNIWAlGu+m85qcBf1a4Pix4ooACovm6s931ihFZNc=' 'sha256-+aSZPl1xZEGnC6wYFkyxfcIbASJxzeKhdRFifgXmXvo=' 'sha256-+nSrzu5YdqrD0hPWQBLBLSMEflW4b8fgXYMwVY+1j+M=' 'sha256-dlsuDRIZf7rRmzX2nYEh/OfUQBHv6sKJmFFK3U3vlbw=' 'sha256-2roqdNEx5KFOplSEjc3l+2WX+P1wershGyFMBh5r5TE=' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.up.railway.app https://*.railway.app; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
         },
         {
           "key": "Strict-Transport-Security",
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "source": "/config.js",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Cache-Control",

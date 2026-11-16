@@ -24,7 +24,7 @@
     <h1>Your money,<br>on one little <span class="ink">receipt</span>.</h1>
     <p class="lede">
       Upload a bank statement and Finio reads it like a till receipt: where your
-      money went, the bills that keep coming back, what you can safely spend, and
+      money went, recurring spending, purchase checks using a balance you confirm, and
       how close you are to your savings goal. Friendly, private, and built for
       real life.
     </p>
@@ -37,7 +37,7 @@
 
   <!-- Interactive decoder. Rather than asserting that Finio reads messy bank
        text, let the visitor try it: tap a line, watch it get decoded. Every
-       merchant here is INVENTED — no real statement data belongs on a public
+       merchant here is INVENTED. no real statement data belongs on a public
        page. -->
   <div class="hero-art">
     <div class="decoder">
@@ -124,7 +124,7 @@
         <!-- Step 5: the coach, printed on the same paper. -->
         <div class="s-coach" data-from="5">
           <div class="s-coach-q">“Can I afford a $900 laptop?”</div>
-          <div class="s-coach-a">Yes — you would still keep <b>$742</b> this month.</div>
+          <div class="s-coach-a">With a confirmed balance, see what would remain after this purchase.</div>
         </div>
 
         <div class="r-barcode" data-from="4"></div>
@@ -137,26 +137,26 @@
         <span class="story-num">1</span>
         <h3>Drop in your statement</h3>
         <p>Export a CSV or PDF from your banking app. Finio reads the formats real
-          banks actually export — no bank login, no spreadsheet.</p>
+          banks actually export. No bank login or spreadsheet needed.</p>
       </li>
       <li class="story-step" data-step="2">
         <span class="story-num">2</span>
         <h3>It cleans the mess and sorts it</h3>
         <p>Watch the lines change. <b>CALTEX WOOLWORTHS FUEL</b> is fuel, not
-          groceries. An AI reads every merchant, strips the card-machine noise and
-          files it where it belongs.</p>
+          groceries. Finio cleans merchant names and uses built-in categorisation.
+          Enable AI in Profile if you want model-assisted sorting.</p>
       </li>
       <li class="story-step" data-step="3">
         <span class="story-num">3</span>
         <h3>It asks when it genuinely can’t tell</h3>
         <p>Money from a friend could be income or just your own transfer. Finio
-          won’t guess at that — it asks a couple of short questions, and remembers
-          your answer forever.</p>
+          asks short questions when it is unsure and saves your confirmed
+          corrections for future uploads.</p>
       </li>
       <li class="story-step" data-step="4">
         <span class="story-num">4</span>
         <h3>You see what you actually do</h3>
-        <p>What you <i>usually</i> earn, spend and keep — averaged over your whole
+        <p>See what you <i>usually</i> earn, spend and keep, averaged over your whole
           history, not one noisy month. Transfers between your own accounts never
           count as spending.</p>
       </li>
@@ -164,7 +164,7 @@
         <span class="story-num">5</span>
         <h3>Then ask it anything</h3>
         <p>Ask in plain English whether you can afford something. Tell it to set a
-          budget or recategorise a merchant and it does the work — you just confirm.</p>
+          budget or recategorise a merchant. Review its proposal and confirm the change.</p>
       </li>
     </ol>
   </div>
@@ -172,7 +172,7 @@
 
 <!-- The file's whole journey, in order, with the thing that stops each step
      going wrong. Someone about to hand over a bank statement wants to know
-     where the file goes and when it is gone — so the section follows the file
+     where the file goes and when it is gone. so the section follows the file
      rather than listing features. Every claim here is enforced in code and
      pinned by a test in tests/test_launch_safety.py; do not add a line here
      that the code does not actually do. -->
@@ -186,7 +186,7 @@
         <h3>You export it yourself</h3></div>
       <p>You download your own statement from your bank and choose the file.
         Finio never connects to your bank and never asks for banking
-        credentials, so there is nothing for anyone to steal.</p>
+        credentials, so you never share your bank password with Finio.</p>
       <span class="safe-chip">No bank login, ever</span>
     </li>
     <li class="safe-step">
@@ -194,22 +194,22 @@
         <h3>It travels encrypted, to your account</h3></div>
       <p>The upload goes over HTTPS. An upload without a valid session is
         refused before the file is even read, so a statement can only ever
-        arrive attached to a signed-in account — yours.</p>
+        arrive attached to your signed-in account.</p>
       <span class="safe-chip">Sign-in required first</span>
     </li>
     <li class="safe-step">
       <div class="safe-head"><span class="safe-num">3</span>
-        <h3>It is read once, then deleted</h3></div>
+        <h3>It is processed, then deleted</h3></div>
       <p>The file is written to a temporary location only the server itself can
-        read, parsed as plain text, and deleted the moment parsing ends —
+        read, parsed for transaction text, and deleted when processing ends,
         including when it fails. It is never run as code, and the file is never
         kept.</p>
-      <span class="safe-chip">Gone within seconds</span>
+      <span class="safe-chip">Removed after processing</span>
     </li>
     <li class="safe-step">
       <div class="safe-head"><span class="safe-num">4</span>
         <h3>Only the rows stay, locked to you</h3></div>
-      <p>What remains is date, description and amount. The database enforces
+      <p>Parsed transactions, balances, analysis and preferences remain. The database enforces
         row-level rules, so another account cannot read your transactions even
         if it tries. You can export or permanently delete all of it whenever
         you want.</p>
@@ -227,15 +227,16 @@
         quietly dropping rows would report the wrong numbers.</li>
       <li><b>No third-party trackers.</b> No analytics, no ads, no selling
         data. The browser is told which code it is allowed to run at all, so
-        anything unexpected simply never executes.</li>
-      <li><b>The AI never sees the file.</b> It gets merchant names, amounts
-        and dates — enough to categorise and answer questions, and nothing
-        more.</li>
+        scripts from unapproved sources are blocked.</li>
+      <li><b>AI sharing starts off.</b> You can enable it in Profile. When enabled,
+        cleaned merchant names, amounts and frequency help it categorise. Coach messages, selected
+        financial context and relevant transactions help it answer questions.
+        <a href="privacy.html">Read how your data is used</a>.</li>
       <li><b>No change without your say-so.</b> When the AI suggests a
         recategorisation, a budget or a goal, nothing is saved until you press
         Apply.</li>
-      <li><b>Pages are never cached.</b> Your figures are not left behind in a
-        browser or proxy cache for someone else to find.</li>
+      <li><b>Financial API responses are not cached.</b> The API tells browsers
+        and proxies not to cache your figures. Log out when using a shared device.</li>
     </ul>
   </div>
 </section>
@@ -255,13 +256,16 @@
     </div>
     <div class="trust-item">
       <div class="trust-q">Who can see my transactions?</div>
-      <p>Only you. Rows live in a Supabase database with row-level access rules, so
-        one account cannot read another's data.</p>
+      <p>Your account can access its own rows. Supabase row-level access rules
+        separate accounts. The operator and service providers process data as
+        described in the privacy page.</p>
     </div>
     <div class="trust-item">
       <div class="trust-q">What does the AI get?</div>
-      <p>Merchant descriptions, amounts and frequency — never the file itself. It
-        categorises and answers questions; it never tells you what to buy.</p>
+      <p>AI sharing is off until you enable it in Profile. When enabled, selected
+        merchant names, amounts, dates, financial context and chat messages go to
+        OpenAI. Uploaded files are parsed by Finio. Common identifiers are masked,
+        but some personal information can remain.</p>
     </div>
   </div>
 
@@ -284,7 +288,7 @@
   // Already signed in? Jump straight to the dashboard.
   getSession().then(s => { if (s) window.location.href = 'dashboard.html'; });
 
-  // Reveal blocks as they scroll into view. Content is visible by default —
+  // Reveal blocks as they scroll into view. Content is visible by default,
   // html.js opts INTO the animation, and a safety timer force-shows everything
   // so nothing can ever stay invisible.
   if ('IntersectionObserver' in window) {
@@ -311,19 +315,19 @@
         name: 'BP Connect',
         cat: 'Transport',
         tone: 'ok',
-        why: 'A service station. It sells coffee and pies, but you went for fuel — so it is Transport, not Groceries.',
+        why: 'A service station. It sells coffee and pies, but you went for fuel, so it is Transport, not Groceries.',
       },
       payid: {
         name: 'J. Mercer',
         cat: 'Finio asks you',
         tone: 'ask',
-        why: 'Money in from a person could be income, or just your own account. Finio will not guess at that — it asks once and remembers.',
+        why: 'Money in from a person could be income, or just your own account. Finio will not guess at that. It asks once and remembers.',
       },
       power: {
         name: 'Northwind Energy',
         cat: 'Housing &amp; Rent',
         tone: 'ok',
-        why: 'A power bill. That long number is a customer reference, not part of the name — utilities belong with housing.',
+        why: 'A power bill. That long number is a customer reference, not part of the name. Utilities belong with housing.',
       },
     };
 
@@ -339,7 +343,7 @@
       if (!d) return;
       // Content updates SYNCHRONOUSLY. Deferring it to requestAnimationFrame
       // meant the answer lagged a click behind whenever rAF was throttled, and
-      // never updated at all while the page was hidden — the text is the
+      // never updated at all while the page was hidden. the text is the
       // point, so it must not depend on an animation frame.
       nameEl.textContent = d.name;
       catEl.innerHTML = d.cat;
@@ -390,12 +394,12 @@
     //
     // Two earlier attempts were wrong in instructive ways. A thin
     // IntersectionObserver band skipped steps, because the callback only
-    // reports entries that changed — when one step left the band without
+    // reports entries that changed. when one step left the band without
     // another entering in the same batch, the active step stuck. Nearest-to-
     // viewport-centre then failed at the end of the page: fully scrolled, the
     // last step's centre was still ~400px above the middle, so it could never
     // win and the story stopped at step 3. A "has it passed the line" rule has
-    // neither problem — it is monotonic, and the final step stays active all
+    // neither problem. it is monotonic, and the final step stays active all
     // the way to the bottom however short the remaining page is.
     // Where the trigger line sits, as a fraction down the viewport. In the
     // stacked phone layout the receipt is pinned across the top of the screen,
@@ -403,7 +407,7 @@
     //
     // Measuring the receipt to find that line seemed smarter and was wrong: on
     // a phone the receipt GROWS as it prints, so the line moved as a result of
-    // the step changing, which pushed further steps past it — a feedback loop
+    // the step changing, which pushed further steps past it. a feedback loop
     // that skipped step 4 entirely. A fixed fraction per layout has no such
     // coupling.
     const stacked = () => getComputedStyle(section.querySelector('.story-inner'))
@@ -432,7 +436,7 @@
     };
 
     // Listen unconditionally. This was gated behind an IntersectionObserver
-    // so it only ran while the story was on screen — but that made the whole
+    // so it only ran while the story was on screen. but that made the whole
     // feature depend on IO callbacks being delivered, and they are not while a
     // page is hidden, so the listener could end up never attached at all. The
     // work it saves is one getBoundingClientRect over five elements, already

@@ -7,7 +7,7 @@ Pure stats, no API key.
 
 Why a *robust* score rather than a plain z-score
 ------------------------------------------------
-The obvious version — (x - mean) / std — has two flaws that made it miss the
+The obvious version. (x - mean) / std. has two flaws that made it miss the
 exact blowouts it exists to catch:
 
 1. **A hard ceiling.** For a sample of size n, the largest attainable z-score is
@@ -40,7 +40,7 @@ _MEANAD_SCALE = 1.253314
 def _robust_scores(values):
     """Modified z-scores for a series of amounts, or None if it has no spread.
 
-    Falls back to the mean absolute deviation when the MAD is zero — that
+    Falls back to the mean absolute deviation when the MAD is zero. that
     happens whenever more than half the charges are the same amount (a $25
     coffee every day), which is common in real statements and would otherwise
     make the whole category unscoreable.
@@ -65,8 +65,8 @@ def detect_anomalies(df, limit=5):
 
     The baseline is the MERCHANT's own history where there is enough of it,
     and only falls back to the category otherwise. Scoring everything against
-    the category was too coarse to be useful: a Groceries median of $8.38 —
-    dragged down by dozens of small convenience-store runs — sat alongside
+    the category was too coarse to be useful: a Groceries median of $8.38,
+    dragged down by dozens of small convenience-store runs. sat alongside
     $300 Costco shops in the same bucket, so an ordinary $88 supermarket trip
     was flagged as unusual while a $159 Costco run got flagged despite being
     only half that merchant's normal $312. "Unusual for you at this merchant"
@@ -89,7 +89,7 @@ def detect_anomalies(df, limit=5):
 
         The baseline is always the FULL group. Scoring a leftover row against
         only the other leftovers would strand exactly the case this exists to
-        catch — one big charge at a merchant never seen before, which has no
+        catch. one big charge at a merchant never seen before, which has no
         history of its own to be measured against.
  """
         scores, typical = _robust_scores(baseline["amt"])

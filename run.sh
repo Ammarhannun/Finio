@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Finio — start backend + frontend with one command.
+# Finio: start backend + frontend with one command.
 # Usage:  ./run.sh        (from the Finio/main folder)
 # Stop:   press Ctrl+C
 
 cd "$(dirname "$0")"   # always run from the project root (this folder)
 
-echo "Finio — starting up..."
+echo "Finio: starting up..."
 
 # 1. Never kill an unrelated process to claim a port.
 if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1 || lsof -nP -iTCP:5500 -sTCP:LISTEN >/dev/null 2>&1; then
@@ -14,16 +14,18 @@ if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1 || lsof -nP -iTCP:5500 -sTCP
 fi
 
 # 2. Backend (FastAPI on :8000).
-if [ ! -d venv ]; then
+FINIO_VENV="venv"
+if [ -x .venv/bin/python ]; then FINIO_VENV=".venv"; fi
+if [ ! -d "$FINIO_VENV" ]; then
   echo "ERROR: create a Python 3.11+ venv, then install requirements.lock. See DEPLOY.md."
   exit 1
 fi
-source venv/bin/activate
+source "$FINIO_VENV/bin/activate"
 python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' || {
   echo "This release needs Python 3.11+. Your existing venv is older; see DEPLOY.md."
   exit 1
 }
-uvicorn main:app --reload --port 8000 > /tmp/finio_backend.log 2>&1 &
+uvicorn main:app --reload --no-access-log --port 8000 > /tmp/finio_backend.log 2>&1 &
 BACK=$!
 
 # 3. Frontend (static files on :5500).

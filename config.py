@@ -1,4 +1,4 @@
-"""Finio constants — categories, keywords, colours, disclaimers."""
+"""Finio constants. categories, keywords, colours, disclaimers."""
 
 import os
 from pathlib import Path
@@ -12,7 +12,7 @@ TRAINING_CSV = DATA_DIR / "training_merchants.csv"
 # Normalized transaction schema (after parsing any bank CSV)
 NORMALIZED_COLUMNS = ["date", "amount", "description", "balance"]
 
-# Common export headers — banks use different names; parser maps these → normalized
+# Common export headers. banks use different names; parser maps these → normalized
 # Matching is case-insensitive (see bank_parser._find_column)
 COMMON_DATE_HEADERS = ["Date", "Transaction Date", "Posted Date", "Date of Transaction"]
 COMMON_AMOUNT_HEADERS = ["Amount", "Value", "Transaction Amount"]
@@ -31,7 +31,7 @@ DATE_FORMATS = [
     "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%b %d %Y",  # PDF month-name dates
 ]
 
-# ML categories (categoriser.py) — 8 general buckets
+# ML categories (categoriser.py). 8 general buckets
 CATEGORIES = [
     "Food & Dining",   # restaurants, delivery, takeaway, cafes
     "Groceries",       # supermarkets, convenience stores
@@ -45,7 +45,7 @@ CATEGORIES = [
 ]
 
 # "Transfers" is NOT a spend bucket. Money moved between your own accounts or to
-# people (P2P) is internal, not consumption — it is excluded from total_spent,
+# people (P2P) is internal, not consumption. it is excluded from total_spent,
 # total_income, and the spending breakdown. Kept separate so it never inflates
 # the numbers or the "Other" pile.
 TRANSFERS_LABEL = "Transfers"
@@ -79,7 +79,7 @@ MERCHANT_NOISE = [
 ]
 # Trailing country/state tokens CommBank appends (stripped when at the end).
 MERCHANT_TRAILING = ["AUS", "AU", "NSWAU", "NSW", "NS", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
-# Suburb / locality stop-words — location noise, never part of the merchant.
+# Suburb / locality stop-words. location noise, never part of the merchant.
 SUBURB_STOPWORDS = {
     "SYDNEY", "RYDE", "NORTH", "AUBURN", "GRANVILLE", "KINGSFORD", "MEADOWBANK",
     "ROZELLE", "LIDCOMBE", "KELLYVILLE", "BONDI", "JUNCTION", "NEWTOWN", "SURRY",
@@ -103,7 +103,7 @@ CATEGORY_RULES = [
         "PARKING", "CARPARK", "CAR PARK", "SECURE PARKING", "WILSON PARKING",
         "LINKT", "E-TOLL", "ETOLL", "GO VIA", "TOLL",
     ]),
-    # Housing next — "RENT" etc. must win before anything generic.
+    # Housing next. "RENT" etc. must win before anything generic.
     ("Housing & Rent", [
         "RENT", "REAL ESTATE", "REALESTATE", "RAY WHITE", "LJ HOOKER",
         "MCGRATH", "STRATA", "BOND", "LANDLORD", "PROPERTY MGMT",
@@ -143,7 +143,7 @@ CATEGORY_RULES = [
         "AMPOL", "7-ELEVEN FUEL", "COLES EXPRESS", "FUEL", "PETROL", "PARKING",
         "WILSON PARKING", "SECURE PARKING", "CARPARK", "TRAINLINK", "METRO",
         "TAXI", "13CABS",
-        # Running a car, not retail therapy — same call the model is told to make.
+        # Running a car, not retail therapy. same call the model is told to make.
         "SUPERCHEAP", "REPCO", "AUTOBARN", "BURSONS", "MECHANIC", "TYREPOWER",
     ]),
     ("Subscriptions", [
@@ -171,7 +171,7 @@ CATEGORY_RULES = [
 # Finio's analysis is currency-agnostic, but its defaults (day-first dates, the
 # merchant keyword rules, the ETF list) were built around Australian statements.
 # The currency is the one piece users elsewhere will want to change, so it is
-# read from the environment rather than hardcoded in nine different places —
+# read from the environment rather than hardcoded in nine different places,
 # CURRENCY existed before but nothing actually used it.
 CURRENCY = os.getenv("FINIO_CURRENCY", "AUD")
 LOCALE = os.getenv("FINIO_LOCALE", "en-AU")
@@ -182,7 +182,7 @@ DISCLAIMER = "General information only, not financial advice"
 # source of truth reports savings_rate = None instead of a wild number.
 MIN_INCOME_FOR_RATE = 100.0
 
-# Flow types — the canonical classification every transaction carries.
+# Flow types. the canonical classification every transaction carries.
 FLOW_INCOME = "income"
 FLOW_EXPENSE = "expense"
 FLOW_TRANSFER = "transfer"
@@ -203,7 +203,7 @@ CRYPTO_OPTIONS = ["BTC", "ETH"]
 
 # Bump when analysis logic changes enough that old stored snapshots would show
 # misleading numbers; the dashboard then prompts the user to hit Re-analyse.
-SNAPSHOT_VERSION = 5
+SNAPSHOT_VERSION = 7
 
 # ── Chat history ────────────────────────────────────────────────────────────
 # How many messages a chat keeps on screen. The old value (20) was shared with
@@ -223,12 +223,12 @@ MAX_UPLOAD_MB = 10
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 # A byte ceiling alone is not enough. 10 MB of narrow CSV is ~250,000 rows, and
-# every row is categorised, embedded and written to the snapshot — so a file
+# every row is categorised, embedded and written to the snapshot. so a file
 # that passes the size check can still tie up the single worker for minutes and
 # run up a model bill. This is the one transaction ceiling: it is checked while
 # reading, so an oversized file is refused before pandas loads all of it into
 # memory, and again after parsing. ~16 years of heavy card use, so no real
-# statement comes close. Refuse rather than truncate — silently dropping rows
+# statement comes close. Refuse rather than truncate. silently dropping rows
 # would quietly report the wrong finances.
 MAX_TRANSACTION_ROWS = 20_000
 
@@ -242,9 +242,9 @@ RATE_LIMITS = {
     "/reclassify": (6, 60),   # a full re-run of the categoriser
 }
 
-# ai_coach.py — OpenAI (optional; rule-based fallbacks if no key)
+# ai_coach.py. OpenAI (optional; rule-based fallbacks if no key)
 OPENAI_MODEL = "gpt-4o-mini"
-# embeddings.py — semantic search (RAG + merchant search). 1536 dims.
+# embeddings.py. semantic search (RAG + merchant search). 1536 dims.
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
 COACH_SYSTEM_PROMPT = (
@@ -256,13 +256,13 @@ COACH_SYSTEM_PROMPT = (
     "Give general information only, never personal financial advice, and never tell "
     "the user to buy or sell a specific investment. "
     "No headings, no bullet symbols, no italics. You MAY wrap key amounts, merchant "
-    "names, or short phrases in **double asterisks** for bold emphasis — nothing else. "
+    "names, or short phrases in **double asterisks** for bold emphasis. Nothing else. "
     "Short paragraphs and simple sentences. "
     "If can_invest is false, steer toward saving and building a buffer instead of investing. "
-    "Never use hyphens in your replies."
+    "Never use em dashes, en dashes or double hyphens as punctuation. Use full stops, commas and simple sentences."
 )
 
-# bill_detector.py — a real recurring bill must pass ALL three tests below.
+# bill_detector.py. a real recurring bill must pass ALL three tests below.
 # 1. Occurs often enough to be a pattern, not a one-off.
 BILL_MIN_OCCURRENCES = 3
 # 2. Amount is stable: coefficient of variation (std/mean) under this. Keeps out

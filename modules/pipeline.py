@@ -13,6 +13,7 @@ from modules.data_processor import (
     add_flags,
     apply_category_overrides,
     compute_metrics,
+    reconcile_flow_contradictions,
 )
 from modules.history import build_snapshot
 from modules.invest import invest_summary
@@ -45,7 +46,7 @@ def _records(df):
 
     `merchant` is the CLEANED trading name (merchant_clean) when available, not
     the raw bank description. Storing the clean name means a later re-slice
-    rebuilds identical names — so dashboards show "ENGIE" rather than
+    rebuilds identical names. so dashboards show "ENGIE" rather than
  "ENGIE ENERGY AU", and `tx_key` (derived from the name) stays stable
     between the upload and every re-slice.
 
@@ -75,6 +76,7 @@ def analyze_window(
     age=None,
     income_bracket=None,
     budget_targets=None,
+    overrides=None,
     period=None,
     period_anchor=None,
     period_start=None,
@@ -133,16 +135,25 @@ def analyze_window(
     full_balance_metrics = compute_metrics(full)
     invest_metrics = {**metrics,
  "latest_balance": full_balance_metrics["latest_balance"],
- "balance_date": full_balance_metrics["date_range"]["end"]}
+ "balance_date": full_balance_metrics["balance_date"]}
     invest = invest_summary(df, invest_metrics, forecast, goal_amount, age=age,
                             monthly_saved=monthly_net_average(full))
     personality = score_personality(df, metrics, analysis, bills)
     snapshot = build_snapshot(df, metrics, analysis, bills,
                               month=periods["current"][0].strftime("%Y-%m") if df.empty else None)
+    from modules.review import transfer_review
+    review = transfer_review(df, overrides)
+    history_review = transfer_review(full, overrides)
     context = build_context(metrics, analysis, bills, budgets, invest, personality,
                            income_bracket=income_bracket)
 
+    context["transfer_review"] = review
+
     return json_safe({
+        "statement_balance": {"amount": full_balance_metrics["latest_balance"], "as_of": full_balance_metrics["balance_date"]}
+                             if full_balance_metrics["latest_balance"] is not None else None,
+        "review": review,
+        "history_review": history_review,
         "metrics": metrics,
         "analysis": analysis,
         "bills": bills,
@@ -203,9 +214,13 @@ def run_full_pipeline(
     # Category overrides land AFTER categorisation so a user-chosen category
     # (incl. their custom ones) beats the rules/ML guess.
     full = apply_category_overrides(full, overrides)
+    full, _ = reconcile_flow_contradictions(full)
+    full["is_transfer"] = full["flow"] == "transfer"
+    full["is_expense"] = full["flow"] == FLOW_EXPENSE
 
     result = analyze_window(
         full,
+        overrides=overrides,
         goal_amount=goal_amount, goal_date=goal_date, age=age,
         income_bracket=income_bracket,
         budget_targets=budget_targets, period=period,
@@ -218,7 +233,7 @@ def run_full_pipeline(
     from modules.llm_categoriser import build_questions
     result["llm_categories"] = llm_meta.get("cache", llm_cache or {})
     result["pending_questions"] = build_questions(
-        full, result["llm_categories"], overrides=overrides
+        full, result["llm_categories"], overrides=overrides, limit=20000
     )
     return result
 
@@ -252,13 +267,12 @@ def analyze_stored(
         )
 
         # Apply only the user's rules on top of the restored flow, then keep the
-        # derived flags in sync — don't rebuild flow from scratch (that would
+        # derived flags in sync. don't rebuild flow from scratch (that would
         # lose the transfer classification decided at upload time). Category
         # overrides apply to the already-stored categories.
         full = apply_flow_overrides(full, overrides)
         # A saved rule can contradict the direction of the money (money out
         # labelled "income"); neutralise it here too, not just at upload.
-        full, _ = reconcile_flow_contradictions(full)
         full = apply_category_overrides(full, overrides)
         # Category rules can (re)introduce the "Transfers but spending"
         # contradiction, so settle it after they land as well.
@@ -267,6 +281,7 @@ def analyze_stored(
         full["is_expense"] = full["flow"] == FLOW_EXPENSE
     return analyze_window(
         full,
+        overrides=overrides,
         goal_amount=goal_amount, goal_date=goal_date, age=age,
         income_bracket=income_bracket, budget_targets=budget_targets, period=period,
         period_anchor=period_anchor, period_start=period_start, period_end=period_end,

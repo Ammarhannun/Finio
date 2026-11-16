@@ -31,8 +31,10 @@ def client(monkeypatch):
     main._RATE.clear()
     main._VIEW_CACHE.clear()
     monkeypatch.setattr(db, 'get_client', Mock(return_value=Mock()))
+    monkeypatch.setattr(db, 'is_configured', lambda: True)
+    monkeypatch.setattr(db, 'get_user_id', Mock(return_value='launch-test'))
     for name, value in {
- 'get_overrides': [], 'get_custom_categories': [], 'get_llm_categories': {},
+ 'get_latest_snapshot': None, 'edit_state': {'revision': None, 'can_undo': False}, 'get_overrides': [], 'get_custom_categories': [], 'get_llm_categories': {},
  'get_user_profile': {'age': 34, 'income_bracket': 'middle'},
  'get_budget_targets': {'Groceries': 400},
  'get_goal': {'target_amount': 6000, 'target_date': '2027-12-01'},
@@ -40,7 +42,8 @@ def client(monkeypatch):
  'persist_analysis': {},
     }.items():
         monkeypatch.setattr(db, name, Mock(return_value=value))
-    yield TestClient(main.app, raise_server_exceptions=False)
+    yield TestClient(main.app, raise_server_exceptions=False,
+                     headers={'Authorization': 'Bearer fake-token'})
     main.app.dependency_overrides.clear()
     main._RATE.clear()
 

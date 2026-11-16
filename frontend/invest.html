@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Finio · Invest</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
@@ -15,7 +15,6 @@
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
-    <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
     <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
@@ -26,274 +25,124 @@
   </div>
 </nav>
 
-<main>
-  <div id="loading" class="loading"><div class="spinner"></div> Loading investing information…</div>
-
-  <div id="no-data" style="display:none;">
-    <div class="no-data">
-      <div class="icon">↗</div>
-      <h3>No data yet</h3>
-      <p>Upload a statement on the Dashboard to see how your spending compares with common savings guides</p>
-      <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
-    </div>
-  </div>
-
+<main class="invest-view">
+  <div id="loading" class="loading" role="status"><div class="spinner" aria-hidden="true"></div> Loading investing information…</div>
+  <div id="no-data" style="display:none;"><div class="no-data"><h3>No statement yet</h3><p>Upload a statement to review recorded income and spending.</p><a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a></div></div>
   <div id="content" style="display:none;">
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
-      <div>
-        <h1>Invest</h1>
-        <p>Understand your savings patterns and explore investing concepts. Finio does not assess whether an investment is right for you.</p>
-      </div>
-      <div id="period-mount"></div>
+    <div class="dash-head"><div><h1>Invest</h1><p class="dash-sub">Review your position, make a plan that fits you, and explore the basics.</p><p id="invest-window" class="selected-range"></p></div><div id="period-mount"></div></div>
+    <p id="empty-window" class="service-status" hidden>No transactions are recorded in this window. Choose another period to review cash flow.</p>
+    <div id="invest-review" class="review-notice" role="status" hidden></div>
+    <div class="cards-row invest-overview">
+      <div class="card metric-card"><div class="label">Recorded income</div><div class="value" id="invest-income">Loading…</div></div>
+      <div class="card metric-card"><div class="label">Recorded spending</div><div class="value" id="invest-spending">Loading…</div></div>
+      <div class="card metric-card"><div class="label" id="invest-surplus-label">Income − spending</div><div class="value" id="invest-surplus">Loading…</div></div>
     </div>
-    <p id="empty-window" class="card" style="display:none;">No transactions fall in this selected period. The goal and investing examples below are based on your full uploaded history.</p>
 
-    <!-- Readiness banner -->
-    <div id="readiness-banner" class="card readiness-card"></div>
+    <section class="card invest-section" aria-labelledby="foundations-title">
+      <h2 id="foundations-title" class="section-title">Financial foundations to review</h2>
+      <p class="tx-help">Review these facts alongside your current balances and financial goals.</p>
+      <ul id="foundation-list" class="foundation-list"></ul>
+      <p class="tx-help">A statement does not establish your current available cash, debts, emergency needs or investment suitability.</p>
+    </section>
 
-    <!-- 50/30/20 split -->
-    <div class="section-title">50/30/20 budget rule</div>
-    <div class="split-row" id="split-row" style="margin-bottom:1.5rem;"></div>
-
-    <!-- Savings goal progress -->
-    <div class="card" style="margin-bottom:1.5rem;" id="goal-card">
-      <div class="section-title">Savings goal</div>
+    <section class="card invest-section" id="goal-card" aria-labelledby="invest-goal-title">
+      <div class="card-head"><h2 id="invest-goal-title" class="section-title">Your savings goal</h2><a href="dashboard.html#edit-goal" class="link-btn">Edit on Dashboard</a></div>
       <div id="goal-content"></div>
-    </div>
+    </section>
 
-    <!-- ETF education -->
-    <div class="card" style="margin-bottom:1.5rem;" id="etf-card">
-      <div class="section-title">ETF examples to research</div>
-      <div id="etf-content"></div>
-    </div>
+    <section class="card invest-section" aria-labelledby="budget-plan-title">
+      <h2 id="budget-plan-title" class="section-title">50/30/20 budget guide</h2>
+      <p class="tx-help">Finio uses 50% for needs, 30% for wants and 20% for savings as its default guide.</p>
+      <div id="plan-output"></div>
+    </section>
 
-    <!-- Where your money could go (full menu incl. crypto) -->
-    <div class="card" style="margin-bottom:1.5rem;" id="options-card">
-      <div class="section-title">Where your money could go</div>
-      <p style="color:var(--muted);font-size:0.875rem;margin-bottom:0.5rem;">
-        A quick tour of your options, safest first. This is general information,
-        never a recommendation to buy anything.
-      </p>
-      <div id="options-content"></div>
-    </div>
-
-    <!-- First $1000 -->
-    <div class="card" style="margin-bottom:1.5rem;" id="first1000-card">
-      <div class="section-title">First $1,000 in net savings</div>
-      <div id="first1000-content"></div>
-    </div>
-
-    <!-- Actual vs target -->
-    <div class="card" id="avt-card" style="margin-bottom:1.5rem;display:none;">
-      <div class="section-title">Actual vs target breakdown</div>
-      <div id="avt-content"></div>
-    </div>
+    <section class="card invest-section" aria-labelledby="invest-learn-title">
+      <h2 id="invest-learn-title" class="section-title">Explore investing at your own pace</h2>
+      <p class="tx-help">Start with your goals, access needs and comfort with risk.</p>
+      <ul class="foundation-list">
+        <li><strong>Purpose and time horizon</strong><p>Consider when you may need the money and what you want it to do. <a href="https://moneysmart.gov.au/how-to-invest/develop-an-investing-plan" target="_blank" rel="noopener noreferrer">Build an investing plan</a></p></li>
+        <li><strong>Risk, diversification and costs</strong><p>Compare how investments can lose value, how easily you can access them, and their fees. <a href="https://moneysmart.gov.au/how-to-invest/choose-your-investments" target="_blank" rel="noopener noreferrer">Understand investment types</a></p></li>
+        <li><strong>Money you may need soon</strong><p>Think about unexpected expenses alongside longer-term goals. <a href="https://moneysmart.gov.au/saving/save-for-an-emergency-fund" target="_blank" rel="noopener noreferrer">Learn about emergency savings</a></p></li>
+      </ul>
+      <details class="invest-details"><summary>Compare broad investment types</summary><ul class="foundation-list">
+        <li><strong>Cash and deposits</strong><p>Compare access, withdrawal conditions and interest terms.</p></li>
+        <li><strong>Bonds</strong><p>Understand the issuer and how interest-rate changes can affect value.</p></li>
+        <li><strong>Shares and funds, including ETFs</strong><p>Compare holdings, diversification, fees and exposure to market losses.</p></li>
+        <li><strong>Superannuation</strong><p>Consider investment choices, fees and restrictions on accessing retirement savings.</p></li>
+        <li><strong>Speculative assets</strong><p>Understand volatility and the possibility of losing the money committed.</p></li>
+      </ul><p class="tx-help">These are topics to research, not a ranking or selections for your circumstances. <a href="https://moneysmart.gov.au/how-to-invest/choose-your-investments" target="_blank" rel="noopener noreferrer">Read ASIC Moneysmart’s comparison</a></p></details>
+    </section>
   </div>
-
   <p class="disclaimer">General information only, not financial advice</p>
 </main>
 <div id="toast"></div>
-
 <script type="module">
-  import { setupNav, formatAUD, formatMonthYear,
-           bootstrapPeriodPage, escapeHtml } from './api.js';
+  import { setupNav, formatAUD, formatMonthYear, dateRangeLabel, escapeHtml, requireAuth, bootstrapPeriodPage, periodQuery, getStoredPeriod } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
+  import { DEFAULT_PLAN, planAmounts, goalFigures } from './invest-plan.js';
 
-  setupNav('invest');
-  mountCoachWidget('invest');
-
-  const RISK_CLASS = (risk) => {
-    const r = (risk || '').toLowerCase();
-    if (r.includes('high')) return 'risk-high';
-    if (r.includes('low') && !r.includes('medium')) return 'risk-low';
-    return 'risk-medium';
-  };
-
-  function renderInvest(data) {
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('content').style.display = 'block';
-    const empty = Boolean(data.period?.empty);
-    document.getElementById('empty-window').style.display = empty ? 'block' : 'none';
-    document.getElementById('readiness-banner').style.display = empty ? 'none' : 'block';
-    document.getElementById('avt-card').style.display = 'none';
-
-    const { invest, goal, metrics } = data;
-    if (!invest) return;
-
-    const { split_503020, actual_vs_target, readiness, first_1000, etf, options } = invest;
-
-    // Where your money could go — the full menu, crypto included
-    const optionsEl = document.getElementById('options-content');
-    if (options?.length) {
-      optionsEl.innerHTML = options.map(o => `
-        <div class="option-card">
-          <span class="option-type">${o.type}</span>
-          <div class="option-body">
-            <div class="option-name">${o.name}${o.options?.length ? ` <span style="color:var(--muted);font-weight:400;">(${o.options.join(', ')})</span>` : ''}</div>
-            <div class="option-note">${o.note}</div>
-            <span class="risk-pill ${RISK_CLASS(o.risk)}">${o.risk} risk</span>
-          </div>
-        </div>`).join('');
-    } else {
-      optionsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No options to show yet</p>';
+  setupNav('invest'); mountCoachWidget('invest');
+  const plan = DEFAULT_PLAN;
+  let currentData = null;
+  const fields = ['needs','wants','savings'];
+  function renderPlan() {
+    const output = document.getElementById('plan-output');
+    if (!currentData) return;
+    const targets = planAmounts(Number(currentData.metrics?.total_income));
+    if (!targets) {
+      output.innerHTML = '<p class="plan-note">No positive recorded income in this window. Choose another period to calculate percentage amounts.</p>'; return;
     }
-
-    // Readiness: show the whole journey, not a yes/no. Every gate, how close
-    // they are, what to fix first, and when the buffer would clear.
-    const readinessEl = document.getElementById('readiness-banner');
-    if (readiness) {
-      const can = readiness.can_invest;
-      const done = readiness.steps_done ?? 0;
-      const total = readiness.steps_total ?? 0;
-      const pct = total ? Math.round((done / total) * 100) : 0;
-      const checks = readiness.checks || [];
-
-      const fmt = (c) => c.current == null ? `Not available · guide ${formatAUD(c.target)}` : c.unit === 'pct'
-        ? `${c.current}% of ${c.target}%`
-        : `${formatAUD(c.current)} of ${formatAUD(c.target)}`;
-
-      readinessEl.className = 'card readiness-card' + (can ? ' ready' : '');
-      readinessEl.innerHTML = `
-        <div class="readiness-head">
-          <div>
-            <div class="readiness-title">${can ? 'Statement checks met' : 'Financial foundations to review'}</div>
-            <p class="readiness-sub">${escapeHtml(readiness.reason || '')}</p>
-          </div>
-          <div class="readiness-score">
-            <div class="readiness-score-num">${done}<span>/${total}</span></div>
-            <div class="readiness-score-label">steps done</div>
-          </div>
-        </div>
-        <div class="progress-bar readiness-bar">
-          <div class="progress-fill ${can ? 'green' : pct >= 50 ? 'yellow' : 'red'}" style="width:${Math.max(pct, 4)}%"></div>
-        </div>
-        <ol class="readiness-steps">
-          ${checks.map((c, i) => `
-            <li class="readiness-step${c.passed ? ' done' : ''}${!c.passed && checks.slice(0, i).every(x => x.passed) ? ' next' : ''}">
-              <span class="readiness-mark">${c.passed ? '✓' : i + 1}</span>
-              <div>
-                <div class="readiness-step-label">${escapeHtml(c.label)}</div>
-                <div class="readiness-step-meta">${fmt(c)}${c.passed ? '' : ' · ' + escapeHtml(c.fix)}</div>
-              </div>
-            </li>`).join('')}
-        </ol>
-        ${readiness.ready_when
-          ? `<p class="readiness-when">✦ ${escapeHtml(readiness.ready_when.text)}</p>` : ''}`;
-    }
-
-    // 50/30/20 split
-    const splitEl = document.getElementById('split-row');
-    if (split_503020) {
-      const splits = [
-        { label: 'Needs', pct: '50%', key: 'needs', color: 'var(--accent)' },
-        { label: 'Wants', pct: '30%', key: 'wants', color: 'var(--yellow)' },
-        { label: 'Savings', pct: '20%', key: 'savings', color: 'var(--green)' },
-      ];
-      splitEl.innerHTML = splits.map(s => `
-        <div class="split-item">
-          <div class="split-pct" style="color:${s.color};">${s.pct}</div>
-          <div class="split-name">${s.label}</div>
-          <div class="split-amount">${split_503020[s.key] != null ? formatAUD(split_503020[s.key]) : '—'}</div>
-        </div>`).join('');
-    } else {
-      splitEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No split data available</p>';
-    }
-
-    // Actual vs target (use the UI-ready rows from the backend)
-    const avtRows = actual_vs_target?.rows || [];
-    if (avtRows.length && !empty) {
-      document.getElementById('avt-card').style.display = 'block';
-      document.getElementById('avt-content').innerHTML = avtRows.map(r => `
-        <div class="info-row">
-          <span class="info-label">${r.label}</span>
-          <span class="info-value" style="color:${r.good ? 'var(--green)' : 'var(--red)'};">
-            ${formatAUD(r.actual)}
-            <span style="color:var(--muted);font-weight:400;"> / ${formatAUD(r.target)}</span>
-          </span>
-        </div>`).join('');
-    }
-
-    // Savings goal
-    const goalEl = document.getElementById('goal-content');
-    const goalData = goal || invest.goal;
-    if (goalData) {
-      const current = goalData.current_saved ?? goalData.current_savings ?? goalData.saved ?? 0;
-      const target = goalData.target_amount ?? goalData.goal_amount ?? 0;
-      const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
-      const colorClass = pct >= 80 ? 'green' : pct >= 40 ? '' : 'yellow';
-      goalEl.innerHTML = `
-        <div style="display:flex;justify-content:space-between;margin-bottom:0.75rem;font-size:0.875rem;">
-          <span style="color:var(--muted);">Net movement in uploaded history, not savings account balance</span>
-          <span style="font-weight:600;">${formatAUD(current)} of ${formatAUD(target)}</span>
-        </div>
-        <div class="progress-bar" style="height:12px;margin-bottom:0.75rem;">
-          <div class="progress-fill ${colorClass}" style="width:${pct.toFixed(1)}%"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted);">
-          <span>${pct.toFixed(1)}% complete</span>
-          ${goalData.target_date || goalData.goal_date ? `<span>Target: ${formatMonthYear(goalData.target_date || goalData.goal_date)}</span>` : ''}
-        </div>
-        ${goalData.monthly_required != null ? `
-          <div style="margin-top:1rem;padding:0.75rem;background:var(--accent-dim);border-radius:8px;font-size:0.875rem;">
-            Save <strong>${formatAUD(goalData.monthly_required)}/month</strong> to hit your goal on time
-          </div>` : ''}`;
-    } else {
-      goalEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Set a savings goal on the Dashboard to track progress here</p>';
-    }
-
-    // ETF examples are educational; no ticker is selected for the user.
-    const etfEl = document.getElementById('etf-content');
-    if (etf) {
-      const options = etf.options || [];
-      etfEl.innerHTML = `
-        <div class="etf-highlight" style="margin-bottom:1rem;">
-          <div class="etf-name">Compare options yourself</div>
-          <div style="color:var(--muted);font-size:0.875rem;margin-top:0.35rem;">${escapeHtml(etf.reason || '')}</div>
-        </div>
-        ${options.length > 1 ? `
-          <div class="section-title" style="font-size:0.8125rem;margin-bottom:0.5rem;">Examples, not recommendations</div>
-          ${options.map(o => `
-            <div style="padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.9rem;color:var(--muted);">${escapeHtml(o)}</div>`).join('')}` : ''}`;
-    } else {
-      etfEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No ETF examples available yet</p>';
-    }
-
-    // First $1000 — a progress bar plus numbered steps. The old version dumped
-    // every field into a value cell, which flattened the steps ARRAY into one
-    // comma-joined line of monospace text.
-    const f1El = document.getElementById('first1000-content');
-    if (first_1000 && typeof first_1000 === 'object' && !Array.isArray(first_1000)) {
-      const target = Number(first_1000.target) || 1000;
-      const saved = Number(first_1000.current_saved) || 0;
-      const remaining = Number(first_1000.remaining) || 0;
-      const pct = Math.max(0, Math.min(100, Math.round((saved / target) * 100)));
-      const steps = Array.isArray(first_1000.steps) ? first_1000.steps : [];
-      f1El.innerHTML = `
-        <div class="f1k-head">
-          <span class="f1k-saved">${formatAUD(saved)}</span>
-          <span class="f1k-of">of ${formatAUD(target)}</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'green' : pct >= 50 ? 'yellow' : 'red'}"
-             style="width:${Math.max(pct, 2)}%"></div></div>
-        <div class="f1k-remaining">${remaining > 0
-          ? `${formatAUD(remaining)} to go` : 'Target reached'}</div>
-        <ol class="f1k-steps">
-          ${steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
-        </ol>`;
-    } else if (Array.isArray(first_1000)) {
-      f1El.innerHTML = `<ol class="f1k-steps">${
-        first_1000.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>`;
-    } else if (typeof first_1000 === 'string') {
-      f1El.innerHTML = `<p style="font-size:0.9375rem;line-height:1.7;">${escapeHtml(first_1000)}</p>`;
-    } else {
-      f1El.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">Build your emergency fund first, then come back here</p>';
-    }
+    const actual = currentData.invest?.actual_vs_target || {};
+    const recorded = {needs:actual.needs_spent, wants:actual.wants_spent, savings:currentData.metrics?.net_saved};
+    const labels = {needs:'Needs', wants:'Wants', savings:'Savings / goals'};
+    output.innerHTML = `<p class="plan-note">The default guide applied to recorded income in ${escapeHtml(dateRangeLabel(currentData.period || currentData.metrics?.date_range))}. Transfers are excluded.</p>
+      <div class="split-row">${fields.map(f => `<div class="split-item"><div class="split-pct">${plan[f]}%</div><div class="split-name">${labels[f]}</div><div class="split-amount">${formatAUD(targets[f])}</div></div>`).join('')}</div>
+      <div class="plan-comparison"><div class="plan-comparison-head"><span>Category grouping</span><span>Recorded</span><span>Guide</span></div>${fields.map(f => `<div><span>${labels[f]}</span><span>${formatAUD(recorded[f])}</span><span>${formatAUD(targets[f])}</span></div>`).join('')}</div>
+      <p class="tx-help">Needs/wants are estimates from transaction categories. Adjust classifications in Transactions if they do not fit. ${currentData.review?.count ? 'Recorded figures are provisional until transfer review is complete.' : ''} <a href="https://moneysmart.gov.au/budgeting/how-to-do-a-budget" target="_blank" rel="noopener noreferrer">More ways to budget</a></p>`;
   }
 
-  // Auth, fetch, render and the period bar all come from the shared helper.
-  const init = () => bootstrapPeriodPage('/invest', renderInvest);
-
-  init();
+  function renderInvest(data) {
+    currentData = data;
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+    document.getElementById('empty-window').hidden = !data.period?.empty;
+    document.getElementById('invest-window').textContent = dateRangeLabel(data.period || data.metrics?.date_range);
+    const metrics = data.metrics || {};
+    document.getElementById('invest-income').textContent = formatAUD(metrics.total_income);
+    document.getElementById('invest-spending').textContent = formatAUD(metrics.total_spent);
+    document.getElementById('invest-surplus').textContent = formatAUD(metrics.net_saved);
+    document.getElementById('invest-surplus-label').textContent = data.review?.count ? 'Surplus · provisional' : 'Income − spending';
+    const review = document.getElementById('invest-review'); review.hidden = !data.review?.count;
+    review.replaceChildren();
+    if (data.review?.count) {
+      const text = document.createElement('p'); text.textContent = `${data.review.count} transfer transactions are excluded from this window’s totals. Review them before relying on the surplus.`;
+      const link = document.createElement('a'); link.href = 'transactions.html?review=transfers&'+periodQuery(getStoredPeriod())+'#review'; link.textContent = 'Review transfers'; review.append(text,link);
+    }
+    const figures = goalFigures(data);
+    const readiness = data.invest?.readiness || {};
+    document.getElementById('foundation-list').innerHTML = (readiness.checks || []).map(c => {
+      const value = c.id === 'savings_goal' ? `${formatAUD(figures.current)} recorded toward ${formatAUD(figures.target)}`
+        : c.current == null ? 'Not available from a recent statement' : formatAUD(c.current);
+      const date = c.id === 'statement_balance' && readiness.balance_date ? ' · as at '+dateRangeLabel({start:readiness.balance_date,end:readiness.balance_date}) : '';
+      return `<li><strong>${escapeHtml(c.label)}</strong><p>${escapeHtml(value+date)}</p><p class="tx-help">${escapeHtml(c.fix || '')}</p></li>`;
+    }).join('');
+    const goal = document.getElementById('goal-content');
+    const provisional = Boolean(data.history_review?.count || data.review?.count);
+    const pct = figures.target && figures.current != null ? Math.max(0,Math.min(100,figures.current/figures.target*100)) : 0;
+    goal.innerHTML = figures.target && figures.current != null
+      ? `<p class="goal-totals"><strong>${formatAUD(figures.current)}</strong> recorded toward ${formatAUD(figures.target)}</p>
+         <p class="tx-help">Net movement across all uploaded history, not your savings account balance.${provisional ? ' Provisional while transfers remain unreviewed.' : ''}</p>
+         <div class="progress-bar"><div class="progress-fill ${provisional ? 'neutral' : 'green'}" style="width:${pct}%"></div></div>
+         <p class="tx-help">${figures.date ? 'Target: '+escapeHtml(formatMonthYear(figures.date)) : ''}${figures.projected != null ? ' · Projected total '+formatAUD(figures.projected)+' (estimate, not recorded savings)' : ''}</p>`
+      : '<p class="tx-help">Set a goal on the Dashboard if you want to track one.</p>';
+    renderPlan();
+  }
+  (async () => {
+    try {
+      await requireAuth();
+      await bootstrapPeriodPage('/invest', renderInvest);
+    } catch (_) { /* requireAuth redirects; bootstrap renders recoverable errors */ }
+  })();
 </script>
 </body>
 </html>

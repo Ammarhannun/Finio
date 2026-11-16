@@ -12,6 +12,9 @@ scikit-learn>=1.6.0,<2.0
 
 # PDF bank statement parsing (text-based PDFs)
 pdfplumber>=0.11.8,<1.0
+# Security floors for transitive PDF/TLS dependencies (October 2026 audit).
+pillow>=13.0.0,<14.0
+certifi>=2026.10.19
 
 # AI + database
 openai>=1.55.0,<2.0

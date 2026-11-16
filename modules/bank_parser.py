@@ -22,7 +22,7 @@ from config import (
 class StatementRejected(ValueError):
     """A statement we understood but are refusing, with a message for the user.
 
-    Parse failures stay generic on purpose — their text comes from pandas or
+    Parse failures stay generic on purpose. their text comes from pandas or
     pdfminer and could leak internals. These are our own limits (too many
     rows, empty file, implausible amount), and the user can only act on them
     if they are told which one they hit.
@@ -111,18 +111,18 @@ def _reject_non_text(path):
     """Refuse a file that is not actually text before pandas touches it.
 
     An upload is trusted only as far as its extension, which is just a string
-    the browser sent. Binary content renamed `.csv` is never dangerous here —
-    nothing is executed and the bytes only ever reach a parser — but it would
+    the browser sent. Binary content renamed `.csv` is never dangerous here,
+    nothing is executed and the bytes only ever reach a parser. but it would
     surface as a confusing pandas traceback instead of a clear message. A NUL
     byte is the cheapest reliable tell: it cannot occur in a text statement.
     """
     with open(path, "rb") as handle:
-        head = handle.read(8192)
-    if b"\x00" in head:
-        raise StatementRejected(
-            "That looks like a binary file, not a CSV. Export your statement "
-            "as CSV (or an unlocked text-based PDF) and try again."
-        )
+        while chunk := handle.read(64 * 1024):
+            if b"\x00" in chunk:
+                raise StatementRejected(
+                    "That looks like a binary file, not a CSV. Export your statement "
+                    "as CSV (or an unlocked text-based PDF) and try again."
+                )
 
 
 def load_csv(path):
@@ -130,9 +130,9 @@ def load_csv(path):
     # Read one row past the ceiling so an oversized file is detectable rather
     # than quietly cut off at the limit.
     limit = MAX_TRANSACTION_ROWS + 1
-    df = pd.read_csv(path, nrows=limit)
+    df = pd.read_csv(path, nrows=limit, keep_default_na=False)
     if not _has_header(df):
-        df = pd.read_csv(path, header=None, nrows=limit)
+        df = pd.read_csv(path, header=None, nrows=limit, keep_default_na=False)
         df = _assign_headerless_columns(df)
     if len(df) > MAX_TRANSACTION_ROWS:
         raise StatementRejected(
@@ -277,14 +277,14 @@ def clean_merchant_name(name):
         if text.startswith(prefix):
             text = text[len(prefix):]
             break
-    # Processors also write "SQ *NAME" / "PAYPAL *NAME" — drop a leading star
+    # Processors also write "SQ *NAME" / "PAYPAL *NAME". drop a leading star
     # left behind (or one that came with the prefix).
     text = text.lstrip("* ").strip()
 
     text = text.replace(".", " ")
     text = _XX_REF_RE.sub(" ", text)
 
-    # Whole-word only (see _MERCHANT_NOISE_RE) — repeated so "X PTY LTD" loses
+    # Whole-word only (see _MERCHANT_NOISE_RE). repeated so "X PTY LTD" loses
     # both tokens.
     for _ in range(3):
         text, n = _MERCHANT_NOISE_RE.subn(" ", text)
@@ -307,8 +307,8 @@ def clean_merchant_name(name):
 
 def parse_bank_csv(path):
     if str(path).lower().endswith(".pdf"):
-        from modules.pdf_parser import extract_transactions
-        df = extract_transactions(path)
+        from modules.pdf_processing import extract_pdf
+        df = extract_pdf(path)
     else:
         df = load_csv(path)
     df = normalize(df)

@@ -1,13 +1,21 @@
 {
- "name": "finio-checks",
- "private": true,
- "scripts": {
- "test:upload": "node --test tests/upload-picker.mjs",
- "check:frontend": "node --experimental-vm-modules scripts/check_frontend.mjs",
- "test:database": "node tests/database.mjs"
+  "name": "finio-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:upload": "node --test tests/upload-picker.mjs",
+    "check:frontend": "node --experimental-vm-modules scripts/check_frontend.mjs",
+    "test:privacy": "node --experimental-vm-modules tests/privacy-contact.mjs",
+    "test:facts": "node --test tests/financial-facts.mjs",
+    "test:dashboard": "node --test tests/dashboard-display.mjs",
+    "test:preferences": "node --test tests/preferences-plan.mjs",
+    "test:database": "node tests/database.mjs && node tests/security-database.mjs",
+    "test:layout": "node --test tests/coach-layout.mjs",
+    "test:refresh": "node --experimental-vm-modules --test tests/page-refresh.mjs tests/api-refresh.mjs",
+    "test:auth": "node --experimental-vm-modules --test tests/login-ui.mjs tests/session-privacy.mjs tests/account-security.mjs tests/account-security-ui.mjs tests/ai-settings.mjs tests/spend-check-empty.mjs"
   },
- "devDependencies": {
- "@electric-sql/pglite": "0.5.8",
- "@electric-sql/pglite-pgvector": "0.0.9"
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9"
   }
 }

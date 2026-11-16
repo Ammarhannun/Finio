@@ -755,6 +755,8 @@ def _():
         "all_transactions",
         "llm_categories",
         "pending_questions",
+        "statement_balance",
+        "review", "history_review",
         "disclaimer",
     }
     assert_eq(set(r.keys()), keys)
@@ -1167,7 +1169,7 @@ def _():
             data={"goal_amount": 5000, "goal_date": "2026-06-30", "age": 22},
         )
     from modules import db
-    assert_eq(r.status_code, 401 if db.is_configured() else 503)
+    assert_eq(r.status_code, 401)
 
 
 @test("API: POST /analyze rejects non-csv")
@@ -1180,7 +1182,7 @@ def _():
         files={"file": ("bad.txt", b"hello", "text/plain")},
     )
     from modules import db
-    assert_eq(r.status_code, 401 if db.is_configured() else 503)
+    assert_eq(r.status_code, 401)
 
 
 @test("API: POST /analyze bad bearer format returns 401")
@@ -1208,7 +1210,7 @@ def _():
     from main import app
     from modules import db
 
-    expected = 401 if db.is_configured() else 503
+    expected = 401
     client = TestClient(app)
     for method, path, kwargs in [
         ("get", "/dashboard", {}),
@@ -2113,7 +2115,7 @@ def _reclassify_client(transactions, overrides, proposal):
     saved = {k: getattr(app_main.db, k, None) for k in (
         "get_client", "load_dashboard", "get_all_transactions", "get_overrides",
         "get_custom_categories", "get_budget_targets", "get_user_profile",
-        "get_streak", "get_goal")}
+        "get_streak", "get_goal", "get_user")}
     saved_llm = app_main.categorise_merchants
 
     app_main.db.get_client = lambda *a, **k: object()
@@ -2132,7 +2134,15 @@ def _reclassify_client(transactions, overrides, proposal):
         user_id = "u1"
         token = "t"
 
-    app_main.app.dependency_overrides[app_main.get_current_user] = lambda: U()
+    from types import SimpleNamespace
+    from modules.ai_policy import bind_user, CONSENT_VERSION
+    app_main.db.get_user = lambda _: SimpleNamespace(id='u1', user_metadata={
+        'finio_ai': {'enabled': True, 'version': CONSENT_VERSION}})
+    def consenting_user():
+        user = U()
+        bind_user(user)
+        return user
+    app_main.app.dependency_overrides[app_main.get_current_user] = consenting_user
     app_main._RATE.clear()
 
     def restore():
@@ -2222,13 +2232,13 @@ def _():
     writes = []
     proposal = {"CALTEX WOOLWORTHS FUEL": {"category": "Transport", "confidence": "high"}}
     client, restore = _reclassify_client(_RECLASS_TX, [], proposal)
-    saved = (app_main.db.save_overrides, app_main.db.save_snapshot)
-    app_main.db.save_overrides = lambda *a, **k: writes.append("save_overrides")
+    saved = (app_main.db.commit_edit, app_main.db.save_snapshot)
+    app_main.db.commit_edit = lambda *a, **k: writes.append("commit_edit")
     app_main.db.save_snapshot = lambda *a, **k: writes.append("save_snapshot")
     try:
         assert_eq(client.post("/reclassify").status_code, 200)
     finally:
-        app_main.db.save_overrides, app_main.db.save_snapshot = saved
+        app_main.db.commit_edit, app_main.db.save_snapshot = saved
         restore()
     assert_eq(writes, [], "reclassify must not persist anything")
 

@@ -13,3 +13,5 @@
 !data/training_merchants.csv
 !data/kb/
 !data/kb/*.md
+**/__pycache__
+**/*.pyc

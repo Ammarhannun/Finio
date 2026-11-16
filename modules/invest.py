@@ -1,5 +1,3 @@
-import pandas as pd
-import math
 from modules.spend_check import recent_statement_balance
 
 from config import CRYPTO_OPTIONS, DISCLAIMER, ETF_OPTIONS, FLOW_EXPENSE
@@ -11,7 +9,7 @@ SAVINGS_PCT = 20
 # 50/30/20 needs the whole of spending accounted for, or the comparison lies.
 # NEEDS is the explicit list; WANTS is deliberately "everything else" rather
 # than a second fixed list. With two fixed lists, any category in neither
-# silently vanished — "Housing & Rent" was missing, so rent, the largest need
+# silently vanished. "Housing & Rent" was missing, so rent, the largest need
 # most people have, was left out of the split entirely ($1,800 of rent showed
 # as $0 of needs). User-invented categories disappeared the same way.
 #
@@ -19,10 +17,6 @@ SAVINGS_PCT = 20
 # breakdown exists to surface discretionary spending, so an unrecognised
 # category should not be quietly excused as essential.
 NEEDS_CATEGORIES = ["Groceries", "Transport", "Health", "Housing & Rent", "Other"]
-
-MIN_BUFFER_TO_INVEST = 500
-MIN_SAVINGS_RATE_PCT = 10
-
 
 def split_income_503020(monthly_income):
     return {
@@ -44,8 +38,8 @@ def compare_to_actual(df, metrics, split):
     needs_spent = expenses.loc[
         expenses["category"].isin(NEEDS_CATEGORIES), "net_spend"
     ].sum()
-    # Everything that isn't a need — including Entertainment and any category
-    # the user invented — so no spending can fall out of the comparison.
+    # Everything that isn't a need. including Entertainment and any category
+    # the user invented. so no spending can fall out of the comparison.
     wants_spent = expenses.loc[
         ~expenses["category"].isin(NEEDS_CATEGORIES), "net_spend"
     ].sum()
@@ -83,7 +77,7 @@ def compare_to_actual(df, metrics, split):
         "needs_target": split["needs"],
         "wants_target": split["wants"],
         "savings_target": split["savings"],
-        # Kept for invest_readiness; positive savings_gap means below target.
+        # Difference from this example; the user may choose a different split.
         "savings_gap": round(split["savings"] - actual_saved, 2),
     }
 
@@ -124,100 +118,32 @@ def first_1000_plan(current_saved):
 
 
 def invest_readiness(metrics, compare, forecast_result, monthly_saved=None):
-    """Show educational financial-foundation checks, not investment advice.
+    """Independent statement facts, never an investment eligibility decision.
 
-    Returns a transparent checklist instead of a single verdict, so the user can
-    see every gate, how close they are, and the first thing to fix. `saved` is
-    the accumulated running total (forecast.current_saved), not one period's
-    net — someone with months of savings shouldn't look broke because this
-    month was quiet.
+    A percentage budget and a completed savings goal are personal choices,
+    not prerequisites imposed by Finio. Keep the legacy can_invest flag false
+    because a statement cannot establish suitability or available cash.
     """
-    saved, balance_date = recent_statement_balance(metrics)
-    # Single source of truth (may be None when income is negligible → treat as 0%).
-    # Cast out of numpy: numpy.bool_/float leak into the JSON response and
-    # FastAPI cannot serialise them.
-    saved = float(saved) if saved is not None else None
-    savings_rate = float(metrics.get("savings_rate") or 0)
-    gap = float(compare.get("savings_gap", 0) or 0)
-    on_track = bool(forecast_result.get("on_track", False))
-
+    balance, balance_date = recent_statement_balance(metrics)
+    current = float(forecast_result.get("current_saved", 0) or 0)
+    target = float(forecast_result.get("target_amount", 0) or 0)
+    net = float(metrics.get("net_saved", 0) or 0)
     checks = [
-        {
-            "id": "emergency_fund",
-            "label": f"Recent statement balance of ${MIN_BUFFER_TO_INVEST:,}",
-            "passed": bool(saved is not None and saved >= MIN_BUFFER_TO_INVEST),
-            "current": round(saved, 2) if saved is not None else None,
-            "target": float(MIN_BUFFER_TO_INVEST),
-            "unit": "aud",
-            "fix": ("Upload a recent statement with a balance to assess this check."
-                    if saved is None else
-                    f"This statement balance is ${max(MIN_BUFFER_TO_INVEST - saved, 0):,.0f} below the guide. Check your live cash and bills."),
-        },
-        {
-            "id": "stabilise_spending",
-            "label": f"Saving at least {MIN_SAVINGS_RATE_PCT}% of income",
-            "passed": bool(savings_rate >= MIN_SAVINGS_RATE_PCT),
-            "current": round(float(savings_rate), 1),
-            "target": float(MIN_SAVINGS_RATE_PCT),
-            "unit": "pct",
-            "fix": "Trim your biggest category or a subscription to lift your savings rate.",
-        },
-        {
-            "id": "close_savings_gap",
-            "label": "Meeting the 20% savings target",
-            "passed": bool(gap <= 0),
-            # Show what they saved against the target, not the raw gap, so the
-            # UI can render "current / target" consistently with the others.
-            "current": round(float(compare.get("actual_saved", 0) or 0), 2),
-            "target": round(float(compare.get("savings_target", 0) or 0), 2),
-            "unit": "aud",
-            "fix": f"You're ${gap:,.0f} short of the 20% savings target this period.",
-        },
-        {
-            "id": "savings_goal",
-            "label": "On track for your savings goal",
-            "passed": on_track,
-            "current": round(float(forecast_result.get("projected_total", 0) or 0), 2),
-            "target": round(float(forecast_result.get("target_amount", 0) or 0), 2),
-            "unit": "aud",
-            "fix": "Raise your monthly saving or push the goal date back.",
-        },
+        {"id":"statement_balance", "label":"Recent statement balance", "passed":balance is not None,
+         "current":float(balance) if balance is not None else None, "target":None, "unit":"aud",
+         "fix":"Check your bank for your current available balance. A statement balance is historical."},
+        {"id":"recorded_cashflow", "label":"Income minus spending in this window", "passed":net >= 0,
+         "current":round(net,2), "target":None, "unit":"aud",
+         "fix":"This is recorded cash flow, not money confirmed available to invest."},
+        {"id":"savings_goal", "label":"Recorded movement toward your goal", "passed":target > 0 and current >= target,
+         "current":round(current,2), "target":target or None, "unit":"aud",
+         "fix":"Uses recorded net movement across your uploaded history, not the projected total or your savings balance."},
     ]
-
-    blockers = [c for c in checks if not c["passed"]]
-    can_invest = not blockers
-    done = len(checks) - len(blockers)
-
-    # When could the FIRST blocker clear? Only the cash buffer has an honest,
-    # arithmetic answer (money needed ÷ money saved per month).
-    ready_when = None
-    if saved is not None and blockers and blockers[0]["id"] == "emergency_fund" and (monthly_saved or 0) > 0:
-        months = math.ceil((MIN_BUFFER_TO_INVEST - saved) / monthly_saved)
-        if 0 < months <= 60:
-            ready_when = {
-                "months": months,
-                "text": (f"At about ${monthly_saved:,.0f} saved a month, you'd clear "
-                         f"the buffer in roughly {months} month{'s' if months > 1 else ''}."),
-            }
-
-    if can_invest:
-        reason = "Your uploaded data meets these simple checks. It cannot establish whether investing is suitable or whether that balance is still available."
-        priority = "consider_etfs"
-    else:
-        reason = blockers[0]["fix"]
-        priority = blockers[0]["id"]
-
-    return {
-        "can_invest": can_invest,
-        "reason": reason,
-        "priority": priority,
-        "checks": checks,
-        "steps_done": done,
-        "steps_total": len(checks),
-        "next_step": blockers[0]["label"] if blockers else None,
-        "ready_when": ready_when,
-        "balance_date": balance_date,
-    }
+    return {"can_invest":False, "assessment":"not_assessed",
+            "reason":"These are independent facts to review, not steps or a test of whether you should invest.",
+            "priority":"review_your_plan", "checks":checks,
+            "steps_done":sum(bool(c["passed"]) for c in checks), "steps_total":len(checks),
+            "next_step":None, "ready_when":None, "balance_date":balance_date}
 
 
 def etf_nudge(age=None):

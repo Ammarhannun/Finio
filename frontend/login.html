@@ -106,8 +106,8 @@
   supabase.auth.onAuthStateChange((event) => {
     if (event === 'PASSWORD_RECOVERY') setMode('reset');
   });
-  getSession().then(async s => {
-    if (s && mode !== 'reset') { await flushPendingAge(); window.location.href = 'dashboard.html'; }
+  getSession().then(s => {
+    if (s && mode !== 'reset') window.location.href = 'dashboard.html';
   });
   const callbackError = new URLSearchParams(location.hash.slice(1)).get('error_description');
   if (callbackError) { errorEl.textContent = 'This email link has expired or could not be used. Request a new link.'; errorEl.style.display = 'block'; }

@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Finio · Profile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Finio · Profile &amp; settings</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -15,7 +15,6 @@
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
-    <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
     <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
@@ -26,12 +25,12 @@
   </div>
 </nav>
 
-<main>
-  <div id="loading" class="loading"><div class="spinner"></div> Loading your profile…</div>
+<main class="profile-view">
+  <div id="loading" class="loading"><div class="spinner"></div> Loading your settings…</div>
 
   <div id="profile-section" style="display:none;">
     <div class="page-header">
-      <h1>Profile</h1>
+      <h1>Profile &amp; settings</h1>
       <p style="color:var(--muted);">Your details and account settings.</p>
     </div>
 
@@ -44,24 +43,13 @@
             <label for="p-email">Email</label>
             <input type="email" id="p-email" disabled>
           </div>
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label for="p-age">Age <span style="color:var(--muted);font-weight:400;">(optional; not used for investment suggestions)</span></label>
-              <input type="number" id="p-age" min="16" max="100" placeholder="24">
-            </div>
-            <div class="form-group">
-              <label for="p-income">Your situation</label>
-              <select id="p-income">
-                <option value="">Prefer not to say</option>
-                <option value="student">Student</option>
-                <option value="part_time">Working part time</option>
-                <option value="full_time">Working full time</option>
-                <option value="not_earning">Not earning right now</option>
-              </select>
-            </div>
+          <div class="form-group">
+            <label for="p-age">Age <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+            <input type="number" id="p-age" min="16" max="100" placeholder="24">
           </div>
           <div id="profile-error" class="form-error"></div>
           <button type="submit" class="btn btn-primary" id="profile-btn">Save details</button>
+          <button type="button" class="btn btn-outline" id="undo-edit" hidden></button>
         </form>
       </div>
 
@@ -74,85 +62,183 @@
         <p id="s-last" style="color:var(--muted);font-size:0.8125rem;margin-top:1rem;"></p>
       </div>
 
-      <!-- Appearance -->
-      <div class="card">
-        <div class="section-title">Your data, your choice</div>
-        <p class="tx-help">Export your saved transactions, analysis, preferences and chats as JSON.</p>
-        <button id="export-data" class="btn btn-outline">Download my data</button>
-        <details class="data-delete">
-          <summary>Delete saved Finio data</summary>
-          <p>This permanently removes your statements’ transaction data, analysis, goals, budgets,
-            profile details and chats from the live database. Your login account stays available.
-            Provider backups may retain data according to their retention settings.</p>
-          <label for="delete-confirm">Type DELETE to confirm</label>
-          <input id="delete-confirm" autocomplete="off" placeholder="DELETE">
-          <button id="delete-data" class="btn btn-outline">Permanently delete my data</button>
-        </details>
-        <p><a href="privacy.html">How Finio processes your data</a></p>
-        <p id="data-status" role="status"></p>
-      </div>
+      <section class="card" aria-labelledby="security-title">
+        <h2 id="security-title" class="section-title">Account security</h2>
+        <p id="security-status" class="tx-help" role="status">Checking your security settings…</p>
+        <p id="security-error" class="data-feedback" role="alert" hidden></p>
+        <div id="security-factors"></div>
+        <button type="button" id="security-enable" class="btn btn-outline btn-sm" disabled>Add authenticator app</button>
+        <form id="security-setup-form">
+          <div id="security-setup" hidden>
+            <p>Scan this code with your authenticator app. Keep its backup in a secure password manager.</p>
+            <img id="security-qr" class="security-qr" alt="Authenticator setup QR code">
+            <details><summary>Enter a setup key instead</summary><code id="security-secret" class="security-secret"></code></details>
+            <div class="form-group"><label for="security-setup-code">Code from your authenticator</label><input id="security-setup-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+            <button id="security-setup-submit" class="btn btn-primary btn-sm">Enable two-step verification</button>
+            <button type="button" id="security-setup-cancel" class="btn btn-outline btn-sm">Cancel setup</button>
+          </div>
+        </form>
+        <p class="tx-help">Adding an authenticator signs out your other sessions. Password recovery does not remove an authenticator. Keep access to your app and its secure backup.</p>
+      </section>
 
-      <!-- Appearance -->
-      <div class="card">
-        <div class="section-title">Appearance</div>
-        <p style="color:var(--muted);font-size:0.875rem;margin-bottom:1rem;">
-          Switch between the light and dark receipt themes.
-        </p>
-        <button id="theme-toggle-2" class="btn btn-outline">Toggle light / dark</button>
-      </div>
+      <section class="card" aria-labelledby="ai-settings-title">
+        <h2 id="ai-settings-title" class="section-title">AI and your privacy</h2>
+        <p class="tx-help">AI is off until you choose to enable it. Finio can still calculate your figures and use its built-in categorisation and limited coach.</p>
+        <p class="tx-help">When enabled, selected merchant text, amounts, dates, financial context and chat messages are sent to OpenAI for categorisation, coaching and semantic search. Common identifiers are masked, but some personal information can remain. OpenAI's retention policies apply.</p>
+        <label for="ai-enabled" class="ai-consent"><input type="checkbox" id="ai-enabled" disabled> <span>Use AI features and allow this sharing</span></label>
+        <p class="tx-help">Changes apply to new requests. Saved results, chats and information already sent remain subject to their existing retention policies.</p>
+        <button type="button" id="ai-save" class="btn btn-outline btn-sm" disabled>Save AI preference</button>
+        <p id="ai-status" class="data-feedback" role="status">Checking your AI preference…</p>
+        <a href="privacy.html">Read how your data is used →</a>
+      </section>
+
+      <!-- Data controls -->
+      <section class="card profile-data-card" aria-labelledby="profile-data-title">
+        <h2 id="profile-data-title" class="section-title">Your data</h2>
+        <div class="profile-export">
+          <div>
+            <h3>Download a copy</h3>
+            <p id="export-description" class="tx-help">Save your transactions, analysis, preferences and chats in a JSON file.</p>
+          </div>
+          <button type="button" id="export-data" class="btn btn-outline btn-sm" aria-describedby="export-description">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>
+            <span id="export-label">Download data</span>
+          </button>
+        </div>
+        <p id="data-status" class="data-feedback" role="status" hidden></p>
+        <details class="data-delete" id="delete-details">
+          <summary id="delete-summary">
+            <span class="data-delete-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V3h6v3M5 6l1 14h12l1-14M10 10v6m4-6v6"/></svg></span>
+            <span class="data-delete-heading"><span class="data-delete-title">Delete saved data</span><span class="data-delete-subtitle">Permanently clear your Finio information.</span></span>
+            <svg class="data-delete-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="data-delete-body">
+            <p id="delete-description">This deletes your saved transactions, analysis, goals, budgets, profile details and chats. Your login account stays active. This cannot be undone.</p>
+            <p id="delete-backups" class="tx-help">Provider backups follow their retention policies.</p>
+            <label for="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
+            <input type="text" id="delete-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" aria-describedby="delete-description delete-backups">
+            <p id="delete-error" class="data-feedback" role="alert" hidden></p>
+            <div class="data-delete-actions">
+              <button type="button" id="delete-cancel" class="btn btn-outline btn-sm">Cancel</button>
+              <button type="button" id="delete-data" class="btn btn-sm" disabled>Delete data</button>
+            </div>
+          </div>
+        </details>
+        <a class="profile-privacy" href="privacy.html">How Finio uses your data →</a>
+      </section>
     </div>
   </div>
 
   <p class="disclaimer">General information only, not financial advice</p>
 </main>
 <div id="toast"></div>
+<dialog id="security-confirm" class="security-dialog" aria-labelledby="security-confirm-title">
+  <form id="security-proof-form">
+    <h2 id="security-confirm-title">Confirm it is you</h2>
+    <p class="tx-help">For sensitive actions, Finio requires a sign-in or authenticator check from the last five minutes.</p>
+    <div class="form-group"><label for="security-factor">Authenticator</label><select id="security-factor"></select></div>
+    <div class="form-group"><label id="security-proof-label" for="security-proof">Current password</label><input id="security-proof" type="password" autocomplete="current-password" required></div>
+    <p id="security-confirm-error" class="data-feedback" role="alert" hidden></p>
+    <button id="security-proof-submit" class="btn btn-primary btn-sm">Verify</button>
+    <button type="button" id="security-proof-cancel" class="btn btn-outline btn-sm">Cancel</button>
+  </form>
+</dialog>
 
 <script type="module">
-  import { apiFetch, requireAuth, setupNav, showToast,
-           formatMonthYear, applyTheme } from './api.js';
+  import { apiFetch, requireAuth, setupNav, showToast, supabase, getSession,
+           formatMonthYear } from './api.js';
+  import { mountUndo, showEditingStatus } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
+  import { mountAccountSecurity } from './account-security-ui.js';
+  import { mountAISettings } from './ai-settings.js';
 
   setupNav('profile');
   mountCoachWidget('profile');
 
   const loadingEl = document.getElementById('loading');
   const section = document.getElementById('profile-section');
+  const dataStatus = document.getElementById('data-status');
+  let securityControls;
   document.getElementById('export-data').addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
+    document.getElementById('export-label').textContent = 'Preparing…';
+    dataStatus.hidden = true;
+    dataStatus.textContent = '';
     try {
+      if (!securityControls || !(await securityControls.confirmRecent())) return;
       const data = await apiFetch('/data/export');
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url; link.download = 'finio-data.json'; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      document.getElementById('data-status').textContent = 'Your data download is ready.';
-    } catch (err) { document.getElementById('data-status').textContent = err.message; }
-    finally { document.getElementById('export-data').disabled = false; }
+      dataStatus.textContent = 'Your data download is ready.';
+      dataStatus.dataset.tone = 'success';
+    } catch (err) { dataStatus.textContent = err.message; dataStatus.dataset.tone = 'error'; }
+    finally {
+      dataStatus.hidden = !dataStatus.textContent;
+      document.getElementById('export-data').disabled = false;
+      document.getElementById('export-label').textContent = 'Download data';
+    }
+  });
+
+  const deleteDetails = document.getElementById('delete-details');
+  const deleteInput = document.getElementById('delete-confirm');
+  const deleteButton = document.getElementById('delete-data');
+  const deleteCancel = document.getElementById('delete-cancel');
+  const deleteError = document.getElementById('delete-error');
+  let deleting = false;
+  function updateDeleteButton() { deleteButton.disabled = deleting || deleteInput.value !== 'DELETE'; }
+  function clearDeleteConfirmation() {
+    deleteInput.value = '';
+    deleteError.hidden = true;
+    updateDeleteButton();
+  }
+  deleteInput.addEventListener('input', () => { deleteError.hidden = true; updateDeleteButton(); });
+  deleteDetails.addEventListener('toggle', () => {
+    if (!deleteDetails.open && !deleting) clearDeleteConfirmation();
+  });
+  deleteCancel.addEventListener('click', () => {
+    deleteDetails.open = false;
+    clearDeleteConfirmation();
+    document.getElementById('delete-summary').focus();
   });
   document.getElementById('delete-data').addEventListener('click', async (e) => {
-    const confirmation = document.getElementById('delete-confirm').value;
-    if (confirmation !== 'DELETE') { document.getElementById('data-status').textContent = 'Type DELETE to confirm.'; return; }
-    e.currentTarget.disabled = true;
+    const confirmation = deleteInput.value;
+    if (deleting || confirmation !== 'DELETE') return;
+    deleting = true;
+    deleteInput.disabled = deleteCancel.disabled = true;
+    deleteButton.textContent = 'Deleting…';
+    deleteError.hidden = true;
+    updateDeleteButton();
     try {
+      if (!securityControls || !(await securityControls.confirmRecent())) {
+        clearDeleteConfirmation();
+        return;
+      }
       await apiFetch('/data/delete', { method: 'POST', body: JSON.stringify({ confirmation }) });
       window.location.href = 'dashboard.html';
-    } catch (err) { document.getElementById('data-status').textContent = err.message; }
-    finally { document.getElementById('delete-data').disabled = false; }
+    } catch (err) { deleteError.textContent = err.message; deleteError.hidden = false; }
+    finally {
+      deleting = false;
+      deleteInput.disabled = deleteCancel.disabled = false;
+      deleteButton.textContent = 'Delete data';
+      updateDeleteButton();
+    }
   });
 
-  // Second theme button on the page mirrors the nav toggle.
-  document.getElementById('theme-toggle-2').addEventListener('click', () => {
-    const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-    applyTheme(next);
-  });
-
+  let profileRevision = null;
+  let profileEditingAvailable = true;
   function render(p) {
+    profileRevision = p.revision;
+    profileEditingAvailable = p.editing_available !== false;
+    showEditingStatus(section, p);
+    section.querySelectorAll('#profile-btn, #p-age').forEach(el => { el.disabled = !profileEditingAvailable; });
+    mountUndo(document.getElementById('undo-edit'), p, async () => render(await apiFetch('/profile')));
     loadingEl.style.display = 'none';
     section.style.display = 'block';
 
     document.getElementById('p-email').value = p.email || '';
     document.getElementById('p-age').value = p.age ?? '';
-    document.getElementById('p-income').value = p.income_bracket || '';
 
     const streak = p.streak || {};
     document.getElementById('s-last').textContent = streak.last_upload
@@ -167,8 +253,7 @@
     errEl.style.display = 'none';
 
     const ageVal = document.getElementById('p-age').value;
-    const body = { income_bracket: document.getElementById('p-income').value || null,
-                   age: ageVal ? parseInt(ageVal, 10) : null };
+    const body = { revision: profileRevision, age: ageVal ? parseInt(ageVal, 10) : null };
 
     btn.disabled = true;
     btn.textContent = 'Saving…';
@@ -180,7 +265,7 @@
       errEl.textContent = err.message || 'Could not save your profile';
       errEl.style.display = 'block';
     } finally {
-      btn.disabled = false;
+      btn.disabled = !profileEditingAvailable;
       btn.textContent = 'Save details';
     }
   });
@@ -188,6 +273,9 @@
   async function init() {
     try {
       await requireAuth();
+      await mountAISettings({ auth: supabase.auth, apiFetch }).load();
+      securityControls = mountAccountSecurity({ auth: supabase.auth, getSession, apiFetch });
+      await securityControls.init();
       const p = await apiFetch('/profile');
       render(p);
     } catch (err) {

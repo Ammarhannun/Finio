@@ -110,7 +110,7 @@ def reconcile_flow_contradictions(df):
     """Neutralise flow labels that contradict the direction of the money.
 
     Marking money that LEFT the account as "income" is not a preference, it is
-    incoherent — you cannot earn a negative amount. It used to be accepted
+    incoherent. you cannot earn a negative amount. It used to be accepted
     silently and then quietly corrupt the totals: compute_metrics sums the
     income rows, so one -$4,800 row labelled income simply subtracted $4,800
     from reported income, and the user saw an impossible "you overspend every
@@ -120,8 +120,8 @@ def reconcile_flow_contradictions(df):
     neither income nor spending, which is the only honest reading of "money
     went out but it is not spending".
 
-    NOTE the asymmetry: expense + a POSITIVE amount is legitimate — that is a
-    refund offsetting spend (see _default_flow) — so it is deliberately left
+    NOTE the asymmetry: expense + a POSITIVE amount is legitimate. that is a
+    refund offsetting spend (see _default_flow). so it is deliberately left
     alone. Returns (df, mask_of_reconciled_rows).
     """
     if "flow" not in df.columns or "amount" not in df.columns:
@@ -130,8 +130,8 @@ def reconcile_flow_contradictions(df):
     mask = (df["flow"] == FLOW_INCOME) & (df["amount"] < 0)
 
     # Second contradiction: a row still categorised "Transfers" but flowing as
-    # an expense. config states plainly that Transfers is NOT a spend bucket —
-    # moving money to your own account or to a person is not consumption — yet
+    # an expense. config states plainly that Transfers is NOT a spend bucket,
+    # moving money to your own account or to a person is not consumption. yet
     # such rows were landing in total_spent and in the category breakdown. On a
     # real statement this made "Transfers" the single largest spending category
     # ($14,071), which is what made the dashboard look impossible.
@@ -151,7 +151,7 @@ def reconcile_flow_contradictions(df):
 def contradictory_flow_rules(df, overrides):
     """Rules that call outgoing money "income", for warning the user on write.
 
-    Returns [{match, count, total}] — only rules where EVERY matching
+    Returns [{match, count, total}]. only rules where EVERY matching
     transaction is money leaving the account, so a genuine mixed merchant is
     never flagged.
     """
@@ -210,7 +210,7 @@ def add_flags(df, overrides=None):
 def savings_rate(net_saved, total_income):
     """Single definition of savings rate: net_saved / income, as a percentage.
 
-    Returns None when real income is below MIN_INCOME_FOR_RATE — a percentage
+    Returns None when real income is below MIN_INCOME_FOR_RATE. a percentage
     of near-zero income is noise, not signal.
     """
     if total_income is None or total_income < MIN_INCOME_FOR_RATE:
@@ -237,10 +237,14 @@ def compute_metrics(df):
     # instead of period net savings. Older saved rows may lack balance data;
     # callers then fall back to net_saved.
     latest_balance = None
+    balance_date = None
     if "balance" in df.columns:
-        bal = pd.to_numeric(df.sort_values("date", kind="stable")["balance"], errors="coerce").dropna()
-        if not bal.empty:
-            latest_balance = round(float(bal.iloc[-1]), 2)
+        ordered = df.sort_values("date", kind="stable")
+        bal = pd.to_numeric(ordered["balance"], errors="coerce")
+        valid = bal.notna() & bal.abs().le(100_000_000)
+        if valid.any():
+            latest_balance = round(float(bal.loc[valid].iloc[-1]), 2)
+            balance_date = ordered.loc[valid, "date"].iloc[-1].strftime("%Y-%m-%d")
 
     return {
         "total_income": round(total_income, 2),
@@ -248,6 +252,7 @@ def compute_metrics(df):
         "net_saved": round(net_saved, 2),
         "savings_rate": savings_rate(net_saved, total_income),
         "latest_balance": latest_balance,
+        "balance_date": balance_date,
         "transaction_count": len(df),
         "daily_burn_rate": round(daily_burn_rate, 2),
         "date_range": {

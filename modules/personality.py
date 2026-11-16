@@ -17,7 +17,7 @@ def _build_action_plan(personality_type, analysis, metrics):
     plans = {
         "Planner": [
             f"Keep your strong savings habit (${metrics['net_saved']:.0f} saved this period).",
-            "Set a clear goal amount and date in the Invest tab.",
+            "Set a clear goal amount and date on the Dashboard.",
             top_msg,
         ],
         "Spender": [

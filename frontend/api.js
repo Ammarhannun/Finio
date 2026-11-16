@@ -1,9 +1,13 @@
+import { mountMobileNavigation } from './mobile-navigation.js';
+import { publishSavedChange } from './page-refresh.js';
+import { mountSessionPrivacy } from './session-privacy.js';
+import { mfaState, safeReturnPage } from './account-security.js';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.2';
 import * as cfg from './config.js';
 
 // config.js is a file the USER edits (it holds their Supabase keys), so this
 // module must never hard-require a key that an older copy might not have.
-// A named import of a missing export is a fatal module error — api.js would
+// A named import of a missing export is a fatal module error. api.js would
 // fail to load and every page would silently lose its event handlers, so the
 // login button would just do nothing. A namespace import degrades instead.
 const SUPABASE_URL = cfg.SUPABASE_URL;
@@ -26,11 +30,36 @@ export async function getSession() {
   return session;
 }
 
+let protectedAccount = null;
 export async function requireAuth() {
   const session = await getSession();
   if (!session) {
     window.location.href = 'login.html';
     throw new Error('Not authenticated');
+  }
+  if ((await mfaState(supabase.auth)).required) {
+    document.body.replaceChildren();
+    const next = safeReturnPage(location.pathname.split('/').pop());
+    window.location.replace('mfa.html?next=' + encodeURIComponent(next));
+    throw new Error('mfa_required');
+  }
+  if (protectedAccount === null) {
+    protectedAccount = session.user.id;
+    mountSessionPrivacy({
+      userId: protectedAccount,
+      subscribe: callback => supabase.auth.onAuthStateChange(callback),
+      target: window,
+      invalidate: () => {
+        document.body.replaceChildren();
+        window.location.replace('login.html');
+      },
+      restore: () => {
+        // Reload a back-forward cached document through authentication before
+        // reusing its previous account's in-memory financial view.
+        document.body.replaceChildren();
+        window.location.reload();
+      },
+    });
   }
   return session;
 }
@@ -54,7 +83,7 @@ export async function apiFetch(path, options = {}) {
     res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   } catch (e) {
     // fetch() rejects with a TypeError when the server is unreachable / CORS
-    // blocked — turn that into a message a human can act on.
+    // blocked. turn that into a message a human can act on.
     throw new Error('Could not connect to Finio. Check your connection and try again.');
   }
 
@@ -74,13 +103,16 @@ export async function apiFetch(path, options = {}) {
     const body = await res.json().catch(() => ({}));
     const detail = Array.isArray(body.detail)
       ? body.detail.map(e => `${(e.loc || []).slice(1).join(' ')}: ${e.msg}`).join('; ')
-      : body.detail;
+      : typeof body.detail === 'object' ? body.detail?.message : body.detail;
     const error = new Error(detail || `Something went wrong (${res.status}). Please try again.`);
+    error.code = body.detail?.code;
     error.status = res.status;
     throw error;
   }
 
-  return res.json();
+  const data = await res.json();
+  publishSavedChange(path, options.method, session?.user?.id);
+  return data;
 }
 
 // ── Theme (light / dark) ──
@@ -106,9 +138,10 @@ export function initThemeToggle() {
 
 export async function setupNav(activePage) {
   initThemeToggle();
+  mountMobileNavigation(activePage);
 
   document.querySelectorAll('.nav-links a').forEach(a => {
-    if (a.dataset.page === activePage) a.classList.add('active');
+    if (a.dataset.page === activePage) { a.classList.add('active'); a.setAttribute('aria-current', 'page'); }
   });
 
   // Top-right account menu (avatar → dropdown), like a normal web app. Built in
@@ -123,24 +156,55 @@ export async function setupNav(activePage) {
     wrap.className = 'nav-profile';
     if (activePage === 'profile') wrap.classList.add('active');
     wrap.innerHTML = `
-      <button class="nav-avatar" id="nav-avatar" aria-haspopup="true" aria-expanded="false" title="Account">${escapeHtml(initial)}</button>
-      <div class="nav-menu" id="nav-menu" role="menu">
+      <button class="nav-avatar" id="nav-avatar" aria-haspopup="menu" aria-controls="nav-menu" aria-expanded="false" title="Account">${escapeHtml(initial)}</button>
+      <div class="nav-menu" id="nav-menu" role="menu" hidden>
         <div class="nav-menu-email">${escapeHtml(email)}</div>
-        <a href="profile.html" role="menuitem">Profile</a>
+        <a href="profile.html" role="menuitem">Profile &amp; settings</a>
         <button class="nav-menu-item" id="nav-logout-item" role="menuitem">Log out</button>
       </div>`;
     logoutBtn.replaceWith(wrap);
 
     const avatar = wrap.querySelector('#nav-avatar');
+    const menu = wrap.querySelector('#nav-menu');
+    // A body-level menu escapes the split navigation's scrolling/clipping box.
+    document.body.append(menu);
+    const close = () => {
+      menu.hidden = true; wrap.classList.remove('open'); avatar.setAttribute('aria-expanded', 'false');
+    };
+    const position = () => {
+      if (menu.hidden) return;
+      const rect = avatar.getBoundingClientRect();
+      const width = menu.getBoundingClientRect().width;
+      const height = menu.getBoundingClientRect().height;
+      menu.style.left = Math.max(8, Math.min(innerWidth - width - 8, rect.right - width)) + 'px';
+      menu.style.top = (rect.bottom + height + 8 <= innerHeight ? rect.bottom + 8 : Math.max(8, rect.top - height - 8)) + 'px';
+    };
+    const openMenu = () => {
+      menu.hidden = false; wrap.classList.add('open'); avatar.setAttribute('aria-expanded', 'true'); position();
+    };
     avatar.addEventListener('click', (e) => {
       e.stopPropagation();
-      const open = wrap.classList.toggle('open');
-      avatar.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (menu.hidden) openMenu(); else close();
     });
+    avatar.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !menu.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(); menu.querySelector('[role="menuitem"]').focus(); }
+    });
+    menu.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); avatar.focus(); }
+      const items = [...menu.querySelectorAll('[role="menuitem"]')];
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); const direction = e.key === 'ArrowDown' ? 1 : -1;
+        items[(items.indexOf(document.activeElement) + direction + items.length) % items.length].focus();
+      }
+    });
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(position).observe(wrap.closest('nav'));
     document.addEventListener('click', (e) => {
-      if (!wrap.contains(e.target)) wrap.classList.remove('open');
+      if (!wrap.contains(e.target) && !menu.contains(e.target)) close();
     });
-    wrap.querySelector('#nav-logout-item').addEventListener('click', async () => {
+    menu.querySelector('#nav-logout-item').addEventListener('click', async () => {
       await supabase.auth.signOut();
       window.location.href = 'login.html';
     });
@@ -164,7 +228,7 @@ export async function setupNav(activePage) {
 }
 
 // Escape text before putting it inside innerHTML. Bank/merchant descriptions
-// are untrusted input — without this a transaction named "<img onerror=…>"
+// are untrusted input. without this a transaction named "<img onerror=…>"
 // would execute. Use on EVERY dynamic value interpolated into innerHTML.
 export function escapeHtml(value) {
   if (value == null) return '';
@@ -186,8 +250,12 @@ export function escapeHtml(value) {
  * asterisks raw. Escaping happens FIRST, so merchant names and model output
  * can never inject markup.
  */
+export function cleanPunctuation(text) {
+  return String(text ?? '').replace(/[\u2014\u2013]|(?<!-)--(?!-)/g, '. ');
+}
+
 export function renderMarkdown(text) {
-  return escapeHtml(text)
+  return escapeHtml(cleanPunctuation(text))
     .replace(/^#+\s*/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$)/g, '$1$2')
@@ -196,7 +264,7 @@ export function renderMarkdown(text) {
 }
 
 export function formatMoney(amount) {
-  if (amount == null || isNaN(Number(amount))) return '—';
+  if (amount == null || isNaN(Number(amount))) return 'Unavailable';
   return new Intl.NumberFormat(LOCALE, {
     style: 'currency',
     currency: CURRENCY,
@@ -277,37 +345,55 @@ const SEGMENTS = [
   { value: 'all', label: 'All' },
 ];
 
-/**
- * Mount the platform period control.
- *
- * The dashboard asks "what do I USUALLY spend per day/week/month", while
- * Patterns / Invest / Spend Check analyse ONE window of transactions. Same
- * control, same stored value — the `tag` spells out which question this page
- * is answering so the numbers are never ambiguous.
- */
+/** Every page uses actual totals for the same selected statement window. */
 export function mountPeriodBar(container, months, onChange,
                                current = getStoredPeriod(), tag = 'Window') {
   if (!container) return;
+  const known = (months || []).map(m => typeof m === 'string' ? m : m.month).filter(m => /^\d{4}-\d{2}$/.test(m));
   container.innerHTML = `
     <div class="period-bar">
-      <span class="period-tag">${tag}</span>
-      <div class="segmented" role="group" aria-label="Time period">
-        ${SEGMENTS.map(p =>
-          `<button type="button" data-period="${p.value}" aria-pressed="${p.value === current}"${p.value === current ? ' class="active"' : ''}>${p.label}</button>`
-        ).join('')}
-      </div>
+      <span class="period-tag">${escapeHtml(tag)}</span>
+      <select aria-label="Statement period">
+        ${SEGMENTS.map(p => `<option value="${p.value}"${p.value === current ? ' selected' : ''}>${p.value === 'all' ? 'All history' : 'Latest ' + p.label.toLowerCase()}</option>`).join('')}
+        ${known.length ? `<optgroup label="Choose a statement month">${known.map(m => `<option value="month:${m}"${current === 'month:' + m ? ' selected' : ''}>${escapeHtml(formatMonthYear(m + '-01'))}</option>`).join('')}</optgroup>` : ''}
+      </select>
     </div>`;
-  container.querySelectorAll('.segmented button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const value = btn.dataset.period;
-      container.querySelectorAll('.segmented button').forEach(b => {
-        b.classList.toggle('active', b === btn);
-        b.setAttribute('aria-pressed', String(b === btn));
-      });
-      setStoredPeriod(value);   // platform-wide
-      onChange(value);
-    });
-  });
+  const change = value => {
+    setStoredPeriod(value);
+    mountPeriodBar(container, months, onChange, value, tag);
+    onChange(value);
+  };
+  container.querySelector('select')?.addEventListener('change', e => { if (e.target.value) change(e.target.value); });
+}
+
+/** Undo uses the revision returned by the last read/save; stale undo is rejected. */
+export function mountUndo(button, state, reload) {
+  if (!button) return;
+  button.hidden = !state?.can_undo;
+  button.textContent = 'Undo ' + (state?.undo_label || 'last edit');
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await apiFetch('/changes/undo', { method: 'POST', body: JSON.stringify({ revision: state.revision }) });
+      await reload();
+      window.dispatchEvent(new CustomEvent('finio:data-changed'));
+      showToast('Previous values restored');
+    } catch (err) { showToast(err.message || 'Could not undo this edit'); }
+    finally { button.disabled = false; }
+  };
+}
+
+export function showEditingStatus(container, state) {
+  let notice = container.querySelector('[data-editing-status]');
+  if (state?.editing_available !== false) { notice?.remove(); return; }
+  if (!notice) {
+    notice = document.createElement('p');
+    notice.dataset.editingStatus = '';
+    notice.className = 'service-status';
+    notice.setAttribute('role', 'status');
+    container.prepend(notice);
+  }
+  notice.textContent = 'Your saved data is shown. Editing is temporarily unavailable while the service is updated.';
 }
 
 export function showToast(msg) {
@@ -327,15 +413,15 @@ export function severityClass(s) {
 /**
  * Boot a period-driven page (Invest, Patterns, …).
  *
- * Every one of these pages did the same four things — auth, fetch for the
- * stored period, render, mount the period bar — plus an identical error ladder
+ * Every one of these pages did the same four things. auth, fetch for the
+ * stored period, render, mount the period bar. plus an identical error ladder
  * distinguishing "no analysis yet" from a real failure. That block was copied
  * per page, so a fix to the error handling had to be made in each one.
  *
  * @param {string}   endpoint  API path, e.g. '/invest'
  * @param {Function} render    called with the response payload
  * @param {object}   opts      { loadingId, noDataId, mountId, tag }
- * @returns {Function} the period-change handler, for callers that need it
+ * @returns {Promise<Function>} loader: true on render, false on failure, null if superseded
  */
 export async function bootstrapPeriodPage(endpoint, render, opts = {}) {
   const {
@@ -345,30 +431,58 @@ export async function bootstrapPeriodPage(endpoint, render, opts = {}) {
     tag = 'Window',
   } = opts;
 
-  const load = async (value) => {
+  let requestVersion = 0;
+  const commit = (data, value) => {
+    const noData = document.getElementById(noDataId);
+    if (noData) noData.style.display = 'none';
+    render(data);
+    mountPeriodBar(document.getElementById(mountId),
+      data.available_months || [], load, value, tag);
+  };
+  const load = async (value, { quiet = false } = {}) => {
+    const version = ++requestVersion;
     try {
-      render(await apiFetch(`${endpoint}?${periodQuery(value)}`));
+      const data = await apiFetch(`${endpoint}?${periodQuery(value)}`, { cache: 'no-store' });
+      if (version !== requestVersion) return null;
+      commit(data, value);
+      return true;
     } catch (err) {
-      showToast(err.message || 'Could not load that period');
+      if (version !== requestVersion) return null;
+      if (err.status === 404 || err.message === 'no_analysis') {
+        // Another tab may have removed the saved data. Do not keep showing it.
+        const content = document.getElementById('content');
+        const noData = document.getElementById(noDataId);
+        if (content) content.style.display = 'none';
+        if (noData) noData.style.display = 'block';
+        return false;
+      }
+      if (!quiet) showToast(err.message || 'Could not load that period');
+      return false;
     }
   };
 
   try {
     await requireAuth();
-    const data = await apiFetch(`${endpoint}?${periodQuery(getStoredPeriod())}`);
-    render(data);
-    mountPeriodBar(document.getElementById(mountId),
-      data.available_months || [], load, getStoredPeriod(), tag);
+    const value = getStoredPeriod();
+    const data = await apiFetch(`${endpoint}?${periodQuery(value)}`, { cache: 'no-store' });
+    commit(data, value);
   } catch (err) {
     const loadingEl = document.getElementById(loadingId);
     if (loadingEl) loadingEl.style.display = 'none';
-    // A redirect to login is already in flight for these two — say nothing.
+    // A redirect to login is already in flight for these two. say nothing.
     const redirecting = err.message === 'Not authenticated'
                      || err.message === 'session_expired';
     if (!redirecting) {
       const noData = document.getElementById(noDataId);
-      if (noData) noData.style.display = 'block';
-      if (err.message !== 'no_analysis' && err.status !== 404) showToast(err.message);
+      if (noData) {
+        noData.style.display = 'block';
+        if (err.message !== 'no_analysis' && err.status !== 404) {
+          const message = document.createElement('p'); message.textContent = err.message;
+          const retry = document.createElement('button'); retry.className = 'btn btn-outline'; retry.textContent = 'Retry loading';
+          retry.onclick = () => location.reload();
+          noData.replaceChildren(message, retry);
+        }
+      }
     }
   }
   return load;

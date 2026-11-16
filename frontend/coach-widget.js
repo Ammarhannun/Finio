@@ -1,12 +1,15 @@
+import { updateMobileCoachState } from './mobile-navigation.js';
+import { splitLayout, PAGE_MIN_PX, COACH_MIN_PX } from './coach-layout.js';
+import { appendFacts } from './financial-facts.js';
 // Floating AI-coach widget, mounted on every page.
 // - Bottom-right bubble → slide-up chat panel → split-screen with the current page.
-// - Drag the divider to give the coach (or page) more room; drag fully for 100% coach.
+// - Drag the divider while keeping both panes usable. Narrow screens use full chat.
 // - MULTIPLE chats: a drawer lists your conversations; start a new one anytime.
 // - Sends the current page + platform period so answers fit what's on screen.
 // - Renders the coach's proposed transaction edits as cards with an Apply
 //   button (human-confirmed writes through POST /overrides).
 
-import { apiFetch, escapeHtml, formatAUD, renderMarkdown, showToast,
+import { apiFetch, escapeHtml, formatAUD, renderMarkdown, cleanPunctuation, showToast,
          storedPeriodParts } from './api.js';
 
 let mounted = false;
@@ -90,7 +93,7 @@ function saveRailPx(px) {
 }
 
 function isNarrow() {
-  return window.matchMedia('(max-width: 720px)').matches;
+  return splitLayout(window.innerWidth).mode === 'full';
 }
 
 function clamp(n, lo, hi) {
@@ -148,6 +151,8 @@ export function mountCoachWidget(page) {
   const railSplitter = document.getElementById('cw-rail-splitter');
   const expandBtn = document.getElementById('cw-expand');
   const fab = document.getElementById('coach-fab');
+  new MutationObserver(() => updateMobileCoachState(panel.classList.contains('open')))
+    .observe(panel, {attributes:true, attributeFilter:['class']});
 
   function applyRailWidth(px) {
     const w = clamp(px, RAIL_MIN, RAIL_MAX);
@@ -429,7 +434,7 @@ export function mountCoachWidget(page) {
   const STARTERS_BY_PAGE = {
     dashboard: ['Where is my money actually going?', 'Am I on track to save?'],
     transactions: ['What did I spend at Uber Eats?', 'Count transfers from family as income'],
-    patterns: ['What habit is costing me most?', 'Which bills repeat every month?'],
+    patterns: ['What habit is costing me most?', 'Which spending repeats every month?'],
     invest: ['What do I need before I can invest?', 'What is an ETF?'],
     spend: ['Can I afford a $900 laptop?', 'How much can I safely spend this week?'],
     profile: ['How much do I usually spend a month?', 'Am I on track to save?'],
@@ -450,7 +455,7 @@ export function mountCoachWidget(page) {
         <h2 class="cw-empty-title">Start chatting with Finio</h2>
         <p class="cw-empty-sub">
           Ask about your spending, your goals, or anything money.
-          I can also make changes for you — just say what you want.
+          I can also make changes for you. Just say what you want.
         </p>
         <div class="cw-starters">
           ${starters.map(s =>
@@ -468,7 +473,7 @@ export function mountCoachWidget(page) {
   // The coach proposed a reclassification → show it as a confirm card.
   // The coach can propose changes across the platform (reclassify transactions,
   // set a budget, move the savings goal, update the profile). Nothing is ever
-  // written without the user clicking Apply — that confirmation IS the guardrail.
+  // written without the user clicking Apply. that confirmation IS the guardrail.
   const PROPOSALS = {
     reclassify: {
       describe: p => {
@@ -477,29 +482,29 @@ export function mountCoachWidget(page) {
           p.flow ? `counted as <b>${escapeHtml(p.flow)}</b>` : '',
         ].filter(Boolean).join(', ');
         const n = p.affected_count;
-        return `Change transactions matching “<b>${escapeHtml(p.match)}</b>” — ${what}`
-          + `<span class="cw-prop-count">${n} match${n === 1 ? '' : 'es'}</span>`;
+        return `Change transactions matching “<b>${escapeHtml(p.match)}</b>”. ${what}`
+          + `<span class="cw-prop-count">${n} match${n === 1 ? '' : 'es'} across all uploaded history</span>`;
       },
       apply: async (p) => {
-        const existing = await apiFetch('/overrides')
-          .catch(() => ({ overrides: [], custom_categories: [] }));
+        const existing = await apiFetch('/overrides');
+        if (existing.revision !== p.revision) throw new Error('Your data changed since this proposal. Ask the coach again using the latest data.');
         const rules = (existing.overrides || []).filter(r =>
           !(r.match && r.match.toLowerCase() === p.match.toLowerCase()));
         const rule = { match: p.match };
         if (p.category) rule.category = p.category;
         if (p.flow) rule.flow = p.flow;
         rules.push(rule);
-        await apiFetch('/overrides', { method: 'POST', body: JSON.stringify({
-          rules, custom_categories: existing.custom_categories || [] }) });
+        return apiFetch('/overrides', { method: 'POST', body: JSON.stringify({
+          revision: p.revision, rules, custom_categories: existing.custom_categories || [] }) });
       },
       event: 'finio:overrides-applied',
     },
     budget: {
       describe: p => `Set a <b>${escapeHtml(p.category)}</b> budget of `
         + `<b>${formatAUD(p.amount)}</b> a month`
-        + (p.why ? `<span class="cw-prop-count">${escapeHtml(p.why)}</span>` : ''),
+        + (p.why ? `<span class="cw-prop-count">${escapeHtml(cleanPunctuation(p.why))}</span>` : ''),
       apply: (p) => apiFetch('/budgets', { method: 'POST',
-        body: JSON.stringify({ targets: { [p.category]: p.amount } }) }),
+        body: JSON.stringify({ revision: p.revision, targets: { [p.category]: p.amount } }) }),
       event: 'finio:budgets-applied',
     },
     goal: {
@@ -508,19 +513,20 @@ export function mountCoachWidget(page) {
           p.amount != null ? `target <b>${formatAUD(p.amount)}</b>` : '',
           p.target_date ? `by <b>${escapeHtml(p.target_date)}</b>` : '',
         ].filter(Boolean).join(' ');
-        return `Update your savings goal — ${bits}`
-          + (p.why ? `<span class="cw-prop-count">${escapeHtml(p.why)}</span>` : '');
+        return `Update your savings goal. ${bits}`
+          + (p.why ? `<span class="cw-prop-count">${escapeHtml(cleanPunctuation(p.why))}</span>` : '');
       },
       apply: async (p) => {
         // /goal needs both fields; fill the missing one from the current goal.
-        const dash = await apiFetch('/dashboard').catch(() => ({}));
+        const dash = await apiFetch('/dashboard');
+        if (dash.revision !== p.revision) throw new Error('Your goal changed since this proposal. Ask the coach again.');
         const cur = dash.goal || {};
         const rec = dash.goal_recommendation || {};
         const amount = p.amount != null ? p.amount : (cur.target_amount ?? rec.amount);
         const date = (p.target_date || cur.target_date || rec.target_date || '').slice(0, 10);
         if (!amount || !date) throw new Error('Need an amount and a date for the goal');
-        await apiFetch('/goal', { method: 'POST',
-          body: JSON.stringify({ amount, target_date: date }) });
+        return apiFetch('/goal', { method: 'POST',
+          body: JSON.stringify({ revision: p.revision, amount, target_date: date }) });
       },
       event: 'finio:goal-applied',
     },
@@ -530,10 +536,10 @@ export function mountCoachWidget(page) {
           p.age != null ? `age <b>${p.age}</b>` : '',
           p.income_bracket ? `situation <b>${escapeHtml(p.income_bracket.replace('_', ' '))}</b>` : '',
         ].filter(Boolean).join(', ');
-        return `Update your profile — ${bits}`;
+        return `Update your profile. ${bits}`;
       },
       apply: (p) => {
-        const body = {};
+        const body = { revision: p.revision };
         if (p.age != null) body.age = p.age;
         if (p.income_bracket) body.income_bracket = p.income_bracket;
         return apiFetch('/profile', { method: 'POST', body: JSON.stringify(body) });
@@ -542,20 +548,39 @@ export function mountCoachWidget(page) {
     },
   };
 
-  function addProposal(p) {
-    const kind = PROPOSALS[p.kind] || PROPOSALS.reclassify;
+  function addProposal(p, parent = messagesEl) {
+    const kind = PROPOSALS[p.kind];
+    if (!kind) return;
     const card = document.createElement('div');
     card.className = 'cw-proposal';
     card.innerHTML = `
       <div class="cw-prop-text">${kind.describe(p)}</div>
       <button class="cw-apply">Apply</button>`;
+    const apply = card.querySelector('.cw-apply');
+    if (p.expired || !p.revision) {
+      apply.disabled = true;
+      apply.textContent = 'Older proposal. Ask the coach again.';
+    }
     card.querySelector('.cw-apply').addEventListener('click', async (e) => {
       const btn = e.target;
       btn.disabled = true; btn.textContent = 'Applying…';
       try {
-        await kind.apply(p);
-        btn.textContent = 'Applied ✓';
-        showToast('Done — your numbers are updated');
+        const state = await kind.apply(p);
+        btn.textContent = 'Undo';
+        const undo = btn.cloneNode(true);
+        undo.classList.add('cw-applied');
+        btn.replaceWith(undo);
+        undo.disabled = false;
+        undo.addEventListener('click', async () => {
+          undo.disabled = true;
+          try {
+            await apiFetch('/changes/undo', { method: 'POST', body: JSON.stringify({ revision: state.revision }) });
+            undo.textContent = 'Undone ✓';
+            window.dispatchEvent(new CustomEvent(kind.event));
+            window.dispatchEvent(new CustomEvent('finio:data-changed'));
+          } catch (err) { undo.disabled = false; showToast(err.message); }
+        });
+        showToast('Done. Your numbers are updated');
         window.dispatchEvent(new CustomEvent(kind.event));
         window.dispatchEvent(new CustomEvent('finio:data-changed'));
       } catch (err) {
@@ -563,9 +588,16 @@ export function mountCoachWidget(page) {
         showToast(err.message || 'Could not apply that change');
       }
     });
-    messagesEl.appendChild(card);
+    parent.appendChild(card);
     scroll();
   }
+
+  window.addEventListener('finio:data-changed', () => {
+    messagesEl.querySelectorAll('.cw-apply:not(:disabled):not(.cw-applied)').forEach(button => {
+      button.disabled = true;
+      button.textContent = 'Older proposal. Ask the coach again.';
+    });
+  });
 
   async function loadHistory() {
     try {
@@ -575,8 +607,11 @@ export function mountCoachWidget(page) {
         messagesEl.innerHTML = '';
         rows.slice(-14).forEach(r => {
           const role = r.role === 'user' ? 'user' : 'assistant';
-          addMsg(role, fmtMsg(r.message), r.message);
+          const turn = addMsg(role, fmtMsg(r.message), r.message);
+          appendFacts(turn, r.verified_facts, formatAUD);
+          (r.proposed_actions || []).forEach(p => addProposal(p, turn));
         });
+        scroll();
       } else {
         greet();
       }
@@ -593,7 +628,7 @@ export function mountCoachWidget(page) {
       if (!chats.length) { list.innerHTML = '<div class="cw-chat-item muted">No chats yet</div>'; return; }
       list.innerHTML = chats.map(c => `
         <button class="cw-chat-item${c.chat_id === currentChat() ? ' active' : ''}" data-id="${escapeHtml(c.chat_id)}">
-          <span class="cw-chat-title">${escapeHtml(c.title || 'New chat')}</span>
+          <span class="cw-chat-title">${escapeHtml(cleanPunctuation(c.title || 'New chat'))}</span>
           <span class="cw-chat-count">${c.count} msg${c.count === 1 ? '' : 's'}</span>
         </button>`).join('');
       list.querySelectorAll('.cw-chat-item[data-id]').forEach(b =>
@@ -632,7 +667,7 @@ export function mountCoachWidget(page) {
     if (!railDragging) return;
     const rect = panel.getBoundingClientRect();
     const px = applyRailWidth(e.clientX - rect.left);
-    // Keep the current chat readable — don't let the rail eat the whole panel.
+    // Keep the current chat readable. don't let the rail eat the whole panel.
     const maxForPanel = Math.max(RAIL_MIN, rect.width - 220);
     if (px > maxForPanel) applyRailWidth(maxForPanel);
   });
@@ -649,47 +684,21 @@ export function mountCoachWidget(page) {
   });
 
   // ── Split screen (page | coach) with a draggable divider ──
-  // Both sides constrict until a min, then the other slides over (no crushing).
-  const PAGE_MIN_PX = 440;
-  const COACH_MIN_PX = 340;
+  // Both panes stay within their minimum widths so navigation is never covered.
 
   function bumpLayout() {
     window.dispatchEvent(new Event('resize'));
   }
 
   function setSplitPct(pct) {
-    const clamped = Math.max(0, Math.min(100, pct));
-    const vw = window.innerWidth || 1;
-    const coachPx = (clamped / 100) * vw;
-
+    const layout = splitLayout(window.innerWidth || 1, pct);
+    const clamped = layout.percentage;
     document.body.style.setProperty('--coach-pane', `${clamped}%`);
-
-    if (clamped <= 3) {
-      document.body.classList.remove('coach-overlay', 'coach-page-over');
-      document.body.style.removeProperty('--page-col');
-      document.body.style.removeProperty('--coach-col');
-      splitter.setAttribute('aria-valuenow', String(Math.round(clamped)));
-      return clamped;
-    }
-
-    if (coachPx > vw - PAGE_MIN_PX) {
-      // Growing coach past page min → page freezes, coach slides over it.
-      document.body.classList.add('coach-overlay');
-      document.body.classList.remove('coach-page-over');
-      document.body.style.setProperty('--page-col', `${PAGE_MIN_PX}px`);
-      document.body.style.removeProperty('--coach-col');
-    } else if (coachPx < COACH_MIN_PX) {
-      // Shrinking coach past coach min → coach freezes, page goes full over it.
-      document.body.classList.add('coach-page-over');
-      document.body.classList.remove('coach-overlay');
-      document.body.style.setProperty('--coach-col', `${COACH_MIN_PX}px`);
-      document.body.style.removeProperty('--page-col');
-    } else {
-      // Normal push: both sides share the screen.
-      document.body.classList.remove('coach-overlay', 'coach-page-over');
-      document.body.style.removeProperty('--page-col');
-      document.body.style.removeProperty('--coach-col');
-    }
+    document.body.classList.remove('coach-overlay', 'coach-page-over');
+    document.body.style.removeProperty('--page-col');
+    document.body.style.removeProperty('--coach-col');
+    splitter.setAttribute('aria-valuemin', String(COACH_MIN_PX / window.innerWidth * 100));
+    splitter.setAttribute('aria-valuemax', String(100 - PAGE_MIN_PX / window.innerWidth * 100));
 
     splitter.setAttribute('aria-valuenow', String(Math.round(clamped)));
     return clamped;
@@ -708,7 +717,7 @@ export function mountCoachWidget(page) {
   }
 
   function enterSplit(pct = loadSplitPct()) {
-    // Phones: keep the old full-bleed overlay — no room for a useful split.
+    // Phones: keep the old full-bleed overlay. no room for a useful split.
     if (isNarrow()) {
       panel.classList.add('full', 'open');
       panel.classList.remove('split');
@@ -839,7 +848,8 @@ export function mountCoachWidget(page) {
       }
       const cur = parseFloat(getComputedStyle(document.body).getPropertyValue('--coach-pane')) || SPLIT_DEFAULT;
       setSplitPct(cur);
-      bumpLayout();
+      // The resize event already notifies layout consumers. Dispatching it
+      // again here recursively re-enters this listener while split is open.
       return;
     }
     if (!fab.classList.contains('hidden')) applyFabPos(loadFabPos());
@@ -849,7 +859,7 @@ export function mountCoachWidget(page) {
   // Load the conversation once per page load, whichever way the panel opened.
   // setOpen() used to be the only caller of loadHistory(), so restoring in
   // SPLIT mode (which goes through enterSplit) reopened the panel completely
-  // blank — the thread was still on the server, nothing ever fetched it.
+  // blank. the thread was still on the server, nothing ever fetched it.
   let hydrated = false;
   function hydrate() {
     if (hydrated) return;
@@ -895,7 +905,7 @@ export function mountCoachWidget(page) {
       if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;   // ignore jitter
       moved = true;
       const w = panel.offsetWidth, h = panel.offsetHeight;
-      // Always leave the panel reachable — never let it be dragged off-screen.
+      // Always leave the panel reachable. never let it be dragged off-screen.
       panel.style.left = `${Math.round(clamp(baseX + dx, 8, window.innerWidth - w - 8))}px`;
       panel.style.top = `${Math.round(clamp(baseY + dy, 8, window.innerHeight - h - 8))}px`;
       e.preventDefault();
@@ -924,7 +934,7 @@ export function mountCoachWidget(page) {
       showToast('Coach position reset');
     });
 
-    // A saved position can end up off-screen after a resize — pull it back.
+    // A saved position can end up off-screen after a resize. pull it back.
     window.addEventListener('resize', () => { if (floating()) placeFloatingPanel(); });
   })();
 
@@ -932,7 +942,9 @@ export function mountCoachWidget(page) {
     if (!open) {
       exitSplit({ keepOpen: false });
       setChatsOpen(false);
-      fab.focus();
+      const launcher = document.body.classList.contains('phone-navigation')
+        ? document.getElementById('mobile-coach') : fab;
+      launcher?.focus();
       return;
     }
     applyDockSide(preferredSide());
@@ -944,6 +956,13 @@ export function mountCoachWidget(page) {
     setTimeout(() => input.focus(), 150);
   }
 
+  window.addEventListener('finio:toggle-coach', () => setOpen(!panel.classList.contains('open')));
+  window.addEventListener('finio:close-coach', () => {
+    if (panel.classList.contains('open')) setOpen(false);
+  });
+  window.addEventListener('finio:phone-navigation', event => {
+    if (!event.detail.active && panel.classList.contains('full')) exitSplit({keepOpen:true});
+  });
   document.getElementById('cw-close').addEventListener('click', () => setOpen(false));
   expandBtn.addEventListener('click', () => {
     if (!panel.classList.contains('open')) setOpen(true);
@@ -953,6 +972,8 @@ export function mountCoachWidget(page) {
     if (e.key === 'Escape' && panel.classList.contains('open')) {
       if (drawer.classList.contains('open')) {
         setChatsOpen(false);
+      } else if (document.body.classList.contains('phone-navigation')) {
+        setOpen(false);
       } else if (panel.classList.contains('split') || panel.classList.contains('full')) {
         exitSplit({ keepOpen: true });
       } else {
@@ -997,13 +1018,17 @@ export function mountCoachWidget(page) {
       const body = { message: msg, page, chat_id: currentChat(), ...storedPeriodParts() };
       const res = await apiFetch('/coach', { method: 'POST', body: JSON.stringify(body) });
       typing.remove();
-      await typeAssistant(res.text || '—');
-      (res.proposed_actions || []).forEach(addProposal);
+      const turn = res.proposed_actions?.length
+        ? addMsg('assistant', fmtMsg(res.text), res.text)
+        : await typeAssistant(res.text || 'No reply received. Please try again.');
+      appendFacts(turn, res.verified_facts, formatAUD);
+      scroll();
+      (res.proposed_actions || []).forEach(p => addProposal(p, turn));
       if (drawer.classList.contains('open') || res.chat_title) loadChats();
     } catch (err) {
       typing.remove();
       const fallback = (err.message === 'no_analysis' || err.status === 404)
-        ? 'I don\'t have your data yet — upload a statement on the Dashboard first.'
+        ? 'I don\'t have your data yet. Upload a statement on the Dashboard first.'
         : (err.message || 'Sorry, something went wrong.');
       await typeAssistant(fallback);
     }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Finio · Transactions</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
@@ -15,7 +15,6 @@
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
-    <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
     <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
@@ -34,16 +33,18 @@
       <h1>Transactions</h1>
       <p style="color:var(--muted);">
         Every transaction and how Finio classified it. Fix a flow or category and
-        every number on the platform updates — or just tell the coach what to change.
+        every number on the platform updates. You can also tell the coach what to change.
       </p>
+      <p id="review-scope" class="tx-help" hidden></p>
+      <a id="review-all-link" href="transactions.html" class="link-btn" hidden>Show all transaction history</a>
     </div>
 
-    <!-- Finio's quick questions — only shows when it's genuinely unsure -->
+    <!-- Finio's quick questions. only shows when it's genuinely unsure -->
     <div class="card quiz-card" id="quiz-card" style="display:none;">
       <div class="quiz-head">
         <div class="quiz-kicker">
           <span class="quiz-kicker-mark" aria-hidden="true">✦</span>
-          <span>Finio has <span id="quiz-total">0</span> quick questions</span>
+          <span id="quiz-heading"><span id="quiz-total">0</span> <span id="quiz-unit">merchant questions remaining</span></span>
         </div>
         <div class="quiz-progress-wrap">
           <div class="quiz-progress-bar" id="quiz-progress-bar" aria-hidden="true"><span></span></div>
@@ -55,6 +56,7 @@
         <div class="quiz-meta" id="quiz-meta"></div>
         <p class="quiz-prompt" id="quiz-prompt"></p>
         <div class="quiz-actions" id="quiz-actions"></div>
+        <p id="quiz-error" class="save-error" role="alert" hidden></p>
       </div>
     </div>
 
@@ -70,6 +72,7 @@
         </div>
         <button type="button" class="btn btn-outline btn-sm" id="tx-reclassify"
                 title="Ask Finio to categorise your merchants again">Re-classify with AI</button>
+        <button type="button" class="btn btn-outline btn-sm" id="undo-edit" hidden></button>
         <button type="button" class="btn btn-primary btn-sm" id="tx-save" disabled>Save changes</button>
       </div>
       <div id="custom-cat-chips" class="cat-chips"></div>
@@ -97,19 +100,19 @@
         <span id="bulk-count">0 selected</span>
         <label>Set flow
           <select id="bulk-flow">
-            <option value="">—</option>
+            <option value="">Loading…</option>
             <option value="income">Income</option>
             <option value="expense">Spending</option>
             <option value="transfer">Transfer</option>
           </select>
         </label>
         <label>Set category
-          <select id="bulk-category"><option value="">—</option></select>
+          <select id="bulk-category"><option value="">Loading…</option></select>
         </label>
         <button type="button" class="btn btn-outline btn-sm" id="bulk-apply">Apply to selected</button>
       </div>
 
-      <div id="tx-error" class="form-error"></div>
+      <div id="tx-error" class="form-error" role="alert"></div>
       <div class="tx-scroll" id="tx-list"></div>
     </div>
   </div>
@@ -121,6 +124,7 @@
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast,
            formatDay, escapeHtml } from './api.js';
+  import { mountUndo, showEditingStatus, dateRangeLabel } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('transactions');
@@ -131,6 +135,12 @@
 
   const FLOW_LABEL = { income: 'Income', expense: 'Spending', transfer: 'Transfer' };
   let txState = { transactions: [], categories: [], custom_categories: [] };
+  const reviewParams = new URLSearchParams(location.search);
+  const reviewMode = reviewParams.get('review') === 'transfers';
+  const scopeParams = new URLSearchParams();
+  for (const key of ['period','month','start','end']) if (reviewParams.has(key)) scopeParams.set(key, reviewParams.get(key));
+  const transactionPath = '/transactions' + (scopeParams.size ? '?' + scopeParams.toString() : '');
+  let reviewKeys = new Set();
   let savedRules = [];
   const staged = new Map();
   const originals = new Map();
@@ -143,27 +153,28 @@
   const selected = new Set();
 
   function visibleTxs() {
-    const all = txState.transactions.map(t => ({ ...t, ...(staged.get(t.key) || {}) }));
+    const all = txState.transactions.filter(t => !reviewMode || reviewKeys.has(t.key)).map(t => ({ ...t, ...(staged.get(t.key) || {}) }));
     return txFilter
       ? all.filter(t => `${t.merchant} ${t.category || ''}`.toLowerCase().includes(txFilter))
       : all;
   }
 
   function updateSaveBtn() {
-    document.getElementById('tx-save').disabled = staged.size === 0 && !customDirty;
+    document.getElementById('tx-save').disabled = txState.editing_available === false || (staged.size === 0 && !customDirty);
+    document.getElementById('undo-edit').disabled = staged.size > 0 || customDirty;
   }
 
   function categoryOptions(selected, disabled, label) {
-    if (disabled) return `<select class="tx-cat" aria-label="Spending category for ${label}" disabled><option value="">—</option></select>`;
+    if (disabled) return `<select class="tx-cat" aria-label="Spending category for ${label}" disabled><option value="">Loading…</option></select>`;
     const opts = txState.categories.map(c => {
       const e = escapeHtml(c);
       return `<option value="${e}"${c === selected ? ' selected' : ''}>${e}</option>`;
     }).join('');
-    return `<select class="tx-cat" aria-label="Spending category for ${label}"><option value=""${!selected ? ' selected' : ''}>Choose category…</option>${opts}</select>`;
+    return `<select class="tx-cat" aria-label="Spending category for ${label}"${txState.editing_available === false ? ' disabled' : ''}><option value=""${!selected ? ' selected' : ''}>Choose category…</option>${opts}</select>`;
   }
 
   function flowOptions(selected, label) {
-    return `<select class="tx-flow" aria-label="Transaction flow for ${label}">${
+    return `<select class="tx-flow" aria-label="Transaction flow for ${label}"${txState.editing_available === false ? ' disabled' : ''}>${
       ['income', 'expense', 'transfer'].map(f =>
         `<option value="${f}"${f === selected ? ' selected' : ''}>${FLOW_LABEL[f]}</option>`).join('')
     }</select>`;
@@ -184,7 +195,7 @@
       </div>`;
   }
 
-  let groupRows = {};   // group title -> rows, rebuilt each render (for group select)
+  let groupRows = Object.create(null);   // user-defined category names are arbitrary keys
 
   function groupHtml(title, rows, opts = {}) {
     if (!rows.length) return '';
@@ -217,17 +228,17 @@
   function renderTransactions() {
     const el = document.getElementById('tx-list');
     const all = txState.transactions;
-    groupRows = {};
+    groupRows = Object.create(null);
     const txs = visibleTxs();
-    if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the Dashboard.</p>'; return; }
-    if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">No transactions match “${escapeHtml(txFilter)}”.</p>`; return; }
+    if (!all.length) { el.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet. Upload a statement on the Dashboard.</p>'; return; }
+    if (!txs.length) { el.innerHTML = `<p style="color:var(--muted);font-size:0.875rem;">${reviewMode && !txFilter ? 'No transfer transactions need review in this window.' : `No transactions match “${escapeHtml(txFilter)}”.`}</p>`; return; }
 
     const income = txs.filter(t => t.flow === 'income');
     const bills = txs.filter(t => t.flow === 'expense' && t.is_bill);
     const transfers = txs.filter(t => t.flow === 'transfer');
     const spending = txs.filter(t => t.flow === 'expense' && !t.is_bill);
 
-    const byCat = {};
+    const byCat = Object.create(null);
     spending.forEach(t => { (byCat[t.category || 'Other'] ||= []).push(t); });
     const spendingHtml = Object.keys(byCat).sort().map(cat => groupHtml(cat, byCat[cat])).join('');
 
@@ -294,6 +305,7 @@
     const n = selected.size;
     document.getElementById('bulk-bar').style.display = n ? 'flex' : 'none';
     document.getElementById('bulk-count').textContent = `${n} selected`;
+    document.getElementById('bulk-apply').disabled = txState.editing_available === false;
     // Keep the toolbar Select-all box honest: checked only when every visible
     // transaction is selected.
     const vis = visibleTxs();
@@ -331,7 +343,7 @@
     customDirty = true;
     updateSaveBtn();
     refreshCategorySelects();
-    showToast(`Added “${name}” — Save changes to keep it`);
+    showToast(`Added “${name}”. Save changes to keep it`);
   });
 
   function removeCustomCategory(name) {
@@ -344,7 +356,7 @@
     customDirty = true;
     updateSaveBtn();
     refreshCategorySelects();
-    showToast(`Removed “${name}” — Save changes to apply`);
+    showToast(`Removed “${name}”. Save changes to apply`);
   }
 
   function renderCustomChips() {
@@ -359,7 +371,7 @@
 
   function refreshCategorySelects() {
     document.getElementById('bulk-category').innerHTML =
- '<option value="">—</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
+ '<option value="">Loading…</option>' + txState.categories.map(c => { const e = escapeHtml(c); return `<option value="${e}">${e}</option>`; }).join('');
     renderCustomChips();
     renderTransactions();
   }
@@ -394,13 +406,13 @@
     try {
       const res = await apiFetch('/overrides', {
         method: 'POST',
-        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
+        body: JSON.stringify({ revision: txState.revision, rules, custom_categories: txState.custom_categories }),
       });
       staged.clear();
       customDirty = false;
       await load();
       // Money that LEFT the account cannot be income. Finio counts those as
-      // transfers instead of letting them corrupt the totals — say so.
+      // transfers instead of letting them corrupt the totals. say so.
       const w = res.flow_warnings || [];
       if (w.length) {
         const first = w[0];
@@ -409,7 +421,7 @@
         showToast('Updated your numbers');
       }
     } catch (err) {
-      errEl.textContent = err.message || 'Could not save changes';
+      errEl.textContent = (err.message || 'Could not save changes') + ' Your unsaved edits are kept.';
       errEl.style.display = 'block';
     } finally {
       btn.textContent = 'Save changes';
@@ -420,7 +432,7 @@
   // ── Re-classify with AI ────────────────────────────────────────────────
   // Asks the model for a fresh opinion on every merchant, then shows what it
   // would change. NOTHING is written until the user ticks the ones they want
-  // and presses Apply — the confirmation IS the guardrail, same as the coach's
+  // and presses Apply. the confirmation IS the guardrail, same as the coach's
   // proposal cards.
   let reclassChanges = [];
   const reclassChosen = new Set();
@@ -530,7 +542,7 @@
     try {
       await apiFetch('/overrides', {
         method: 'POST',
-        body: JSON.stringify({ rules, custom_categories: txState.custom_categories }),
+        body: JSON.stringify({ revision: txState.revision, rules, custom_categories: txState.custom_categories }),
       });
       reclassChanges = [];
       reclassChosen.clear();
@@ -549,6 +561,8 @@
   // ── Finio's quick questions (categorisation quiz) ──
   let quizQuestions = [];
   let quizAnswered = 0;
+  const deferredQuestions = new Set();
+  const questionId = q => `${q.kind}|${q.merchant.trim().toUpperCase()}`;
 
   function renderQuiz() {
     const card = document.getElementById('quiz-card');
@@ -557,13 +571,15 @@
     const q = quizQuestions[0];
     const totalN = quizAnswered + quizQuestions.length;
     const step = quizAnswered + 1;
-    document.getElementById('quiz-total').textContent = totalN;
-    document.getElementById('quiz-progress').textContent = `${step} / ${totalN}`;
+    document.getElementById('quiz-total').textContent = quizQuestions.length;
+    document.getElementById('quiz-unit').textContent = quizQuestions.length === 1
+      ? 'merchant question remaining' : 'merchant questions remaining';
+    document.getElementById('quiz-progress').textContent = `Question ${step} of ${totalN}`;
     const bar = document.querySelector('#quiz-progress-bar span');
     if (bar) bar.style.width = `${Math.round((step / totalN) * 100)}%`;
     document.getElementById('quiz-merchant').textContent = q.merchant;
     document.getElementById('quiz-meta').textContent =
-      `appears ${q.count}× · ${formatAUD(q.total)} total`
+      `This question covers ${q.count} transaction${q.count === 1 ? '' : 's'} · ${formatAUD(q.total)} total`
       + (q.hint ? ` · ${q.hint}` : '');
     document.getElementById('quiz-prompt').textContent = q.kind === 'flow'
       ? 'Is this money moving between your own accounts, income, or spending?'
@@ -602,6 +618,7 @@
         <button type="button" class="quiz-skip" data-act="skip">Skip for now</button>`;
     }
 
+    if (txState.editing_available === false) actions.querySelectorAll('button, select').forEach(el => { el.disabled = true; });
     const sel = actions.querySelector('#quiz-cat');
     if (sel) sel.addEventListener('change', () => {
       if (sel.value) answer({ merchant: q.merchant, category: sel.value, flow: 'expense' });
@@ -626,25 +643,44 @@
     }));
 
     async function answer(body) {
+      if (body.skip) {
+        deferredQuestions.add(questionId(q));
+        quizQuestions.push(quizQuestions.shift()); renderQuiz();
+        showToast('Moved to the end. These transactions still need review.'); return;
+      }
+      document.getElementById('quiz-error').hidden = true;
       actions.querySelectorAll('button, select').forEach(x => { x.disabled = true; });
       try {
-        await apiFetch('/quiz', { method: 'POST', body: JSON.stringify(body) });
+        await apiFetch('/quiz', { method: 'POST', body: JSON.stringify({ ...body, tx_keys: q.keys, revision: txState.revision }) });
+        deferredQuestions.delete(questionId(q));
         quizAnswered += 1;
-        if (!body.skip) showToast(`Got it — “${q.merchant}” sorted`);
+        if (!body.skip) showToast(`Got it. “${q.merchant}” sorted`);
         await load();
         window.dispatchEvent(new CustomEvent('finio:quiz-answered'));
       } catch (err) {
-        showToast(err.message || 'Could not save that answer');
-        renderQuiz();
+        const error = document.getElementById('quiz-error');
+        error.textContent = err.message || 'Could not save that answer. Try again below.';
+        error.hidden = false;
+        actions.querySelectorAll('button, select').forEach(x => { x.disabled = txState.editing_available === false; });
       }
     }
   }
 
   // Coach applied a change from the chat → refresh the list.
-  window.addEventListener('finio:overrides-applied', () => load());
+  window.addEventListener('finio:overrides-applied', () => {
+    if (staged.size || customDirty) showToast('Saved data changed. Your unsaved edits are kept; reload to review before saving.');
+    else load();
+  });
 
   // Deep link from the dashboard budget card: transactions.html#cat=Groceries
   function applyHash() {
+    if (location.hash === '#review') {
+      const quiz = document.getElementById('quiz-card');
+      const transfers = document.querySelector('.tx-group[data-group="Transfers (ignored)"]');
+      const target = quiz.style.display !== 'none' ? quiz : transfers;
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const m = location.hash.match(/#cat=(.+)/);
     if (!m) return;
     const cat = decodeURIComponent(m[1]);
@@ -656,18 +692,41 @@
     }
   }
 
+  window.addEventListener('beforeunload', e => {
+    if (staged.size || customDirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+  document.addEventListener('click', e => {
+    const link = e.target.closest('a[href]');
+    if (link && (staged.size || customDirty) && !link.getAttribute('href').startsWith('#')
+        && !window.confirm('Leave this page and discard your unsaved transaction edits?')) e.preventDefault();
+  });
+
   async function load() {
     try {
       const [tx, ov] = await Promise.all([
-        apiFetch('/transactions'),
-        apiFetch('/overrides').catch(() => ({ overrides: [], custom_categories: [] })),
+        apiFetch(transactionPath),
+        apiFetch('/overrides'),
       ]);
+      if (tx.revision !== ov.revision) throw new Error('Your data changed while loading. Reload to get a consistent view.');
       txState = {
+        revision: tx.revision,
+        editing_available: tx.editing_available,
         transactions: tx.transactions || [],
         categories: tx.categories || [],
         custom_categories: tx.custom_categories || [],
       };
-      quizQuestions = tx.pending_questions || [];
+      mountUndo(document.getElementById('undo-edit'), tx, () => {
+        quizAnswered = 0;
+        return load();
+      });
+      reviewKeys = new Set(tx.review_keys || []);
+      quizQuestions = (tx.pending_questions || [])
+        .filter(q => !reviewMode || q.kind === 'flow')
+        .sort((a, b) => Number(deferredQuestions.has(questionId(a))) - Number(deferredQuestions.has(questionId(b))));
+      const scope = document.getElementById('review-scope');
+      scope.hidden = false;
+      scope.textContent = `${tx.review?.count || 0} transfer transactions across ${tx.review?.merchant_count || 0} merchants need review · ${reviewMode ? '' : 'All uploaded history · '}${dateRangeLabel(tx.period)}. Questions group transactions by merchant; answers apply only to the transactions shown in each question.${reviewMode ? '' : ' Other questions may cover spending categories.'}`;
+      document.getElementById('review-all-link').hidden = !reviewMode;
       renderQuiz();
       savedRules = ov.overrides || [];
       staged.clear();
@@ -677,6 +736,9 @@
       txState.transactions.forEach(t => originals.set(t.key, { flow: t.flow, category: t.category }));
       updateSaveBtn();
       refreshCategorySelects();
+      showEditingStatus(dataSection, tx);
+      dataSection.querySelectorAll('#tx-reclassify, #new-category, #add-category-btn, #custom-cat-chips button')
+        .forEach(el => { el.disabled = tx.editing_available === false; });
       updateBulkBar();
       loadingEl.style.display = 'none';
       dataSection.style.display = 'block';
@@ -686,7 +748,7 @@
       dataSection.style.display = 'block';
       if (err.message === 'no_analysis' || err.status === 404) {
         document.getElementById('tx-list').innerHTML =
- '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet — upload a statement on the <a href="dashboard.html">Dashboard</a>.</p>';
+ '<p style="color:var(--muted);font-size:0.875rem;">No transactions yet. Upload a statement on the <a href="dashboard.html">Dashboard</a>.</p>';
       } else if (err.message !== 'Not authenticated' && err.message !== 'session_expired') {
         showToast(err.message);
       }

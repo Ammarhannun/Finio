@@ -1,4 +1,4 @@
-"""Supabase persistence — transactions, snapshots, streaks, goals, budgets."""
+"""Supabase persistence. transactions, snapshots, streaks, goals, budgets."""
 
 import json
 import os
@@ -11,7 +11,7 @@ from modules.serialization import json_safe
 
 def _vec(embedding):
     """pgvector accepts its text form '[0.1,0.2,...]'. We pass embeddings as a
-    string (for both inserts and RPC) and cast ::vector in SQL — this sidesteps
+    string (for both inserts and RPC) and cast ::vector in SQL. this sidesteps
     PostgREST mistyping a raw float array."""
     return json.dumps([float(x) for x in embedding])
 
@@ -74,12 +74,21 @@ def is_configured():
     return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_ANON_KEY"))
 
 
+def security_status(client):
+    """Server-verified session/factor state, without exposing Auth tables."""
+    result = client.rpc('finio_security_status', {}).execute().data
+    fields = ('session_active', 'mfa_satisfied', 'recent_auth')
+    if not isinstance(result, dict) or any(not isinstance(result.get(key), bool) for key in fields):
+        raise ValueError('Invalid account security state')
+    return {key: result[key] for key in fields}
+
+
 # ── Per-request read memo ────────────────────────────────────────────────────
 # One /dashboard load used to fetch the snapshot blob 4x and the whole
 # transaction history 2x, because get_overrides / get_budget_targets /
 # get_custom_categories each re-read the same row. get_client() builds a FRESH
 # client per request, so a cache attached to the client object lives exactly one
-# request — it removes the duplicate reads without ever serving a stale row
+# request. it removes the duplicate reads without ever serving a stale row
 # across requests. Writes clear it so read-after-write inside one request is
 # still correct.
 def _memo(client):
@@ -119,6 +128,17 @@ def _month_bounds(month):
 def get_client(access_token=None):
     from supabase import create_client
 
+    key = os.environ['SUPABASE_ANON_KEY']
+    if key.startswith('sb_secret_'):
+        raise ValueError('The web service requires a Supabase publishable or anon key.')
+    if key.startswith('eyJ'):
+        import base64
+        try:
+            role = json.loads(base64.urlsafe_b64decode(key.split('.')[1] + '==='))['role']
+        except (ValueError, KeyError, IndexError):
+            role = None
+        if role != 'anon':
+            raise ValueError('The web service requires a Supabase publishable or anon key.')
     client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"])
     if access_token:
         client.postgrest.auth(access_token)
@@ -127,7 +147,7 @@ def get_client(access_token=None):
 
 def get_admin_client():
     """Client using the SERVICE ROLE key (bypasses RLS). Server-side admin
-    tasks only — e.g. indexing the global knowledge base. Never expose this
+    tasks only. e.g. indexing the global knowledge base. Never expose this
     key to the browser. Returns None when the key isn't configured."""
     from supabase import create_client
 
@@ -152,23 +172,30 @@ def get_user_id(access_token):
     """The user's id from their access token.
 
     When SUPABASE_JWT_SECRET is set we verify the JWT signature LOCALLY (HS256)
-    — no network round-trip on every request. Falls back to the network
+   . no network round-trip on every request. Falls back to the network
     auth.get_user check if the secret is absent or the token isn't HS256, so
     it's safe to leave unset. Data access is still guarded by Postgres RLS
     (the token is passed to PostgREST), so this only optimises identity lookup.
     """
     secret = os.getenv("SUPABASE_JWT_SECRET")
     if secret:
+        import jwt
         try:
-            import jwt
-
             payload = jwt.decode(
-                access_token, secret, algorithms=["HS256"], audience="authenticated"
+                access_token, secret, algorithms=["HS256"], audience="authenticated",
+                issuer=os.environ['SUPABASE_URL'].rstrip('/') + '/auth/v1',
+                options={'require': ['exp', 'iat', 'sub', 'iss', 'aud']},
             )
-            if payload.get("sub"):
-                return payload["sub"]
-        except Exception as exc:
-            debug("local JWT verify", exc)  # fall back to the network check
+            from uuid import UUID
+            UUID(payload['sub'])
+            if payload.get('role') != 'authenticated':
+                raise ValueError('Invalid or expired token')
+            return payload['sub']
+        except (jwt.InvalidAlgorithmError, jwt.InvalidSignatureError) as exc:
+            # Asymmetric keys or rotation are verified by the Auth server.
+            debug('local JWT verify', exc)
+        except (jwt.PyJWTError, ValueError, TypeError, KeyError) as exc:
+            raise ValueError('Invalid or expired token') from exc
     return get_user(access_token).id
 
 
@@ -257,7 +284,7 @@ def save_snapshot(client, user_id, month, summary_json):
         {"user_id": user_id, "month": month, "summary_json": json_safe(summary_json)},
         on_conflict="user_id,month",
     ).execute()
-    # The row just changed — drop the memo so a later read in this same request
+    # The row just changed. drop the memo so a later read in this same request
     # sees the write, not the pre-write copy.
     _memo_clear(client, ("snapshot", user_id))
 
@@ -302,7 +329,7 @@ def upsert_goal(client, user_id, goal_amount, goal_date, current_saved):
 
 def upsert_budgets(client, user_id, month, budget_rows):
     # suggested_limit is None for categories with no target/baseline yet (the
-    # honest "no budget set" state) — monthly_limit is NOT NULL, so there's
+    # honest "no budget set" state). monthly_limit is NOT NULL, so there's
     # nothing meaningful to persist for those; skip them rather than error.
     payload = [
         {
@@ -333,15 +360,42 @@ def upsert_user_profile(client, user_id, email=None, age=None, income_bracket=No
         client.table("users").upsert(payload, on_conflict="id").execute()
 
 
-def get_user_profile(client, user_id):
-    """The user's stored profile row (email, age, income bracket)."""
-    result = (
-        client.table("users")
-        .select("email, age, income_bracket")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
+def _missing_column(exc, *names):
+    """Only schema-column errors may use the previous read shape.
+
+    Authentication, RLS, network and unrelated SQL failures must propagate.
+    Never retry by changing a tenant filter or switching to an admin client.
+    """
+    message = str(getattr(exc, "message", "")).lower()
+    return str(getattr(exc, "code", "")) in ("42703", "PGRST204") and any(
+        name.lower() in message for name in names
     )
+
+
+def _revision_columns(client):
+    memo = _memo(client)
+    return memo.get("revision_columns", True) if memo is not None else True
+
+
+def _legacy_reads(client):
+    memo = _memo(client)
+    if memo is not None:
+        memo["revision_columns"] = False
+
+
+def get_user_profile(client, user_id):
+    """Read existing profiles throughout the migration-005 rollout."""
+    def query(with_revision):
+        return (client.table("users")
+                .select("email, age, income_bracket" + (", revision" if with_revision else ""))
+                .eq("id", user_id).limit(1).execute())
+    try:
+        result = query(_revision_columns(client))
+    except Exception as exc:
+        if not _missing_column(exc, "revision"):
+            raise
+        _legacy_reads(client)
+        result = query(False)
     return result.data[0] if result.data else {}
 
 
@@ -351,23 +405,24 @@ def get_latest_snapshot(client, user_id):
     if memo is not None and key in memo:
         return memo[key]
 
-    result = (
-        client.table("snapshots")
-        .select("month, summary_json")
-        .eq("user_id", user_id)
-        .order("updated_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    row = None
-    if result.data:
-        row = result.data[0]
-        # Normalise month back to "YYYY-MM" for internal use
-        if row.get("month") and len(str(row["month"])) == 10:
-            row["month"] = str(row["month"])[:7]
+    def query(with_revision):
+        columns = "month, summary_json" + (", revision, undo_json" if with_revision else "")
+        return (client.table("snapshots").select(columns).eq("user_id", user_id)
+                .order("updated_at", desc=True).limit(1).execute())
+    try:
+        result = query(_revision_columns(client))
+    except Exception as exc:
+        if not _missing_column(exc, "revision", "undo_json"):
+            raise
+        _legacy_reads(client)
+        result = query(False)
+    row = result.data[0] if result.data else None
+    if row and row.get("month") and len(str(row["month"])) == 10:
+        row["month"] = str(row["month"])[:7]
     if memo is not None:
         memo[key] = row
     return row
+
 
 
 def get_transactions(client, user_id, month):
@@ -381,32 +436,6 @@ def get_transactions(client, user_id, month):
         .lt("date", end)
         .order("date").order("position").order("id")
     ))
-
-
-def save_goal_recompute(
-    client, user_id, month, recomputed, goal_amount, goal_date, age=None
-):
-    """Persist a user-set goal: update the snapshot's forecast/invest + goal row."""
-    snapshot_row = get_latest_snapshot(client, user_id)
-    if snapshot_row:
-        summary = snapshot_row["summary_json"]
-        summary["forecast"] = recomputed["forecast"]
-        summary["invest"] = recomputed["invest"]
-        if "context" in recomputed:
-            summary["context"] = recomputed["context"]
-        summary.pop("insight", None)
-        month_date = f"{month}-01" if len(str(month)) == 7 else month
-        save_snapshot(client, user_id, month_date, summary)
-
-    upsert_goal(
-        client,
-        user_id,
-        goal_amount,
-        goal_date,
-        recomputed["forecast"]["current_saved"],
-    )
-    if age is not None:
-        upsert_user_profile(client, user_id, age=age)
 
 
 def get_goal(client, user_id):
@@ -446,6 +475,11 @@ def load_dashboard(client, user_id):
 
     return {
         "month": month,
+        **edit_state(client, user_id),
+        "review": summary.get("review"),
+        "history_review": summary.get("history_review"),
+        "cash_balance": summary.get("cash_balance"),
+        "statement_balance": summary.get("statement_balance"),
         "metrics": summary.get("metrics"),
         "analysis": summary.get("analysis"),
         "bills": summary.get("bills", []),
@@ -471,7 +505,7 @@ def load_dashboard(client, user_id):
         "streak": streak,
         "goal": goal,
         "budget_targets": summary.get("budget_targets", {}) or {},
-        # True when the stored snapshot was computed by older analysis logic —
+        # True when the stored snapshot was computed by older analysis logic,
         # the frontend nudges the user to hit Re-analyse.
         "snapshot_stale": (summary.get("snapshot_version") or 0) < _snapshot_version(),
     }
@@ -493,11 +527,12 @@ def persist_analysis(
     overrides=None,
     custom_categories=None,
     budget_targets=None,
+    expected_revision=None,
 ):
     user = get_user(access_token)
     user_id = user.id
     client = get_client(access_token)
-    # month is "YYYY-MM" — Supabase date column needs "YYYY-MM-01"
+    # month is "YYYY-MM". Supabase date column needs "YYYY-MM-01"
     month = result["snapshot"]["month"]
     month_date = f"{month}-01" if len(month) == 7 else month
 
@@ -506,6 +541,10 @@ def persist_analysis(
 
     summary_json = {
         **result["snapshot"],
+        "review": result.get("review"),
+        "history_review": result.get("history_review"),
+        "cash_balance": result.get("cash_balance"),
+        "statement_balance": result.get("statement_balance"),
         "context": result["context"],
         "metrics": result["metrics"],
         "analysis": result["analysis"],
@@ -548,6 +587,7 @@ def persist_analysis(
         "current_saved": result["forecast"]["current_saved"]},
         "p_streak": streak,
         "p_budgets": result["budgets"]["budgets"],
+        "p_expected_revision": expected_revision,
     })).execute()
     _memo_clear(client)
 
@@ -578,11 +618,11 @@ def save_cached_insight(client, user_id, insight):
     row = get_latest_snapshot(client, user_id)
     if not row:
         return
-    summary = row.get("summary_json") or {}
-    summary["insight"] = insight
-    month = row["month"]
-    month_date = f"{month}-01" if len(str(month)) == 7 else month
-    save_snapshot(client, user_id, month_date, summary)
+    if not _revision_columns(client):
+        return
+    client.rpc("finio_cache_insight", {"p_expected_revision": row.get("revision"),
+                                       "p_insight": json_safe(insight)}).execute()
+    _memo_clear(client)
 
 
 def get_custom_categories(client, user_id):
@@ -602,26 +642,6 @@ def get_budget_targets(client, user_id):
     return {}
 
 
-def save_budget_targets(client, user_id, targets, resliced=None):
-    """Persist edited budget limits and refresh the stored numbers so every page
-    reflects them immediately."""
-    row = get_latest_snapshot(client, user_id)
-    if not row:
-        return {}
-    summary = row.get("summary_json") or {}
-    summary["budget_targets"] = targets
-    summary.pop("insight", None)          # numbers changed
-    if resliced:
-        for key in ("metrics", "analysis", "budgets", "invest", "context",
-                    "personality", "goal_recommendation"):
-            if key in resliced:
-                summary[key] = resliced[key]
-    month = row["month"]
-    month_date = f"{month}-01" if len(str(month)) == 7 else month
-    save_snapshot(client, user_id, month_date, summary)
-    return targets
-
-
 def get_llm_categories(client, user_id):
     """Cached LLM merchant classifications (merchant -> {category, confidence})."""
     row = get_latest_snapshot(client, user_id)
@@ -635,68 +655,6 @@ def get_pending_questions(client, user_id):
     if row:
         return (row.get("summary_json") or {}).get("pending_questions", [])
     return []
-
-
-def remove_pending_question(client, user_id, merchant):
-    """Drop one quiz question (answered or skipped) from the snapshot."""
-    row = get_latest_snapshot(client, user_id)
-    if not row:
-        return []
-    summary = row.get("summary_json") or {}
-    remaining = [q for q in summary.get("pending_questions", [])
-                 if q.get("merchant", "").strip().upper() != merchant.strip().upper()]
-    summary["pending_questions"] = remaining
-    month = row["month"]
-    month_date = f"{month}-01" if len(str(month)) == 7 else month
-    save_snapshot(client, user_id, month_date, summary)
-    return remaining
-
-
-def save_custom_categories(client, user_id, custom_categories):
-    """Persist the user's custom categories into the snapshot JSON. No-ops if
-    there's no snapshot yet (categories are created from the dashboard, which
-    only exists after an upload)."""
-    row = get_latest_snapshot(client, user_id)
-    if not row:
-        return
-    summary = row.get("summary_json") or {}
-    summary["custom_categories"] = custom_categories
-    month = row["month"]
-    month_date = f"{month}-01" if len(str(month)) == 7 else month
-    save_snapshot(client, user_id, month_date, summary)
-
-
-def save_overrides(client, user_id, overrides, resliced, custom_categories=None):
-    """Persist the overrides and refresh the stored snapshot numbers so every
-    page reflects the reclassification on the next load."""
-    row = get_latest_snapshot(client, user_id)
-    if not row:
-        return
-    summary = row.get("summary_json") or {}
-    summary["overrides"] = overrides
-    # Numbers changed → the cached AI insight no longer matches; regenerate lazily.
-    summary.pop("insight", None)
-    # A recompute brings the snapshot up to current logic.
-    from config import SNAPSHOT_VERSION
-    summary["snapshot_version"] = SNAPSHOT_VERSION
-    if custom_categories is not None:
-        summary["custom_categories"] = custom_categories
-    for key in (
-        "metrics", "analysis", "bills", "anomalies", "averages", "forecast", "spend_forecast",
-        "budgets", "invest", "personality", "context", "goal_recommendation",
-    ):
-        if key in resliced:
-            summary[key] = resliced[key]
-
-    month = row["month"]
-    month_date = f"{month}-01" if len(str(month)) == 7 else month
-    save_snapshot(client, user_id, month_date, summary)
-    upsert_goal(
-        client, user_id,
-        summary.get("forecast", {}).get("target_amount"),
-        summary.get("forecast", {}).get("target_date"),
-        summary.get("forecast", {}).get("current_saved"),
-    )
 
 
 def save_spend_check(client, user_id, result):
@@ -738,20 +696,16 @@ def get_spend_checks(client, user_id, limit=20):
     return result.data or []
 
 
-def append_chat(client, user_id, role, message, chat_id="default"):
+def append_chat(client, user_id, role, message, chat_id="default", verified_facts=None):
     row = {
         "user_id": user_id,
         "role": role,
         "message": message,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "chat_id": chat_id,
+        "verified_facts": json_safe(verified_facts or []),
     }
-    try:
-        client.table("chat_history").insert(row).execute()
-    except Exception:
-        # chat_id column missing (002 migration not run yet) → single-chat mode.
-        row.pop("chat_id", None)
-        client.table("chat_history").insert(row).execute()
+    client.table("chat_history").insert(row).execute()
 
 
 def get_chat_title(client, user_id, chat_id="default"):
@@ -778,7 +732,7 @@ def set_chat_title(client, user_id, chat_id, title):
     title = (title or "").strip()
     if not title:
         return
-    # Keep a single title row per chat — drop older ones when we can.
+    # Keep a single title row per chat. drop older ones when we can.
     try:
         client.table("chat_history").delete().eq(
             "user_id", user_id
@@ -789,42 +743,26 @@ def set_chat_title(client, user_id, chat_id, title):
 
 
 def get_chat_history(client, user_id, limit=None, chat_id=None):
-    """Messages for one chat (or the legacy single stream when chat_id is None
-    or the 002 migration hasn't been run). Title rows are excluded.
-
-    Returns the NEWEST `limit` messages in chronological order."""
+    """Read old/new chat rows without widening the user or conversation scope."""
     if limit is None:
         from config import CHAT_HISTORY_LIMIT
         limit = CHAT_HISTORY_LIMIT
-    def _q(with_chat):
-        q = (
-            client.table("chat_history")
-            .select("role, message, timestamp" + (", chat_id" if with_chat else ""))
-            .eq("user_id", user_id)
-            .neq("role", "title")
-        )
-        if with_chat and chat_id:
+
+    def query(with_facts):
+        columns = "role, message, timestamp, chat_id" + (", verified_facts" if with_facts else "")
+        q = client.table("chat_history").select(columns).eq("user_id", user_id).neq("role", "title")
+        if chat_id:
             q = q.eq("chat_id", chat_id)
         return q.order("timestamp", desc=True).limit(limit).execute()
 
     try:
-        result = _q(True)
-    except Exception:
-        try:
-            result = _q(False)
-        except Exception:
-            # Older DBs may not support neq on role the same way — fall back.
-            q = (
-                client.table("chat_history")
-                .select("role, message, timestamp")
-                .eq("user_id", user_id)
-                .order("timestamp", desc=True)
-                .limit(limit)
-                .execute()
-            )
-            rows = [r for r in (q.data or []) if r.get("role") != "title"]
-            return list(reversed(rows))
+        result = query(True)
+    except Exception as exc:
+        if not _missing_column(exc, "verified_facts"):
+            raise
+        result = query(False)
     return list(reversed(result.data or []))
+
 
 
 def list_chats(client, user_id, limit=2000):
@@ -834,7 +772,7 @@ def list_chats(client, user_id, limit=2000):
 
     Rows are fetched NEWEST-first: an oldest-first fetch with a row cap silently
     dropped the user's most recent conversations once their total message count
-    passed the cap — the sidebar would stop showing new chats entirely.
+    passed the cap. the sidebar would stop showing new chats entirely.
     """
     try:
         result = (
@@ -868,3 +806,45 @@ def list_chats(client, user_id, limit=2000):
         c["title"] = c.pop("ai_title", None) or c["title"] or "New chat"
     out.sort(key=lambda c: c["last_ts"] or "", reverse=True)
     return out
+
+
+def edit_state(client, user_id):
+    row = get_latest_snapshot(client, user_id)
+    profile_revision = get_user_profile(client, user_id).get("revision") if not row else None
+    available = _revision_columns(client)
+    if row:
+        undo = row.get("undo_json") or {}
+        return {"revision": row.get("revision"), "can_undo": available and bool(undo),
+                "undo_label": undo.get("label"), "editing_available": available}
+    return {"revision": profile_revision, "can_undo": False, "editing_available": available}
+
+
+
+def commit_edit(client, user_id, revision, *, resliced=None, changes=None, profile=None, label="Edit", undo=False):
+    """One CAS-protected transaction; never fall back to partial writes."""
+    from copy import deepcopy
+    row = get_latest_snapshot(client, user_id)
+    summary = deepcopy(row.get("summary_json") or {}) if row else None
+    if summary is not None:
+        if resliced:
+            for key in ("metrics", "analysis", "bills", "anomalies", "averages", "forecast",
+                        "spend_forecast", "budgets", "invest", "personality", "context", "goal_recommendation", "review", "history_review"):
+                if key in resliced:
+                    summary[key] = resliced[key]
+            summary["snapshot_version"] = _snapshot_version()
+        summary.update(changes or {})
+        if changes and "overrides" in changes and "pending_questions" not in changes:
+            from modules.pipeline import _restore_full_df
+            from modules.data_processor import apply_flow_overrides, apply_category_overrides, reconcile_flow_contradictions
+            from modules.llm_categoriser import build_questions
+            frame = _restore_full_df(get_all_transactions(client, user_id))
+            frame = apply_category_overrides(apply_flow_overrides(frame, changes["overrides"]), changes["overrides"])
+            frame, _ = reconcile_flow_contradictions(frame)
+            summary["pending_questions"] = build_questions(frame, summary.get("llm_categories", {}), changes["overrides"], limit=20000)
+        summary.pop("insight", None)
+    result = client.rpc("finio_edit_analysis", json_safe({
+        "p_expected_revision": str(revision) if revision else None,
+        "p_summary": summary, "p_profile": profile or {}, "p_label": label, "p_undo": undo,
+    })).execute()
+    _memo_clear(client)
+    return result.data

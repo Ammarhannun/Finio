@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Finio · Spend Check</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
@@ -15,7 +15,6 @@
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
-    <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
     <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
@@ -27,16 +26,27 @@
 </nav>
 
 <main>
+  <div id="no-data" style="display:none;">
+    <div class="no-data">
+      <div class="icon">◇</div>
+      <h3>No statement yet</h3>
+      <p>Upload a statement on the Dashboard before using Spend Check.</p>
+      <a href="dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+  </div>
+
+  <div id="spend-content">
   <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
     <div>
       <h1>Spend Check</h1>
-      <p>See a rough cash-flow estimate based on a recent statement balance. Check your live balance and upcoming bills before deciding.</p>
+      <p>Estimate a purchase against your current available balance and usual recorded spending.</p>
     </div>
     <div id="period-mount"></div>
   </div>
 
   <div class="card" style="max-width:520px;margin:0 auto;">
     <form id="check-form">
+      <div id="saved-balance-info" class="service-status" role="status">Loading your saved balance…</div>
       <div class="form-group">
         <label for="merchant">What are you buying? (merchant / item)</label>
         <input type="text" id="merchant" placeholder="e.g. JB Hi-Fi, Uber Eats, Rent" maxlength="120">
@@ -54,7 +64,7 @@
       <div class="form-group">
         <label for="current-balance">Current available balance ($AUD) <span style="color:var(--muted);font-weight:400;">optional</span></label>
         <input type="number" id="current-balance" placeholder="Check your banking app" step="0.01" autocomplete="off">
-        <p class="tx-help">A statement balance may be out of date. This number is used for this estimate and is not saved in check history.</p>
+        <p class="tx-help">Leave blank to use a balance confirmed today. An amount entered here applies to this check only. <a href="dashboard.html#update-balance">Update your saved balance</a></p>
       </div>
       <div id="check-error" class="form-error"></div>
       <button type="submit" class="btn btn-primary btn-full" id="check-btn">
@@ -74,6 +84,7 @@
     </div>
     <div id="sc-history-list"></div>
   </div>
+  </div>
 
   <p class="disclaimer">General information only, not financial advice</p>
 </main>
@@ -81,7 +92,7 @@
 
 <script type="module">
   import { apiFetch, requireAuth, setupNav, formatAUD, showToast, mountPeriodBar, escapeHtml,
-           getStoredPeriod, storedPeriodParts, formatDay } from './api.js';
+           getStoredPeriod, storedPeriodParts, formatDay, dateRangeLabel } from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
 
   setupNav('spend');
@@ -117,7 +128,7 @@
       const res = await apiFetch('/spend-check/history');
       const checks = res.checks || [];
       // Always show the card. Vanishing when empty made the whole feature
-      // impossible to find — you cannot tell "not set up" from "not used yet"
+      // impossible to find. you cannot tell "not set up" from "not used yet"
       // from "broken" when there is nothing on screen at all.
       card.style.display = 'block';
       if (!checks.length) {
@@ -149,13 +160,24 @@
     try {
       await requireAuth();
       const dash = await apiFetch('/dashboard');
+      const balance = dash.balance_view || {};
+      const balanceInfo = document.getElementById('saved-balance-info');
+      balanceInfo.textContent = balance.amount == null ? 'Add your available balance on Dashboard or enter it below for this check.'
+        : `${balance.is_current ? 'Available balance' : 'Last known balance'}: ${formatAUD(balance.amount)} · ${dateRangeLabel({start:balance.as_of,end:balance.as_of})}. ${balance.is_current ? 'Leave the balance field blank to use it.' : 'Confirm today’s balance before checking a purchase.'}`;
       mountPeriodBar(document.getElementById('period-mount'),
         dash.available_months || [], (value) => {
           spendPeriod = value.startsWith('month:')
             ? { period: 'monthly', month: value.slice(6) }
             : { period: value, month: null };
         }, getStoredPeriod(), 'Window');
-    } catch (_) {}
+    } catch (err) {
+      if (err.message === 'no_analysis' || err.status === 404) {
+        document.getElementById('spend-content').style.display = 'none';
+        document.getElementById('no-data').style.display = 'block';
+        return;
+      }
+      document.getElementById('saved-balance-info').textContent = 'Saved balance could not load. Enter a current balance below or retry loading the page.';
+    }
     loadHistory();
   }
 

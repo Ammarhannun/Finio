@@ -1,5 +1,5 @@
 /* ───────────────────────────────────────────────────────────────────────────
-   Finio — "Receipt" design system
+   Finio. "Receipt" design system
    Warm paper, charcoal ink, monospace figures and dashed perforations, like a
    little till receipt for your money. Friendly and quirky, still clean. Fully
    themed (light + dark) via [data-theme] on <html>; every legacy class/id is
@@ -20,6 +20,7 @@
   --ink-line: #2b2620;
 
   --accent: #0e7c66;
+  --text-on-accent: #fff;
   --accent-hover: #0a6253;
   --accent-2: #c98a1e;
   --accent-dim: rgba(14, 124, 102, 0.10);
@@ -59,6 +60,7 @@
   --ink-line: #f0e9d8;
 
   --accent: #2fb89c;
+  --text-on-accent: #132b25;
   --accent-hover: #46cdb1;
   --accent-2: #e0b558;
   --accent-dim: rgba(47, 184, 156, 0.14);
@@ -87,7 +89,7 @@ html { -webkit-text-size-adjust: 100%; }
 
 /* Tell the browser which palette to paint NATIVE controls in. Without this,
    checkboxes, search inputs, buttons, date pickers and scrollbars stay in
-   light mode on the dark theme — the white boxes. */
+   light mode on the dark theme. the white boxes. */
 :root, [data-theme="light"] { color-scheme: light; }
 [data-theme="dark"] { color-scheme: dark; }
 
@@ -363,6 +365,14 @@ main { width: 100%; max-width: none; margin: 0; padding: 1.75rem 1.5rem 3.5rem; 
 .page-header { margin-bottom: 2rem; }
 .page-header h1 { font-size: 1.95rem; font-weight: 700; letter-spacing: -0.03em; }
 .page-header p { color: var(--muted); margin-top: 0.3rem; font-size: 0.95rem; }
+.patterns-freshness { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin: -0.5rem 0 1.5rem; }
+.patterns-freshness > div { min-width: 0; }
+.patterns-freshness > button { flex-shrink: 0; }
+.patterns-freshness #patterns-data-through { font-size: 0.875rem; font-weight: 600; }
+.patterns-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; margin-bottom: 2rem; }
+@container page (max-width: 700px) {
+  .patterns-detail-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* ── Cards (paper slips) ── */
 .card {
@@ -429,6 +439,10 @@ main { width: 100%; max-width: none; margin: 0; padding: 1.75rem 1.5rem 3.5rem; 
 
 /* ── Forms ── */
 .form-group { margin-bottom: 1.25rem; }
+.privacy-contact-fields { min-width: 0; padding: 0; margin: 1.5rem 0 0; border: 0; }
+.privacy-contact-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+#privacy-contact-challenge { margin: 0 0 1rem; }
+#privacy-contact-status { overflow-wrap: anywhere; }
 
 label {
   display: block;
@@ -1287,6 +1301,36 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 .dash-head h1 { font-size: 1.95rem; font-weight: 700; letter-spacing: -0.03em; }
 .dash-sub { color: var(--muted); margin-top: 0.3rem; font-size: 0.95rem; }
 .dash-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.dash-action-row { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.dash-more, .dash-actions-menu { display: contents; }
+.dash-more-toggle { display: none; }
+.dash-upload-icon { width: 17px; height: 17px; flex-shrink: 0; }
+@container page (max-width: 700px) {
+  .dashboard-view .dash-controls { width: 100%; align-items: stretch; gap: .65rem; }
+  .dashboard-view .dash-controls > #period-mount { width: 100%; flex-basis: 100%; }
+  .dashboard-view .dash-controls .period-bar { width: 100%; border-style: solid; border-radius: 12px; padding: .35rem .65rem; }
+  .dashboard-view .dash-controls .period-bar select { flex: 1; min-width: 0; width: auto; min-height: 38px; border: 0; background-color: transparent; }
+  .dash-action-row { width: 100%; flex-wrap: nowrap; gap: .65rem; }
+  .dash-action-row > #reupload-btn { flex: 1; min-width: 0; min-height: 46px; border-radius: 12px; background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+  .dash-action-row > #reupload-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .dash-more { display: block; position: relative; flex: 0 0 auto; }
+  .dash-more-toggle { display: inline-flex; min-height: 46px; gap: .4rem; border-radius: 12px; padding: .6rem .85rem; }
+  .dash-more-toggle svg { width: 19px; height: 19px; }
+  .dash-more-toggle[aria-expanded="true"] { background: var(--accent-dim); border-color: var(--accent-border); }
+  .dash-actions-menu { display: none; }
+  .dash-more.open .dash-actions-menu {
+    display: grid; gap: .15rem; position: absolute; right: 0; top: calc(100% + .5rem);
+    z-index: 40; width: 260px; max-width: calc(100cqw - 2rem); padding: .4rem;
+    background: var(--bg-card-solid); border: 1px solid var(--border-strong);
+    border-radius: 14px; box-shadow: var(--shadow-lg);
+  }
+  .dash-more.open .dash-actions-menu.above { top: auto; bottom: calc(100% + .5rem); }
+  .dash-actions-menu > .btn { justify-content: flex-start; min-height: 46px; width: 100%; padding: .75rem .8rem; border: 0; border-radius: 8px; background: none; text-align: left; white-space: normal; font-size: .875rem; font-weight: 500; line-height: 1.4; }
+  .dash-actions-menu > .btn:hover { background: var(--accent-dim); }
+  .dash-actions-menu > .btn::before { width: 20px; flex-shrink: 0; font-size: 1.2rem; line-height: 1; color: var(--muted); }
+  .dash-actions-menu > #undo-edit::before { content: '↶'; }
+  .dash-actions-menu > #reanalyze-btn::before { content: '↻'; }
+}
 
 /* Themed period picker: segmented toggle + month dropdown */
 .period-control { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
@@ -1338,7 +1382,7 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
   margin-bottom: var(--gap);
   /* Stretch, not start. With align-items:start a shorter column simply ended
      where its content ran out, leaving a block of dead space beside the taller
-     one — on a real dashboard that was ~280px of nothing under the goal and
+     one. on a real dashboard that was ~280px of nothing under the goal and
      personality cards. Stretching makes both columns the same height so the
      row closes off flush. */
   align-items: stretch;
@@ -1495,7 +1539,7 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 
 #coach-panel {
   position: fixed; right: 1.4rem; bottom: 1.4rem; z-index: 310;
-  /* Roomier floating panel — 400x560 made long answers feel cramped. */
+  /* Roomier floating panel. 400x560 made long answers feel cramped. */
   width: min(520px, calc(100vw - 2rem));
   height: min(680px, calc(100vh - 4rem));
   background: var(--bg-card-solid);
@@ -1508,7 +1552,7 @@ html.js .reveal.force { opacity: 1 !important; transform: none !important; trans
 #coach-panel.full {
   inset: 0; width: 100vw; height: 100vh; border-radius: 0; border: none;
 }
-/* Desktop split — default docks right; .coach-side-left flips it */
+/* Desktop split. default docks right; .coach-side-left flips it */
 #coach-panel.split {
   top: 0; bottom: 0;
   width: var(--coach-pane, 42%);
@@ -1705,7 +1749,7 @@ body.coach-splitting canvas {
   overflow-y: auto;
   /* Cap the READING column and centre it. In split mode the panel can be
      1400px wide, and a line of text running the full width is genuinely hard
-     to read — the eye loses its place on the return sweep. Growing the side
+     to read. the eye loses its place on the return sweep. Growing the side
      padding (rather than shrinking the panel) keeps the scrollbar and the
      hover backgrounds full-bleed while the text sits in a comfortable column,
      and it leaves the existing left/right turn alignment working inside it. */
@@ -1756,7 +1800,7 @@ body.coach-splitting canvas {
 .cw-msg.user {
   width: fit-content;
   /* Cap in ch, NEVER a percentage. A percentage max-width resolves against the
-     parent, but .cw-turn is shrink-to-fit and therefore sized BY this element —
+     parent, but .cw-turn is shrink-to-fit and therefore sized BY this element,
      a circular dependency the browser breaks by collapsing the bubble. That is
      why "hi finiooo" rendered 86px wide and wrapped onto two lines inside a
      736px column. With a ch cap it takes its natural width (98px) and only
@@ -1828,7 +1872,7 @@ body.coach-splitting canvas {
 }
 .cw-act.copied { color: var(--accent); }
 
-/* Thinking — simple accent coin */
+/* Thinking. simple accent coin */
 .cw-coin {
   display: inline-flex;
   align-items: center;
@@ -2207,11 +2251,11 @@ body.coach-splitting canvas {
 .profile-grid { gap: var(--gap); }
 .cards-row, .dash-chart-row, .dash-two-col { margin-bottom: var(--gap); }
 /* Cards inside a column are spaced by the column's gap, never their own
-   margin — mixing the two was the source of the uneven gutters. */
+   margin. mixing the two was the source of the uneven gutters. */
 .dash-col > .card { margin-bottom: 0 !important; }
 /* Stretch, not start. With align-items:start a shorter column simply ended
    where its content ran out, leaving a block of nothing beside the taller one
-   — measured at ~280px under the goal/personality column. Stretching makes
+  . measured at ~280px under the goal/personality column. Stretching makes
    both columns the same height so the row closes off flush.
    NOTE: an earlier .dash-two-col rule further up sets this too; this block is
    the one that wins, so they must agree. */
@@ -2242,7 +2286,7 @@ body.coach-splitting canvas {
   color: var(--muted); white-space: nowrap;
 }
 /* The limit is the one editable value, so it gets a soft chip that lifts on
-   hover — obviously clickable, never a grey OS button. */
+   hover. obviously clickable, never a grey OS button. */
 .budget-limit {
   padding: 0.15rem 0.5rem; border-radius: 99px; cursor: pointer;
   font-size: 0.8125rem; font-weight: 600; color: var(--text);
@@ -2252,7 +2296,7 @@ body.coach-splitting canvas {
 .budget-limit:hover {
   background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent);
 }
-/* "Set limit" — nothing set yet, so invite the click. */
+/* "Set limit". nothing set yet, so invite the click. */
 .budget-limit.set {
   background: transparent; border-style: dashed; color: var(--accent);
   border-color: var(--accent-border);
@@ -2355,7 +2399,7 @@ body.coach-splitting canvas {
 /* ══ Signup: check-your-email panel ══════════════════════════════════════ */
 .verify-panel {
   /* The auth card centres its own header, but form elements inside reset to
-     left — so centre every child of the panel explicitly. */
+     left. so centre every child of the panel explicitly. */
   display: flex; flex-direction: column; align-items: center;
   text-align: center; padding: 1rem 0 0.25rem; gap: 0.55rem;
 }
@@ -2496,7 +2540,7 @@ body.coach-splitting canvas {
    Every breakpoint above is a viewport media query. That silently breaks in
    split mode: opening the coach shrinks <main> to ~40% of the window, but the
    window itself is unchanged, so a 500px-wide column kept the full desktop
-   layout and its contents spilled out of their cards — clipped figures,
+   layout and its contents spilled out of their cards. clipped figures,
    truncated budget amounts, preset cards cut in half.
 
    Container queries fix the actual problem: these components now react to the
@@ -2534,7 +2578,7 @@ main {
   .form-grid-2 { grid-template-columns: 1fr; }
 }
 @container page (max-width: 520px) {
-  /* The transaction table is the widest thing on the platform — drop to the
+  /* The transaction table is the widest thing on the platform. drop to the
      compact three-column form rather than letting it overflow. */
   .tx-row, .tx-head { grid-template-columns: 20px 1fr 90px; row-gap: 0.4rem; }
   .tx-toolbar { flex-wrap: wrap; }
@@ -2621,14 +2665,14 @@ main {
 }
 
 /* Empty / not-yet-set-up state for the check history. The card stays on the
-   page rather than disappearing — an invisible feature cannot be found. */
+   page rather than disappearing. an invisible feature cannot be found. */
 .sc-empty {
   margin: 0; padding: 0.75rem 0;
   color: var(--muted); font-size: 0.875rem; line-height: 1.5;
 }
 .sc-empty-hint { font-size: 0.8125rem; opacity: 0.85; }
 
-/* Reset control inside the verdict card — starts a fresh check rather than
+/* Reset control inside the verdict card. starts a fresh check rather than
    leaving the previous merchant and amount sitting under a stale answer. */
 .verdict-again {
   margin-top: 1rem;
@@ -2645,9 +2689,46 @@ main {
 .confirm-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.8rem 0; font-size: 0.875rem; line-height: 1.5; }
 .confirm-row input { flex: 0 0 auto; width: 1.1rem; height: 1.1rem; margin-top: 0.2rem; }
 .auth-recovery { margin: 0.85rem 0; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.data-delete { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
-.data-delete summary { cursor: pointer; color: var(--red); font-weight: 600; }
-.data-delete p { line-height: 1.65; }
+.profile-data-card { grid-column: 1 / -1; }
+.profile-export { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: .35rem 0 1.25rem; }
+.profile-export > div { min-width: 0; }
+.profile-export h3 { font-size: .95rem; font-weight: 600; }
+.profile-export > .btn { flex-shrink: 0; min-height: 44px; border-radius: 10px; }
+.profile-export svg { width: 18px; height: 18px; flex-shrink: 0; }
+.data-feedback { margin: 0 0 1rem; font-size: .8125rem; line-height: 1.5; color: var(--muted); }
+.data-feedback[data-tone="error"], #delete-error { color: var(--red); }
+.data-delete { border: 1px solid color-mix(in srgb, var(--red) 32%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--red) 4%, var(--bg-card-solid)); }
+.data-delete summary { display: flex; align-items: center; gap: .8rem; padding: 1rem; cursor: pointer; list-style: none; }
+.data-delete summary::-webkit-details-marker { display: none; }
+.data-delete summary::marker { content: ''; }
+.data-delete summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 12px; }
+.data-delete-icon { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.data-delete-icon svg { width: 19px; height: 19px; }
+.data-delete-heading { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.data-delete-title { font-size: .9rem; font-weight: 600; color: var(--red); }
+.data-delete-subtitle { font-size: .8rem; line-height: 1.5; color: var(--muted); }
+.data-delete-chevron { width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; color: var(--muted); transition: transform .15s; }
+.data-delete[open] .data-delete-chevron { transform: rotate(180deg); }
+.data-delete-body { border-top: 1px solid color-mix(in srgb, var(--red) 18%, var(--border)); padding: 1rem; }
+.data-delete-body > p { max-width: 70ch; font-size: .875rem; line-height: 1.65; }
+.data-delete-body > .tx-help { font-size: .8rem; margin-top: .45rem; }
+.data-delete-body label { display: block; margin: 1.25rem 0 .5rem; font-size: .8125rem; font-weight: 500; }
+.data-delete-body input { max-width: 22rem; min-height: 44px; font-family: 'Space Mono', monospace; letter-spacing: .06em; }
+.data-delete-body input:focus { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 12%, transparent); }
+.data-delete-body input:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.data-delete-body .data-feedback { margin: .6rem 0 0; }
+.data-delete-actions { display: flex; justify-content: flex-end; max-width: 22rem; gap: .65rem; margin-top: 1rem; }
+.data-delete-actions > .btn { min-height: 44px; border-radius: 9px; }
+.data-delete #delete-data { background: color-mix(in srgb, var(--red) 70%, #000); color: #fff; border: 1px solid transparent; }
+.data-delete #delete-data:hover:not(:disabled) { background: color-mix(in srgb, var(--red) 62%, #000); }
+.profile-privacy { display: inline-block; margin-top: 1.1rem; color: var(--accent); font-size: .8125rem; line-height: 1.5; }
+@container page (max-width: 560px) {
+  .profile-export { flex-direction: column; align-items: stretch; gap: .9rem; }
+  .profile-export > .btn { width: 100%; }
+  .data-delete summary { gap: .65rem; padding: .9rem; }
+  .data-delete-body { padding: .9rem; }
+  .data-delete-actions > .btn { flex: 1; min-width: 0; padding: .6rem .65rem; }
+}
 .reading-page { max-width: 760px; line-height: 1.8; padding-bottom: 4rem; }
 .reading-page h2 { margin-top: 2rem; }
 .demo-category { display: flex; justify-content: space-between; gap: 1.5rem; padding: 0.7rem 0; margin: 0; border-bottom: 1px solid var(--border); }
@@ -2656,7 +2737,7 @@ main {
 /* Narrow screens: a single unbreakable string (a long URL) is wider than the
    whole column, so it has to be allowed to break mid-word or it sticks out of
    the panel. `anywhere` is safe HERE because at this size bubbles are near
-   full width anyway — the intrinsic-size collapse it causes (see .cw-msg.user)
+   full width anyway. the intrinsic-size collapse it causes (see .cw-msg.user)
    only shows up when there is lots of spare width to collapse into. */
 @media (max-width: 560px) {
   .cw-msg { overflow-wrap: anywhere; }
@@ -2664,7 +2745,7 @@ main {
 
 /* ══ Landing: the scroll story ═══════════════════════════════════════════
    A receipt that prints itself as the steps scroll past. Everything is
-   driven by one attribute — .story[data-active="N"] — set by an
+   driven by one attribute. .story[data-active="N"]. set by an
    IntersectionObserver, so there is a single source of truth for "which
    step are we on" and no scroll-position maths to drift. */
 .story { max-width: 1100px; margin: 0 auto; padding: 5rem 1.5rem 4rem; }
@@ -2676,7 +2757,7 @@ main {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 3rem;
   /* NOT align-items:start. That shrinks the paper's grid area to its own
-     height, which leaves position:sticky with no range to travel in — the
+     height, which leaves position:sticky with no range to travel in. the
      receipt stuck for a moment and then scrolled away, leaving an empty
      screen for the last two steps. Stretching gives the sticky column the
      full height of the row to move within. */
@@ -2695,7 +2776,7 @@ main {
 }
 .sreceipt {
   position: sticky;
-  /* The receipt grows as it prints — tallest at the final step (~580px). A
+  /* The receipt grows as it prints. tallest at the final step (~580px). A
      fixed offset pushed it off the bottom of a short laptop screen, so this
      centres it when there is room and hugs the top when there is not.
      --sreceipt-tall is its full height; keep them in step. */
@@ -2874,7 +2955,7 @@ main {
   .story-paper { height: 56vh; align-items: flex-start; }
 
   /* On desktop the unrevealed lines keep their space so the paper never jumps.
-     On a phone that made the receipt ~1,100px tall — it swallowed the screen
+     On a phone that made the receipt ~1,100px tall. it swallowed the screen
      and the step text slid behind it. Here the paper GROWS as it prints
      instead, which is both compact and truer to the metaphor. */
   .sreceipt [data-from] { display: none; }
@@ -2913,7 +2994,7 @@ main {
 
 /* Landing nav: the buttons were wrapping onto two lines on a phone ("Log in"
    rendering 61px tall instead of 38px), because nothing stopped the labels
-   breaking once the row got tight. They are two or three short words — they
+   breaking once the row got tight. They are two or three short words. they
    should shrink, never wrap. */
 .landing-nav .btn,
 .landing-nav a,
@@ -2996,7 +3077,7 @@ html.js .dec-out.is-in {
   color: var(--accent);
   white-space: nowrap;
 }
-/* When Finio genuinely cannot tell, say so in a different colour — not
+/* When Finio genuinely cannot tell, say so in a different colour. not
    knowing is a feature here, and it should not look like a category. */
 .dec-tag[data-tone="ask"] {
   color: var(--yellow);
@@ -3183,7 +3264,7 @@ html.js .dec-out.is-in {
   color: var(--muted); font-size: 0.87rem; line-height: 1.55;
 }
 .safe-list li::before {
-  content: '—'; position: absolute; left: 0; color: var(--accent);
+  content: '•'; position: absolute; left: 0; color: var(--accent);
 }
 .safe-list b { color: var(--text); font-weight: 600; }
 
@@ -3197,3 +3278,238 @@ html.js .dec-out.is-in {
   .safe-path, .safe-list { grid-template-columns: 1fr; }
   .safe-step::after { content: none; }
 }
+
+/* Scope and calculated evidence use the existing receipt palette. */
+.period-bar { flex-wrap: wrap; border-radius: 18px; max-width: 100%; }
+.period-bar select { width: auto; max-width: 13rem; font-size: .8125rem; padding: .45rem 2rem .45rem .6rem; }
+.review-notice { margin: 1rem 0; padding: 1rem; border: 1px solid var(--yellow); border-radius: 10px; }
+.review-notice a { display: inline-block; margin-top: .4rem; color: var(--accent); }
+.usual-context { color: var(--muted); font-size: .8125rem; margin: .75rem 0 1.5rem; }
+.cw-facts { font-size: .78rem; line-height: 1.55; border: 1px solid var(--border); border-radius: 8px; padding: .75rem; margin: .5rem 0 1rem; }
+.cw-facts p { margin: .35rem 0 0; overflow-wrap: anywhere; }
+.cw-facts-scope { color: var(--muted); font-size: .72rem; }
+
+/* Dashboard: figures first, supporting context and actions below. */
+.selected-range { margin-top: .55rem; font-weight: 600; font-size: 1rem; }
+.dashboard-view .dash-sub { font-size: .875rem; line-height: 1.6; }
+.dashboard-view .metric-card .label { font-size: .8125rem; }
+.dashboard-view .metric-card .sub { font-size: .875rem; line-height: 1.5; }
+.dashboard-view .cards-row { margin-bottom: .8rem; }
+.dashboard-view .review-notice {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem 1.5rem; flex-wrap: wrap; margin: 0 0 1rem; padding: .9rem 1rem;
+  border-color: color-mix(in srgb, var(--yellow) 55%, var(--border));
+  background: color-mix(in srgb, var(--yellow) 5%, var(--bg));
+  font-size: .875rem;
+}
+.review-notice[hidden], .save-error[hidden], .personality-card[hidden] { display: none; }
+.dashboard-view .review-notice p { margin-top: .3rem; color: var(--muted); line-height: 1.55; }
+.dashboard-view .review-notice a { margin: 0; flex-shrink: 0; }
+.dashboard-view .dash-maintenance {
+  padding: .35rem 0; margin: 0 0 .75rem; border: 0; background: none;
+  justify-content: flex-start; color: var(--muted); font-size: .8125rem;
+}
+.dashboard-view .dash-insight { padding: .7rem .9rem; margin-bottom: 1rem; }
+.scope-badge { display: inline-block; color: var(--muted); font-size: .75rem; font-weight: 500; margin-left: .4rem; white-space: nowrap; }
+.dashboard-view .card-head { flex-wrap: wrap; gap: .5rem; }
+.dashboard-view .chart-note { white-space: normal; font-size: .8125rem; }
+.dashboard-view .merchant-row { grid-template-columns: minmax(0, 2fr) minmax(25px, .7fr) auto; padding: .65rem 0; font-size: .875rem; }
+.dashboard-view .merchant-name { white-space: normal; overflow-wrap: anywhere; }
+.save-error { color: var(--red); border: 1px solid var(--red); border-radius: 8px; padding: .8rem; margin: .65rem 0; font-size: .875rem; line-height: 1.5; }
+.save-error button { margin-top: .5rem; }
+.budget-editor { flex-wrap: wrap; }
+.budget-editor .save-error { flex-basis: 100%; }
+.service-status { color: var(--muted); border-left: 3px solid var(--yellow); padding: .7rem 1rem; margin-bottom: 1rem; font-size: .875rem; }
+.period-bar select { min-height: 36px; }
+@container (max-width: 600px) {
+  .dashboard-view .dash-controls { gap: .5rem; }
+  .dashboard-view .dash-controls > #period-mount { flex-basis: 100%; }
+  .dashboard-view .metric-card .value { font-size: 1.5rem; }
+  .dashboard-view .review-notice a { width: 100%; text-align: center; }
+  .scope-badge { display: block; margin: .25rem 0 0; }
+}
+
+/* A hidden attribute remains authoritative over component display rules. */
+[hidden] { display: none !important; }
+.nav-menu:not([hidden]) {
+  display: flex; position: fixed; right: auto; z-index: 1000;
+  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto;
+}
+
+/* Navigation follows its actual pane width when the coach takes space. */
+nav { container-type: inline-size; container-name: navigation; }
+body.coach-split:has(#coach-panel.split) > nav { overflow: visible; }
+.nav-logo, .nav-right { flex-shrink: 0; }
+@container navigation (max-width: 700px) {
+  .nav-hamburger { display: flex; }
+  .nav-links {
+    display: none; flex-direction: column; position: absolute; top: 64px;
+    left: 1rem; right: 1rem; background: var(--bg-card-solid);
+    border-radius: var(--radius); padding: .5rem; gap: .15rem;
+    z-index: 99; box-shadow: var(--shadow-lg);
+  }
+  .nav-links.open { display: flex; }
+  .nav-links a { border-radius: var(--radius-sm); }
+}
+
+.dashboard-widget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); margin-bottom: var(--gap); align-items: start; }
+.dashboard-widget-grid.single-widget { grid-template-columns: minmax(0, 1fr); }
+.dashboard-widget-grid > * { min-width: 0; margin: 0 !important; }
+.dashboard-widget-grid > .tx-link-card { height: 100%; }
+#metrics-grid[data-visible="1"] { grid-template-columns: minmax(0, 1fr); }
+#metrics-grid[data-visible="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.merchants-more { margin-top: 1rem; }
+#merchant-list.expanded { max-height: 30rem; overflow-y: auto; padding-right: .35rem; }
+.widgets-empty { margin-top: 1rem; }
+.widgets-empty p { margin-bottom: .75rem; }
+.dashboard-widget-actions { display: flex; justify-content: center; margin-top: 1.5rem; }
+.balance-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) auto; align-items: center; gap: 1.25rem; margin-bottom: 1.25rem; }
+.balance-card > * { min-width: 0; }
+.balance-card .value { margin-bottom: .6rem; }
+.balance-state { display: inline-block; font-size: .75rem; font-weight: 600; padding: .2rem .5rem; border: 1px solid var(--border); border-radius: 99px; color: var(--muted); }
+.balance-state[data-tone="green"] { color: var(--green); border-color: var(--green); }
+.balance-state[data-tone="yellow"] { color: var(--yellow); border-color: var(--yellow); }
+.balance-state[data-tone="red"] { color: var(--red); border-color: var(--red); }
+.balance-copy { color: var(--muted); font-size: .8125rem; line-height: 1.55; margin-top: .5rem; }
+.balance-card .link-btn { margin-top: .75rem; }
+#balance-form { margin-top: 1rem; }
+#balance-clear { margin-top: 1rem; }
+@container (max-width: 1000px) {
+  .balance-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); }
+  .balance-card .link-btn { grid-column: 1 / -1; justify-self: start; margin: 0; }
+}
+@container (max-width: 600px) {
+  .balance-card { grid-template-columns: minmax(0, 1fr); }
+}
+.widget-dialog {
+  margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem);
+  overflow-y: auto; padding: 1.5rem; background: var(--bg-card); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
+.widget-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.widget-dialog h2 { font-size: 1.25rem; margin-bottom: .5rem; }
+.widget-dialog > p { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.widget-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: 1rem 0; }
+.widget-choices label { display: flex; align-items: center; gap: .6rem; margin: 0; padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: .875rem; cursor: pointer; }
+.widget-choices input { width: 1rem; height: 1rem; flex-shrink: 0; accent-color: var(--accent); }
+.widget-dialog-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+
+.invest-view .invest-section { margin-bottom: var(--gap); }
+.invest-view .section-title { font-family: inherit; font-size: 1.1rem; font-weight: 600; }
+.invest-view label { margin: 1rem 0 .35rem; display: block; font-size: .875rem; }
+.invest-view #plan-mode { max-width: 22rem; margin-bottom: .5rem; }
+.budget-settings { grid-column: 1 / -1; }
+.budget-settings label { margin: 1rem 0 .35rem; display: block; font-size: .875rem; }
+.budget-settings #plan-mode { max-width: 22rem; margin-bottom: .5rem; }
+.budget-settings .split-row { margin-top: 1rem; }
+.foundation-list { list-style: disc; padding-left: 1.3rem; margin: 1.1rem 0; }
+.foundation-list li { padding-left: .3rem; margin-bottom: 1rem; font-size: .9375rem; line-height: 1.6; }
+.foundation-list li::marker { color: var(--accent); }
+.foundation-list p { margin: .2rem 0 0; color: var(--muted); font-size: .875rem; }
+.foundation-list a { color: var(--accent); }
+.plan-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.plan-inputs > * { min-width: 0; }
+.plan-inputs input { width: 100%; }
+#plan-form > button { margin-top: .7rem; }
+.plan-note { margin: 1rem 0; color: var(--muted); line-height: 1.6; font-size: .875rem; }
+.plan-comparison { overflow-x: auto; margin-top: 1rem; font-size: .875rem; }
+.plan-comparison > div { display: grid; grid-template-columns: minmax(9rem, 1fr) repeat(2, minmax(7rem, 1fr)); gap: .75rem; padding: .7rem 0; border-bottom: 1px dashed var(--border); min-width: 26rem; }
+.plan-comparison-head { color: var(--muted); font-weight: 600; }
+.goal-totals { font-size: 1.05rem; line-height: 1.6; }
+.invest-view #goal-content .progress-bar { margin: 1rem 0; }
+.invest-details { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px dashed var(--border); }
+.invest-details summary { cursor: pointer; font-size: .9375rem; font-weight: 600; }
+@container (max-width: 700px) {
+  .dashboard-widget-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 600px) {
+  #metrics-grid[data-visible], .invest-overview { grid-template-columns: minmax(0, 1fr); }
+  .plan-inputs { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+  .invest-overview .metric-card .value { font-size: 1.5rem; }
+}
+
+/* Data remains readable without canvas, colour or a pointer. */
+.chart-data { width:100%; border-collapse:collapse; font-size:0.8rem; margin-top:1rem; }
+.chart-data caption { text-align:left; color:var(--muted); margin-bottom:0.6rem; }
+.chart-data th, .chart-data td { padding:0.55rem 0.25rem; border-bottom:1px solid var(--border); text-align:right; overflow-wrap:anywhere; }
+.chart-data th:first-child { text-align:left; font-weight:500; }
+.chart-key { display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%; margin-right:0.4rem; }
+#spend-chart-data { overflow-x:auto; margin-top:1rem; }
+#review { scroll-margin-top:7rem; }
+
+/* Phone app chrome. Its screen-wide container remains independent of split panes. */
+.mobile-nav-shell {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 320;
+  container: phone-navigation / inline-size;
+  pointer-events: none;
+}
+.mobile-nav { display: none; }
+@container phone-navigation (max-width: 700px) {
+  .mobile-nav {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    height: calc(77px + env(safe-area-inset-bottom, 0px));
+    padding: 0 max(6px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(6px, env(safe-area-inset-left, 0px));
+    background: var(--bg-card-solid); border-top: 1px solid var(--border-strong);
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, .10); pointer-events: auto;
+  }
+}
+.mobile-nav-link, .mobile-coach {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px; min-width: 0; min-height: 60px; height: 76px;
+  color: var(--muted); text-decoration: none; font: 500 10px/1.2 'Inter', sans-serif;
+  border: 0; background: none; padding: 7px 0 8px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-nav-link span { white-space: nowrap; letter-spacing: -.015em; }
+.mobile-nav-link svg { width: 23px; height: 23px; flex-shrink: 0; }
+.mobile-nav-link.active { color: var(--accent); font-weight: 700; }
+.mobile-nav-link.active svg { background: var(--accent-dim); border-radius: 8px; box-shadow: 0 0 0 6px var(--accent-dim); }
+.mobile-nav-link:focus-visible, .mobile-coach:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 10px; }
+.mobile-coach { height: 76px; margin-top: -10px; padding: 0; gap: 0; color: var(--text); font-weight: 700; }
+.mobile-coach-disc {
+  display: grid; place-items: center; width: 58px; height: 58px; flex-shrink: 0;
+  border-radius: 50%; border: 4px solid var(--bg-card-solid);
+  background: var(--accent); color: #fff; box-shadow: 0 4px 16px var(--accent-dim);
+  transition: background .15s, box-shadow .15s;
+}
+.mobile-coach-disc svg { width: 25px; height: 25px; fill: currentColor; stroke-width: 1; }
+.mobile-coach.active .mobile-coach-disc { background: var(--accent-hover); box-shadow: 0 0 0 2px var(--accent-border); }
+body.phone-navigation {
+  --phone-nav-space: calc(94px + env(safe-area-inset-bottom, 0px));
+  --phone-nav-height: calc(77px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: var(--phone-nav-space);
+  scroll-padding-bottom: var(--phone-nav-space);
+}
+.phone-navigation > nav .nav-links,
+.phone-navigation > nav .nav-hamburger,
+.phone-navigation #coach-fab { display: none !important; }
+.phone-navigation #toast { bottom: calc(var(--phone-nav-space) + 12px); }
+.phone-navigation #coach-panel.open {
+  left: 0 !important; right: 0 !important;
+  top: var(--phone-visible-top, 0px) !important; bottom: auto !important;
+  width: 100%; height: calc(var(--phone-visible-height, 100dvh) - var(--phone-nav-height));
+  max-height: none; border: none; border-radius: 0; z-index: 310;
+}
+.phone-navigation #coach-panel .cw-head { padding-top: max(12px, env(safe-area-inset-top, 0px)); }
+.phone-navigation #coach-panel .cw-head { cursor: default; }
+.phone-navigation #cw-expand { display: none; }
+.phone-navigation.phone-keyboard-open { --phone-nav-height: 0px; }
+.phone-keyboard-open .mobile-nav-shell { visibility: hidden; }
+
+.phone-navigation:has(#coach-panel.open) { overflow: hidden; }
+
+.phone-navigation > nav {
+  height: calc(64px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
+}
+/* Account security and sensitive-action verification. */
+.security-dialog { color:var(--text); background:var(--bg-card-solid); border:1px solid var(--border); border-radius:18px; padding:1.5rem; width:min(92vw,440px); max-height:90dvh; overflow:auto; margin:auto; }
+.security-dialog::backdrop { background:rgba(0,0,0,.65); }
+.security-dialog h2 { margin-bottom:.75rem; }
+.security-factor-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:1rem 0; }
+.security-qr { display:block; width:200px; max-width:100%; background:white; border-radius:8px; margin:1rem 0; }
+.security-secret { display:block; overflow-wrap:anywhere; padding:.75rem 0; user-select:all; }
+.ai-consent { display: flex; align-items: flex-start; gap: .75rem; cursor: pointer; padding: .75rem 0; }
+.ai-consent input { width: 1.25rem; height: 1.25rem; flex: 0 0 1.25rem; margin: .15rem 0 0; accent-color: var(--accent); }

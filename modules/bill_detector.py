@@ -3,8 +3,8 @@
 A transaction stream is a *bill* only when it looks like one on all three axes:
 recurrence (happens >=3 times), stable amount (low coefficient of variation),
 and regular timing (gaps cluster near a known billing period). Anything that
-fails any test — one-off charges, variable restaurant/grocery spend, irregular
-payments — is dropped. Transfers never reach here (they are excluded upstream).
+fails any test. one-off charges, variable restaurant/grocery spend, irregular
+payments. is dropped. Transfers never reach here (they are excluded upstream).
 """
 
 import pandas as pd
@@ -20,7 +20,7 @@ from config import (
 
 
 def _coefficient_of_variation(values):
-    """std / mean — a unitless measure of spread. Lower = more stable."""
+    """std / mean. a unitless measure of spread. Lower = more stable."""
     mean = values.mean()
     if mean == 0:
         return float("inf")
@@ -52,7 +52,7 @@ def _classify_interval(dates):
     if rel_err > BILL_PERIOD_TOLERANCE:
         return None, False
 
-    # Each gap should sit near an integer multiple of the period — this accepts
+    # Each gap should sit near an integer multiple of the period. this accepts
     # the odd skipped/retried charge (a 42-day gap on a fortnightly bill is 3x)
     # while still rejecting genuinely irregular spend.
     period = BILL_PERIODS[label]

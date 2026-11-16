@@ -1,11 +1,12 @@
 import pandas as pd
 from config import DISCLAIMER, FLOW_EXPENSE, FLOW_INCOME, TRANSFERS_LABEL
 from modules.bill_detector import estimated_monthly_bill_total
+from modules.merchant_totals import net_merchant_totals
 
 
 def compute_averages(df):
     """What the user USUALLY earns/spends/saves per day, week and month,
-    averaged over their whole history — plus a month-by-month series for the
+    averaged over their whole history. plus a month-by-month series for the
     spending chart, and their top merchants.
 
     This powers the dashboard's Day/Week/Month view: not "what happened in the
@@ -32,7 +33,7 @@ def compute_averages(df):
                 "saved": round(income - spent, 2)}
 
     # True all-time totals across the whole statement (the "All" tab). Every
-    # transaction edit in any month moves these — unlike the stored per-slice
+    # transaction edit in any month moves these. unlike the stored per-slice
     # metrics, which only cover the latest window.
     out["all"] = block(total_spent, total_income)
 
@@ -86,12 +87,7 @@ def compute_averages(df):
 
     # Where the money actually goes: top merchants by total spend.
     if not exp.empty:
-        name_col = "merchant_clean" if "merchant_clean" in exp.columns else "description"
-        top = (-exp.groupby(exp[name_col].astype(str))["amount"].sum()).sort_values(ascending=False)
-        out["top_merchants"] = [
-            {"merchant": m, "total": round(float(v), 2)}
-            for m, v in top.head(5).items() if v > 0
-        ]
+        out["top_merchants"] = net_merchant_totals(exp)
         # All-time category breakdown (for the all-time AI insight).
         cat = (-exp.groupby(exp["category"].astype(str))["amount"].sum()).sort_values(ascending=False)
         cat = cat[cat > 0]
@@ -172,7 +168,7 @@ def detect_patterns(df, metrics, bills):
         patterns.append({
             "type": "recurring_bills",
  "severity": "info",
- "message": f"{len(bills)} recurring bills, about ${bill_total:.2f} per month in total (estimated from their schedules).",
+ "message": f"{len(bills)} recurring spending patterns, about ${bill_total:.2f} per month (an estimate, not confirmed upcoming bills).",
         })
 
     return patterns

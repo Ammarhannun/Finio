@@ -8,10 +8,13 @@ search) and the app still runs fully offline.
 import os
 
 from config import EMBED_MODEL
+from modules.ai_privacy import AIPrivacy
+from modules.ai_limits import ai_request_slot
 
 
 def has_embeddings():
-    return bool(os.getenv("OPENAI_API_KEY")) and os.getenv("FINIO_DISABLE_LLM", "").lower() not in ("1", "true", "yes")
+    from modules.ai_policy import provider_allowed
+    return provider_allowed() and bool(os.getenv("OPENAI_API_KEY")) and os.getenv("FINIO_DISABLE_LLM", "").lower() not in ("1", "true", "yes")
 
 
 _client = None
@@ -34,7 +37,8 @@ def embed_texts(texts):
     if not texts or not has_embeddings():
         return None
     try:
-        resp = _get_client().embeddings.create(model=EMBED_MODEL, input=list(texts))
+        with ai_request_slot():
+            resp = _get_client().embeddings.create(model=EMBED_MODEL, input=AIPrivacy().value(list(texts)))
         # API preserves input order.
         return [d.embedding for d in resp.data]
     except Exception:

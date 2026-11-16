@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Finio · Patterns</title>
   <script>(function(){try{var t=localStorage.getItem('finio-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();</script>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" integrity="sha384-Emf5ZVIUiarAdhkgtqK+5/Z5qIvM6QoVrS+qAVtfyZVuD5lIHrac0me485+Antp0" crossorigin="anonymous"></script>
 </head>
 <body>
 <nav>
@@ -16,7 +16,6 @@
     <a href="transactions.html" data-page="transactions">Transactions</a>
     <a href="patterns.html" data-page="patterns">Patterns</a>
     <a href="spend-check.html" data-page="spend">Spend Check</a>
-    <a href="invest.html" data-page="invest">Invest</a>
   </div>
   <div class="nav-right">
     <button id="theme-toggle" class="icon-btn" aria-label="Toggle light or dark mode" title="Toggle theme">☼</button>
@@ -47,16 +46,26 @@
       </div>
       <div id="period-mount"></div>
     </div>
+    <div class="patterns-freshness">
+      <div>
+        <p id="patterns-data-through"></p>
+        <p class="tx-help">Checks daily and after changes. Upload a newer statement to include new spending.</p>
+        <p id="patterns-refresh-status" class="tx-help" role="status" aria-live="polite"></p>
+      </div>
+      <button id="patterns-refresh" class="btn btn-outline btn-sm" type="button">Refresh now</button>
+    </div>
     <p id="empty-window" class="card" style="display:none;">No transactions fall in this selected period. Change the period to see spending patterns.</p>
+
+    <div id="patterns-review" class="review-notice" role="status" hidden></div>
 
     <!-- Risk score -->
     <div id="risk-card" class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;">
       <div>
         <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:0.35rem;">Spending signal</div>
-        <div id="risk-score" style="font-size:2.5rem;font-weight:800;letter-spacing:-0.03em;">—</div>
+        <div id="risk-score" style="font-size:2.5rem;font-weight:800;letter-spacing:-0.03em;">Loading…</div>
       </div>
       <div style="flex:1;">
-        <div id="risk-label" style="font-size:1.125rem;font-weight:600;margin-bottom:0.35rem;">—</div>
+        <div id="risk-label" style="font-size:1.125rem;font-weight:600;margin-bottom:0.35rem;">Loading…</div>
         <div style="font-size:0.875rem;color:var(--muted);">A simple rule-of-thumb from the selected period, not a credit score or assessment of your financial risk.</div>
       </div>
     </div>
@@ -66,17 +75,19 @@
     <div id="patterns-list" style="margin-bottom:2rem;"></div>
 
     <!-- Two-column: category chart + recurring bills -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem;">
+    <div class="patterns-detail-grid">
       <div class="card">
         <div class="section-title">Category breakdown</div>
         <div class="chart-container">
-          <canvas id="category-chart"></canvas>
+          <canvas id="category-chart" role="img" aria-label="Net spending by category for the selected period" aria-describedby="category-legend">Category amounts are listed below.</canvas>
         </div>
         <div id="category-legend" style="margin-top:1rem;"></div>
       </div>
 
       <div class="card">
-        <div class="section-title">Recurring bills · full uploaded history</div>
+        <div class="section-title">Recurring spending · full uploaded history</div>
+        <p class="tx-help">Estimated from repeated amounts and timing. This includes regular shopping and does not confirm future bills.</p>
+        <div id="history-review" class="tx-help" hidden></div>
         <div id="bills-list"></div>
       </div>
     </div>
@@ -88,8 +99,9 @@
 
 <script type="module">
   import { setupNav, formatAUD, severityClass,
-           bootstrapPeriodPage, escapeHtml } from './api.js';
+           bootstrapPeriodPage, escapeHtml, periodQuery, getStoredPeriod, getSession, dateRangeLabel }  from './api.js';
   import { mountCoachWidget } from './coach-widget.js';
+  import { watchDailyRefresh } from './page-refresh.js';
 
   setupNav('patterns');
   mountCoachWidget('patterns');
@@ -102,12 +114,42 @@
 
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   let chartInstance = null;
+  let refreshWatch = null;
+  let lastChecked = null;
+  const refreshButton = document.getElementById('patterns-refresh');
+  const refreshStatus = document.getElementById('patterns-refresh-status');
+  const checkedLabel = date => date ? `Last checked ${date.toLocaleString(undefined, {
+    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })}` : '';
+
+  function refreshState({ status, lastSuccess }) {
+    refreshButton.disabled = status === 'loading';
+    refreshButton.textContent = status === 'loading' ? 'Refreshing…' : 'Refresh now';
+    refreshStatus.textContent = status === 'loading' ? 'Checking your saved transactions…'
+      : status === 'error' ? `Could not refresh. ${checkedLabel(lastSuccess)}. Try Refresh now.`
+      : checkedLabel(lastSuccess);
+  }
 
   function renderPatterns(data) {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
+    const through = data.data_freshness?.transactions_through;
+    document.getElementById('patterns-data-through').textContent = through
+      ? `Uploaded transactions through ${dateRangeLabel({ start: through, end: through })}`
+      : 'No transaction date available';
+    lastChecked = new Date();
+    refreshWatch?.noteSuccess(lastChecked);
+    refreshStatus.textContent = checkedLabel(lastChecked);
 
     const { analysis, bills } = data;
+    const review = data.review || {};
+    const notice = document.getElementById('patterns-review');
+    notice.hidden = !review.count;
+    notice.innerHTML = review.count ? `<p>${review.count} transfers need review in this period. They are excluded from income and spending, so savings and spending signals are provisional.</p><a href="transactions.html?review=transfers&amp;${escapeHtml(periodQuery(getStoredPeriod()))}#review">Review transfers →</a>` : '';
+    const history = data.history_review || {};
+    const historyNotice = document.getElementById('history-review');
+    historyNotice.hidden = !history.count;
+    historyNotice.innerHTML = history.count ? `${history.count} transfers across all history need review. <a href="transactions.html?review=transfers&amp;period=all#review">Review all history →</a>` : '';
     const empty = Boolean(data.period?.empty);
     document.getElementById('empty-window').style.display = empty ? 'block' : 'none';
     document.getElementById('risk-card').style.display = empty ? 'none' : 'flex';
@@ -116,11 +158,11 @@
 
     // Risk score
     const riskScore = analysis?.risk_score;
-    const riskLabel = analysis?.risk_label || '—';
+    const riskLabel = analysis?.risk_label || 'Unavailable';
     const riskEl = document.getElementById('risk-score');
-    riskEl.textContent = riskScore != null ? riskScore : '—';
+    riskEl.textContent = riskScore != null ? riskScore : 'Unavailable';
     if (riskScore != null) {
-      riskEl.style.color = riskScore >= 70 ? 'var(--red)' : riskScore >= 40 ? 'var(--yellow)' : 'var(--green)';
+      riskEl.style.color = riskLabel === 'high' ? 'var(--red)' : riskLabel === 'medium' ? 'var(--yellow)' : 'var(--green)';
     }
     document.getElementById('risk-label').textContent = riskLabel;
 
@@ -133,8 +175,8 @@
         return `
           <div class="pattern-card severity-${p.severity?.toLowerCase() || 'medium'}">
             <div>
-              <div class="pattern-message">${escapeHtml(p.message)}</div>
-              <div class="pattern-type">${escapeHtml(p.type || '')}</div>
+              <div class="pattern-message">${escapeHtml(review.count && p.type === 'strong_savings' ? p.message.replace('Strong savings rate:', 'Recorded savings rate (provisional):') : p.message)}</div>
+              <div class="pattern-type">${escapeHtml(p.type === 'recurring_bills' ? 'Recurring spending' : (p.type || '').replaceAll('_', ' '))}</div>
             </div>
             <span class="badge badge-${sc}">${p.severity || 'info'}</span>
           </div>`;
@@ -145,6 +187,11 @@
 
     // Category chart
     const categories = analysis?.category_breakdown || [];
+    document.getElementById('category-chart').hidden = !categories.length;
+    if (!categories.length) {
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      document.getElementById('category-legend').textContent = 'No positive net spending in this period.';
+    }
     if (categories.length) {
       const ctx = document.getElementById('category-chart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
@@ -154,7 +201,7 @@
           labels: categories.map(c => c.category),
           datasets: [{
             data: categories.map(c => c.amount),
-            backgroundColor: CHART_COLORS.slice(0, categories.length),
+            backgroundColor: categories.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
             borderColor: cssVar('--bg-card-solid'),
             borderWidth: 2,
             hoverOffset: 8,
@@ -185,17 +232,12 @@
       });
 
       // Legend below chart
-      document.getElementById('category-legend').innerHTML = categories.slice(0, 6).map((c, i) => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.3rem 0;font-size:0.8125rem;">
-          <div style="display:flex;align-items:center;gap:0.5rem;">
-            <span style="width:10px;height:10px;border-radius:50%;background:${CHART_COLORS[i]};flex-shrink:0;display:inline-block;"></span>
-            <span style="color:var(--muted);">${escapeHtml(c.category)}</span>
-          </div>
-          <span style="font-weight:600;">${c.pct?.toFixed(1)}%</span>
-        </div>`).join('');
+      document.getElementById('category-legend').innerHTML = '<table class="chart-data"><caption>Category amounts and share of net spending</caption><thead><tr><th scope="col">Category</th><th scope="col">Amount</th><th scope="col">Share</th></tr></thead><tbody>' + categories.map((c, i) => `
+        <tr><th scope="row"><span class="chart-key" aria-hidden="true" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></span>${escapeHtml(c.category)}</th>
+          <td>${formatAUD(c.amount)}</td><td>${Number(c.pct).toFixed(1)}%</td></tr>`).join('') + '</tbody></table>';
     }
 
-    // Recurring bills — only genuinely repeating charges, with the repetition
+    // Recurring bills. only genuinely repeating charges, with the repetition
     // shown clearly. Long lists collapse behind a "show more" so it stays tidy.
     renderBills(bills || []);
   }
@@ -218,7 +260,7 @@
   function renderBills(bills) {
     const billsEl = document.getElementById('bills-list');
     if (!bills.length) {
-      billsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;padding:0.5rem 0;">No recurring bills detected</p>';
+      billsEl.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;padding:0.5rem 0;">No recurring spending patterns detected</p>';
       return;
     }
     const head = bills.slice(0, BILL_PREVIEW).map(billRow).join('');
@@ -240,8 +282,17 @@
   }
 
   // Auth, fetch, render and the period bar all come from the shared helper.
-  const init = () => bootstrapPeriodPage('/dashboard', renderPatterns);
-
+  async function init() {
+    const load = await bootstrapPeriodPage('/dashboard', renderPatterns);
+    const session = await getSession();
+    refreshWatch = watchDailyRefresh({
+      refresh: () => load(getStoredPeriod(), { quiet: true }),
+      userId: session?.user?.id,
+      initialSuccess: lastChecked,
+      onState: refreshState,
+    });
+    refreshButton.addEventListener('click', () => refreshWatch.refresh());
+  }
   init();
 </script>
 </body>

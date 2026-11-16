@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 import pandas as pd
 import re as _re
@@ -46,17 +47,18 @@ def examples_from_overrides(overrides):
 
 
 def _sig(examples):
-    return hashlib.md5(
-        "|".join(f"{t}=>{c}" for t, c in sorted(examples)).encode()
-    ).hexdigest()
+    # Delimiters may occur in user-entered merchant text. Encode the structure
+    # so different example sets cannot alias the same shared model-cache key.
+    encoded = json.dumps(sorted(examples), ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
 
 
 def get_model(extra_examples=None):
     """Return the trained categoriser, cached so it trains once per process.
 
     With `extra_examples` (the user's corrections) it trains an augmented model
-    — base training data plus the user's (text->category) examples, weighted so
-    they actually move predictions — cached per example-set signature.
+   . base training data plus the user's (text->category) examples, weighted so
+    they actually move predictions. cached per example-set signature.
     """
     global _MODEL
     if not extra_examples:
@@ -102,7 +104,7 @@ def rule_category(name):
     wins. Rules are ordered (specific before general) in config.CATEGORY_RULES.
     Returns a category string, or None if no rule matches.
 
-    This is the OFFLINE path and the safety net — when a key is set the LLM
+    This is the OFFLINE path and the safety net. when a key is set the LLM
     decides first (see categorise_data), because a keyword list cannot tell
     that "CALTEX WOOLWORTHS FUEL" is fuel rather than groceries.
     """
@@ -117,7 +119,7 @@ def _merchant_context(df, mask, name_col, merchants):
     """Spending signal per merchant for the model: how often, how much, and a
     couple of raw bank descriptions.
 
-    The cleaned name alone is frequently ambiguous — amount and frequency
+    The cleaned name alone is frequently ambiguous. amount and frequency
     resolve a lot of it (a $9 fuel-station charge is a snack, a $75 one is
     fuel; an identical amount every month is a subscription), and the raw
     description keeps words that cleaning strips.
@@ -147,20 +149,20 @@ def _merchant_context(df, mask, name_col, merchants):
 def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
                     llm_meta=None):
     """Categorise expenses. Order of authority:
-    1. keyword rules (deterministic, free)
-    2. LLM (cached per merchant; the accuracy workhorse when a key is set)
+    1. LLM (cached per merchant; the accuracy workhorse when a key is set)
+    2. keyword rules (deterministic offline fallback)
     3. Naive Bayes (offline fallback only)
     Category overrides (the user's own corrections) are applied AFTER this by
     the pipeline, so they always win.
 
-    `llm_cache` is {merchant: {category, confidence}} from previous runs — only
+    `llm_cache` is {merchant: {category, confidence}} from previous runs. only
     NEW merchants hit the API. When `llm_meta` (a dict) is supplied it receives
     the merged cache so the caller can persist it.
     """
     df = df.copy()
     df["category"] = None
 
-    # 1. Transfers are tagged outright — never spend, never sent to the model.
+    # 1. Transfers are tagged outright. never spend, never sent to the model.
     if "is_transfer" in df.columns:
         df.loc[df["is_transfer"], "category"] = TRANSFERS_LABEL
 
@@ -180,7 +182,7 @@ def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
     # This used to run only on merchants the keyword rules failed to match,
     # which capped accuracy at whatever the keyword list could do: the rules
     # confidently called "CALTEX WOOLWORTHS FUEL" Groceries and "AMPOL FOODARY"
-    # Food & Dining, and the model — which knows both are petrol stations —
+    # Food & Dining, and the model. which knows both are petrol stations,
     # never got asked. The model leads now; rules are the offline fallback.
     from config import CATEGORIES
     from modules.llm_categoriser import categorise_merchants
@@ -218,14 +220,14 @@ def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
             df.loc[unknown_mask, name_col].apply(rule_category)
         )
 
-    # 4. Naive Bayes for whatever is STILL unknown — but NOT for merchants the
+    # 4. Naive Bayes for whatever is STILL unknown. but NOT for merchants the
     #    model looked at and said it could not place.
     #
     #    Those two cases are very different. When there is no API key, NB is all
     #    we have and a rough guess beats nothing. But when the LLM has already
     #    examined a merchant and answered "I don't know", a ~30-example Naive
     #    Bayes model has strictly less information than the thing that just
-    #    abstained — and it does not abstain, it always returns its nearest
+    #    abstained. and it does not abstain, it always returns its nearest
     #    label. On this account that put a $663 ENGIE energy bill in
     # "Food & Dining", which then also skewed the anomaly baseline and left
     #    Housing & Rent showing $15. An honest "Other" is better: it is what
@@ -234,7 +236,9 @@ def categorise_data(df, user_examples=None, llm_cache=None, categories=None,
     if unknown_mask.any():
         names = df.loc[unknown_mask, name_col].astype(str)
         abstained = names.map(
-            lambda m: m in cache and (cache.get(m) or {}).get("category") is None
+            lambda m: m in cache and (
+                (cache.get(m) or {}).get("category") is None
+                or (cache.get(m) or {}).get("confidence") not in ("medium", "high"))
         )
         guessable = unknown_mask.copy()
         guessable.loc[unknown_mask] = ~abstained.values

@@ -17,7 +17,7 @@ export function initUploadPicker({ zone, input, status, onChange, onError, isBus
     else if (fromDrop) input.files = files;
     onChange(); // Always invalidate an earlier preview/replacement confirmation.
     onError(error);
-    status.textContent = !error && file ? `${file.name} selected — review the statement below` : prompt;
+    status.textContent = !error && file ? `${file.name} selected. review the statement below` : prompt;
   }
 
   status.textContent = prompt;

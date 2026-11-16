@@ -3,11 +3,12 @@
 import math
 import re
 from datetime import date
+from uuid import UUID
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# Postgres cannot store a NUL byte in a text column — it raises 22P05,
+# Postgres cannot store a NUL byte in a text column. it raises 22P05,
 # "\u0000 cannot be converted to text". A pasted message containing one used to
 # reach append_chat and come back as a 500, so control characters are stripped
 # at the edge. Tab and newline are kept; they are legitimate in a message.
@@ -55,7 +56,11 @@ class CoachRequest(BaseModel):
     chat_id: Optional[str] = Field(None, max_length=40)
 
 
-class GoalRequest(BaseModel):
+class RevisionRequest(BaseModel):
+    revision: Optional[UUID] = None
+
+
+class GoalRequest(RevisionRequest):
     amount: float = Field(..., gt=0, le=MAX_MONEY)
     target_date: date
     age: Optional[int] = Field(None, ge=16, le=100)
@@ -85,7 +90,23 @@ class SpendCheckRequest(BaseModel):
         return _finite(v, field="amount") if v is not None else None
 
 
-class ProfileRequest(BaseModel):
+class CashBalanceRequest(RevisionRequest):
+    amount: Optional[float] = Field(..., ge=-MAX_MONEY, le=MAX_MONEY)
+    as_of: Optional[date] = None
+
+    @field_validator('amount')
+    @classmethod
+    def _real_number(cls, value):
+        return _finite(value, field='balance')
+
+    @model_validator(mode='after')
+    def _valid_date(self):
+        if self.as_of and self.as_of > date.today():
+            raise ValueError('Balance date cannot be in the future')
+        return self
+
+
+class ProfileRequest(RevisionRequest):
     """Editable user details (profile page + signup). All optional so a partial
     update (e.g. just age at signup) is valid."""
 
@@ -109,7 +130,7 @@ class ProfileRequest(BaseModel):
 
 
 
-class BudgetRequest(BaseModel):
+class BudgetRequest(RevisionRequest):
     """Set or clear monthly budget limits. `{"Groceries": 400}` sets one;
     a null value clears it back to the suggested baseline."""
 
@@ -137,13 +158,14 @@ class BudgetRequest(BaseModel):
         return cleaned
 
 
-class QuizRequest(BaseModel):
+class QuizRequest(RevisionRequest):
     """One quiz answer: categorise/flow a merchant, or skip the question."""
 
     merchant: str = Field(..., min_length=1, max_length=200)
     category: Optional[str] = Field(None, max_length=60)
     flow: Optional[Literal["income", "expense", "transfer"]] = None
     skip: bool = False
+    tx_keys: Optional[list[str]] = Field(None, min_length=1, max_length=20000)
 
     @field_validator("merchant", "category", mode="before")
     @classmethod
@@ -177,7 +199,7 @@ class OverrideRule(BaseModel):
         return self
 
 
-class OverrideRequest(BaseModel):
+class OverrideRequest(RevisionRequest):
     rules: List[OverrideRule] = Field(default_factory=list, max_length=5000)
     # Categories the user invented in the editor, persisted so the dropdown
     # keeps offering them even before/after they're assigned to a transaction.

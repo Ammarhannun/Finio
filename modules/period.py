@@ -3,7 +3,7 @@
 Resolves a requested period (daily / weekly / monthly / custom / all) into a
 concrete [start, end] window plus the matching prior window (used as the budget
 baseline). The pipeline applies this at the very top, so every downstream
-calculation describes one consistent slice of time — which also fixes uploads
+calculation describes one consistent slice of time. which also fixes uploads
 of long histories collapsing to a single fixed span.
 """
 
@@ -29,7 +29,7 @@ def resolve_periods(df, period=None, anchor=None, start=None, end=None):
     if not len(dates) or pd.isna(dates.min()):
         # No transactions in scope (an empty upload, or a custom range that
         # matches nothing). Anchor on today and return an empty window rather
-        # than raising — min()/max() on an empty frame give NaT, and .normalize()
+        # than raising. min()/max() on an empty frame give NaT, and .normalize()
         # on NaT threw AttributeError, turning a legitimately empty result into
         # a 500.
         today = pd.Timestamp(anchor).normalize() if anchor else pd.Timestamp.today().normalize()

@@ -11,9 +11,11 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http' or scope['method'] not in ('POST', 'PUT', 'PATCH'):
             return await self.app(scope, receive, send)
-        limit = self.upload_limit if scope['path'] in ('/analyze', '/analyze/preview') else 256 * 1024
+        path = scope['path'].rstrip('/')
+        limit = (self.upload_limit if path in ('/analyze', '/analyze/preview') else
+                 12 * 1024 if path == '/privacy/contact' else 256 * 1024)
         length = dict(scope['headers']).get(b'content-length', b'0')
-        if not length.isdigit() or int(length) > limit:
+        if len(length) > 12 or not length.isdigit() or int(length) > limit:
             return await JSONResponse({'detail': 'Request too large.'}, status_code=413)(scope, receive, send)
         # Keep only 1 MB in memory, with a hard cap on the temporary file too.
         with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as body:

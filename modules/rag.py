@@ -41,7 +41,7 @@ def _get_index():
 
 
 def _tfidf_search(query, k, min_score):
-    """Keyword retrieval over the local KB files — the no-key fallback."""
+    """Keyword retrieval over the local KB files. the no-key fallback."""
     vec, matrix, docs = _get_index()
     if not docs or not query:
         return []
@@ -58,7 +58,7 @@ def search(query, k=2, min_score=0.05):
 
     Tries semantic search first (OpenAI embedding + pgvector `match_kb`), which
     matches on meaning. Falls back to TF-IDF keyword matching when there's no
-    key, no migration, or any error — so retrieval always works.
+    key, no migration, or any error. so retrieval always works.
  """
     if not query:
         return []

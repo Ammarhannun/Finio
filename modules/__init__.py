@@ -1,1 +1,1 @@
-# Finio modules — import from here as you build each phase.
+# Finio modules. import from here as you build each phase.

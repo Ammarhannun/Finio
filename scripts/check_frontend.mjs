@@ -1,6 +1,6 @@
 // Syntax and local-link checks; no browser or credentials required.
-import { readFile, readdir, access, mkdtemp, rm } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { readFile, readdir, access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SourceTextModule, Script } from 'node:vm';
 import { tmpdir } from 'node:os';
@@ -8,13 +8,25 @@ import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../frontend');
 let scripts = 0;
+async function checkImports(source, file) {
+  const module = new SourceTextModule(source, { identifier: file });
+  for (const specifier of module.dependencySpecifiers) {
+    if (file === 'build-config.mjs' && specifier.startsWith('node:')) continue;
+    if (/^https:\/\//.test(specifier)) continue;
+    assert.ok(specifier.startsWith('.') || specifier.startsWith('/'), `${file}: browser import needs a URL: ${specifier}`);
+    const path = specifier.split(/[?#]/)[0];
+    const target = path.startsWith('/') ? resolve(root, '.' + path) : resolve(dirname(join(root, file)), path);
+    assert.ok(target.startsWith(root + sep), `${file}: import escapes frontend: ${specifier}`);
+    await access(target);
+  }
+}
 for (const file of await readdir(root)) {
   if (!/\.(html|js|mjs)$/.test(file)) continue;
   const source = await readFile(join(root, file), 'utf8');
-  if (/\.m?js$/.test(file)) { new SourceTextModule(source, { identifier: file }); scripts++; continue; }
+  if (/\.m?js$/.test(file)) { await checkImports(source, file); scripts++; continue; }
   for (const match of source.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
     if (!match[2].trim()) continue;
-    if (/type=["']module["']/.test(match[1])) new SourceTextModule(match[2], { identifier: file });
+    if (/type=["']module["']/.test(match[1])) await checkImports(match[2], file);
     else new Script(match[2], { filename: file });
     scripts++;
   }
@@ -24,21 +36,32 @@ for (const file of await readdir(root)) {
     await access(join(root, path));
   }
 }
-console.log(`PASS: ${scripts} JavaScript modules/scripts and local HTML links`);
+console.log(`PASS: ${scripts} JavaScript modules/scripts, local imports and HTML links`);
 const temporary = await mkdtemp(join(tmpdir(), 'finio-config-test-'));
 try {
   const output = join(temporary, 'config.mjs');
-  const env = { ...process.env, FINIO_API_BASE_URL: 'https://api.example.invalid',
-    FINIO_PUBLIC_SUPABASE_URL: 'https://db.example.invalid', FINIO_PUBLIC_SUPABASE_KEY: 'sb_publishable_synthetic' };
+  const env = { ...process.env, FINIO_API_BASE_URL: 'https://finio-test.up.railway.app',
+    FINIO_PUBLIC_SUPABASE_URL: 'https://finio-test.supabase.co', FINIO_PUBLIC_SUPABASE_KEY: 'sb_publishable_synthetic' };
   const run = variables => spawnSync(process.execPath, [join(root, 'build-config.mjs'), output],
     { env: variables, encoding: 'utf8' });
   assert.equal(run(env).status, 0);
-  assert.match(await readFile(output, 'utf8'), /api.example.invalid/);
+  assert.match(await readFile(output, 'utf8'), /finio-test.up.railway.app/);
   for (const vars of [{ FINIO_API_BASE_URL: '' }, { FINIO_API_BASE_URL: 'http://insecure.invalid' },
-    { FINIO_PUBLIC_SUPABASE_KEY: 'sb_secret_test' }]) {
+    { FINIO_PUBLIC_SUPABASE_KEY: 'sb_secret_test' },
+    { FINIO_API_BASE_URL: 'https://api.example.invalid' },
+    { FINIO_PUBLIC_SUPABASE_URL: 'https://db.example.invalid' },
+    { FINIO_API_BASE_URL: 'https://up.railway.app.evil.invalid' }]) {
     assert.notEqual(run({ ...env, ...vars }).status, 0);
   }
-  console.log('PASS: frontend production config accepts public values and rejects missing/insecure/secret settings');
+  const custom = JSON.parse(await readFile(join(root, 'vercel.json'), 'utf8'));
+  const csp = custom.headers.flatMap(entry => entry.headers).find(header => header.key === 'Content-Security-Policy');
+  csp.value = csp.value.replace('connect-src ', 'connect-src https://api.example.invalid https://db.example.invalid ');
+  const builder = join(temporary, 'build-config.mjs');
+  await writeFile(builder, await readFile(join(root, 'build-config.mjs'), 'utf8'));
+  await writeFile(join(temporary, 'vercel.json'), JSON.stringify(custom));
+  assert.equal(spawnSync(process.execPath, [builder, output], { encoding: 'utf8', env: { ...env,
+    FINIO_API_BASE_URL: 'https://api.example.invalid', FINIO_PUBLIC_SUPABASE_URL: 'https://db.example.invalid' } }).status, 0);
+  console.log('PASS: production config rejects missing/insecure/secret values and origins blocked by CSP');
 } finally {
   await rm(temporary, { recursive: true });
 }

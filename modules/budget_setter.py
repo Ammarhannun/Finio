@@ -1,12 +1,12 @@
 """Budget limits that can actually detect overspending.
 
-The old logic set every limit to this period's spend x 1.1, which is circular —
+The old logic set every limit to this period's spend x 1.1, which is circular,
 you can never be "over budget" against your own spending. Limits now come from,
 in order of preference:
 
   1. a real target you set for the category;
   2. otherwise your prior period's spend in that category (a baseline to beat);
-  3. otherwise unset — we don't invent a limit, so the bar shows "no budget yet"
+  3. otherwise unset. we don't invent a limit, so the bar shows "no budget yet"
      instead of a misleading full/empty bar.
 
 headroom_pct is computed per category (None when there's no limit), and a zero

@@ -12,12 +12,12 @@
 <button data-period="all" aria-pressed="false">All history</button></div></div>
 <p id="demo-range" class="tx-help"></p>
 <div class="cards-row" aria-live="polite">
-<div class="card metric-card"><div class="label">Income</div><div id="demo-income" class="value">—</div></div>
-<div class="card metric-card"><div class="label">Spending</div><div id="demo-spent" class="value">—</div></div>
-<div class="card metric-card"><div class="label">Saved</div><div id="demo-saved" class="value">—</div></div></div>
+<div class="card metric-card"><div class="label">Income</div><div id="demo-income" class="value">Loading…</div></div>
+<div class="card metric-card"><div class="label">Spending</div><div id="demo-spent" class="value">Loading…</div></div>
+<div class="card metric-card"><div class="label">Saved</div><div id="demo-saved" class="value">Loading…</div></div></div>
 <div class="dash-two-col"><section class="card"><h2>Where it went</h2><div id="demo-categories"></div></section>
 <section class="card"><h2>One useful next step</h2><p>Review your largest spending category, then set a budget
-that leaves room for the things you enjoy.</p><p class="tx-help">Your own dashboard adds recurring bills,
+that leaves room for the things you enjoy.</p><p class="tx-help">Your own dashboard adds recurring spending,
 unusual charges, savings goals and a coach grounded in your transactions.</p>
 <a href="login.html?signup=1" class="btn btn-primary">Create my account →</a></section></div>
 <p id="demo-error" role="alert"></p><p class="disclaimer">General information only, not financial advice</p></main>
@@ -36,7 +36,7 @@ function render(period) {
   document.getElementById('demo-saved').textContent = money(income-spending);
   const dates = selected.map(r => r.date).sort();
   document.getElementById('demo-range').textContent = `${dates[0]} to ${dates.at(-1)} · ${selected.length} sample transactions · Actual totals for the available dates`;
-  const totals = {};
+  const totals = Object.create(null);
   for (const r of selected.filter(r => r.flow === 'expense')) totals[r.category] = (totals[r.category] || 0)-r.amount;
   const list = document.getElementById('demo-categories'); list.replaceChildren();
   for (const [category, amount] of Object.entries(totals).sort((a,b) => b[1]-a[1])) {

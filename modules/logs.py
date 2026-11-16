@@ -1,7 +1,7 @@
 """Logging for the parts of Finio that are allowed to fail.
 
 Several features are deliberately best-effort: embeddings, pgvector retrieval,
-chat titles. If they break the app must keep working — but it must not go
+chat titles. If they break the app must keep working. but it must not go
 QUIET. Swallowing these exceptions with a bare `pass` meant a broken OpenAI key
 or an unrun migration looked exactly like a working system, which is the worst
 possible failure mode to debug.
@@ -34,9 +34,19 @@ def warn(what, exc, *, hint=None):
     # Provider/database exception messages can contain prompts, financial data
     # or key fragments. Keep operational metadata, never raw exception bodies.
     detail = type(exc).__name__
-    log.warning("%s unavailable — %s%s", what, detail, f" ({hint})" if hint else "")
+    log.warning("%s unavailable. %s%s", what, detail, f" ({hint})" if hint else "")
 
 
 def debug(what, exc):
     """An expected, uninteresting fallback (e.g. an optional column missing)."""
-    log.debug("%s fell back — %s", what, type(exc).__name__)
+    log.debug("%s fell back. %s", what, type(exc).__name__)
+
+
+def request_failure(method, route, status):
+    """Operational failures without URLs, queries, headers or account IDs."""
+    if status < 400:
+        return
+    safe_method = method if method in {'GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','TRACE'} else 'OTHER'
+    # The caller supplies the matched application's route template, never the
+    # request path. Unmatched paths can contain sensitive or hostile text.
+    log.warning('request method=%s route=%s status=%d', safe_method, route, status)

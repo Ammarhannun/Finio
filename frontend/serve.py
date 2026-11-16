@@ -10,7 +10,7 @@ genuinely confusing way: the browser keeps a stale module and reports
 
 even though the export is right there on disk and a plain reload doesn't clear
 it. This server sends no-store on everything so an edit is always the thing you
-see. Development only — a real host should cache static assets.
+see. Development only. a real host should cache static assets.
 
     python3 serve.py [port]      (default 5500)
 """

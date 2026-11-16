@@ -1,8 +1,12 @@
 # Secrets — never commit
 .env
+.env.*
+!.env.example
 
 # Python
 venv/
+.venv/
+.runtime/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -34,3 +38,11 @@ data/snapshots/
 # Real bank statements — sensitive (real names/transfers), never commit
 data/real_statement.pdf
 *TransactionSummary*
+
+# Operational backups and decryption identities belong outside the repository.
+*.dump.age
+*.dump.age.partial
+*.agekey
+age-identity*.txt
+.vercel
+.env*

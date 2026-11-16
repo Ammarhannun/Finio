@@ -22,7 +22,7 @@
 <main class="reading-page">
   <div class="page-header">
     <h1>Your data, explained</h1>
-    <p class="lede">What happens when you upload a statement — in plain terms.</p>
+    <p class="lede">How Finio handles your uploaded statement and saved data.</p>
   </div>
 
   <!-- The short version first. Most people read this and stop, so the four
@@ -40,17 +40,25 @@
     </div>
     <div class="priv-point">
       <span class="priv-icon" aria-hidden="true">✦</span>
-      <div><b>AI sees merchant text, not your file.</b> Descriptions, amounts and
-        frequency go to OpenAI for categorisation. The file itself never does.</div>
+      <div><b>AI sharing is your choice.</b> When enabled, cleaned merchant names,
+        amounts and frequency help it categorise. Common identifiers are masked
+        before requests. Uploaded files are processed by Finio.</div>
     </div>
     <div class="priv-point">
       <span class="priv-icon" aria-hidden="true">⌫</span>
       <div><b>You can export and delete.</b> Your profile has both, covering saved
-        financial data, preferences and chats.</div>
+        financial data and chats. Your login and AI-sharing preference are retained.</div>
     </div>
   </div>
 
   <h2 class="priv-rule">In detail</h2>
+
+  <section class="card priv-card">
+    <h2>Who runs Finio</h2>
+    <p>Finio is operated by Ammar Hannun. The service is intended for adults aged
+      18 and over. Use the privacy request form below to contact the operator
+      about your data.</p>
+  </section>
 
   <section class="card priv-card">
     <h2>Statements and transactions</h2>
@@ -72,27 +80,93 @@
 
   <section class="card priv-card">
     <h2>AI processing</h2>
-    <p>When AI is enabled, Finio sends merchant descriptions (including examples from the
-      original bank text), amounts and frequency information to OpenAI for categorisation.
+    <p>AI sharing starts off. In Profile, you can choose whether to enable AI features.
+      The backend checks your current account preference before provider requests.
+      With AI off, Finio uses built-in categorisation, calculations and a limited coach.
+      Changes apply to new requests. Existing chats, saved results and information
+      already sent follow their existing retention policies.</p>
+    <p>When AI is enabled, Finio sends cleaned merchant names, amounts and frequency
+      information to OpenAI for categorisation. Raw bank-description examples are excluded.
       Coach messages, selected financial context and relevant transaction details may also
       be sent to answer your questions. Merchant names may be embedded for search. Uploaded
       files themselves are parsed by Finio, not sent as files to the coach.</p>
+    <p>Before AI requests, Finio masks common email addresses, phone numbers, account and
+      card references, and recognisable street addresses. Unnecessary transaction metadata
+      is excluded. These pattern checks can miss personal names or unusual identifiers.
+      Do not enter bank passwords or security codes. Recognisable credentials are removed
+      from new saved chat messages.</p>
     <p class="priv-note">A statement description can include personal information. Only
       upload data you are comfortable having processed by these services. OpenAI and
-      Supabase apply their own processing and retention policies.</p>
+      Supabase apply their own processing and retention policies. Finio disables optional
+      storage of AI chat-completion responses; provider security logs may still be retained.</p>
   </section>
 
   <section class="card priv-card">
     <h2>Retention and control</h2>
     <p>Finio retains your saved data until you delete it. Profile includes an export and a
-      control to delete saved financial data, preferences and chats from the live database.
-      Your login account remains available.</p>
+      control to delete saved financial data, goals, budgets, corrections and chats from
+      the live database. Your login account and AI-sharing choice remain available.</p>
     <p>Uploading a replacement statement replaces the saved transaction history. Finio asks
       you to review the date range and confirm this first. Your goals, budgets and correction
       rules are retained.</p>
     <p class="priv-note">Provider backups and operational records may persist according to
       the operator's provider settings; deleting Finio data does not promise immediate
       removal from provider backups.</p>
+  </section>
+
+  <section class="card priv-card">
+    <h2>Protecting your account</h2>
+    <p>You can add an authenticator app in Profile for two-step verification. Once
+      enabled, a password alone cannot open your financial data. Keep a secure backup
+      of your authenticator; password recovery does not remove this extra protection.</p>
+    <p>Downloading or deleting saved data requires a recent sign-in or authenticator
+      check. Finio may ask you to verify again before completing either action.</p>
+  </section>
+
+  <section class="card priv-card" id="privacy-requests">
+    <h2>Privacy requests</h2>
+    <p>Ask about access, correction, deletion or your account. You do not need to sign
+      in to use this form. Messages go to Finio's operator through Resend, not to the
+      AI coach. We may need to verify your identity before acting on a request.</p>
+    <p class="priv-note" id="privacy-contact-warning">Do not include bank statements,
+      account numbers, passwords or security codes. There are no attachments. Your
+      reply email and message are sent to the operator's private inbox. Cloudflare
+      Turnstile checks for automated submissions.</p>
+    <form id="privacy-contact-form" method="post" action="#privacy-requests"
+          aria-describedby="privacy-contact-warning privacy-contact-status">
+      <fieldset id="privacy-contact-fields" class="privacy-contact-fields" disabled>
+        <legend class="sr-only">Send a privacy request</legend>
+        <div class="form-group">
+          <label for="privacy-contact-email">Your reply email</label>
+          <input id="privacy-contact-email" name="email" type="email" autocomplete="email"
+                 maxlength="254" required>
+        </div>
+        <div class="form-group">
+          <label for="privacy-contact-topic">What is your request about?</label>
+          <select id="privacy-contact-topic" name="topic" required>
+            <option value="question">Privacy question</option>
+            <option value="access">Access or export my data</option>
+            <option value="correct">Correct my data</option>
+            <option value="delete">Delete my data</option>
+            <option value="account">Account access</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="privacy-contact-message">Your message</label>
+          <textarea id="privacy-contact-message" name="message" rows="5" minlength="10"
+                    maxlength="1500" aria-describedby="privacy-contact-warning" required></textarea>
+        </div>
+        <div class="privacy-contact-honeypot" aria-hidden="true">
+          <label for="privacy-contact-website">Leave this field empty</label>
+          <input id="privacy-contact-website" name="website" type="text"
+                 autocomplete="off" tabindex="-1" maxlength="200">
+        </div>
+        <div id="privacy-contact-challenge"></div>
+        <button id="privacy-contact-send" class="btn btn-primary" type="submit" disabled>Send request</button>
+      </fieldset>
+    </form>
+    <p id="privacy-contact-status" role="status" aria-live="polite">Checking form availability...</p>
+    <noscript><p>Enable JavaScript to use this form. Export and deletion controls are in Profile.</p></noscript>
   </section>
 
   <section class="card priv-card">
@@ -114,5 +188,6 @@
   import { initThemeToggle } from './api.js';
   initThemeToggle();
 </script>
+<script type="module" src="privacy-contact.js"></script>
 </body>
 </html>
