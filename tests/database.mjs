@@ -9,6 +9,7 @@ console.log('PASS: base schema and all migrations run twice');
 await pg.exec(`set role anon;`);
 assert.equal((await pg.query('select public.finio_ready_v5() as ready')).rows[0].ready, true);
 assert.equal((await pg.query('select public.finio_ready_v6() as ready')).rows[0].ready, true);
+assert.equal((await pg.query('select public.finio_ready_v8() as ready')).rows[0].ready, true);
 assert.equal((await pg.query('select public.finio_ready() as ready')).rows[0].ready, true);
 await assert.rejects(pg.query('select public.finio_delete_data()'), /permission denied/);
 await assert.rejects(pg.query('select public.finio_edit_analysis(null)'), /permission denied/);
@@ -44,13 +45,16 @@ const updatedSummary = structuredClone(initialSummary);
 updatedSummary.budget_targets.Groceries = 500;
 updatedSummary.budgets.budgets[0].suggested_limit = 500;
 updatedSummary.forecast.target_amount = 7000;
-const saved = (await edit(initialRevision, updatedSummary, {age:35, income_bracket:null})).rows[0].state;
+const saved = (await edit(initialRevision, updatedSummary, {age:35, income_bracket:null,
+  monthly_income:4000, monthly_savings_target:500})).rows[0].state;
 assert.notEqual(saved.revision, initialRevision);
 assert.equal(saved.can_undo, true);
 assert.equal((await pg.query('select target_amount from goals')).rows[0].target_amount, '7000');
 assert.equal((await pg.query('select monthly_limit from budgets')).rows[0].monthly_limit, '500');
 assert.equal((await pg.query('select age, income_bracket from users')).rows[0].age, 35);
 assert.equal((await pg.query('select income_bracket from users')).rows[0].income_bracket, null);
+assert.equal((await pg.query('select monthly_income from users')).rows[0].monthly_income, '4000.00');
+assert.equal((await pg.query('select monthly_savings_target from users')).rows[0].monthly_savings_target, '500.00');
 await assert.rejects(edit(initialRevision, initialSummary), /Data changed/);
 await assert.rejects(edit(null, initialSummary), /Data changed/);
 const broken = structuredClone(updatedSummary);
@@ -69,9 +73,30 @@ assert.notEqual(undone.revision, saved.revision);
 assert.deepEqual((await pg.query('select summary_json from snapshots')).rows[0].summary_json, initialSummary);
 assert.equal((await pg.query('select age from users')).rows[0].age, 34);
 assert.equal((await pg.query('select income_bracket from users')).rows[0].income_bracket, 'middle');
+assert.equal((await pg.query('select monthly_income from users')).rows[0].monthly_income, null);
+assert.equal((await pg.query('select monthly_savings_target from users')).rows[0].monthly_savings_target, null);
 assert.equal((await pg.query('select target_amount from goals')).rows[0].target_amount, '6000');
 assert.equal((await pg.query('select monthly_limit from budgets')).rows[0].monthly_limit, '400');
 await assert.rejects(edit(undone.revision, null, {}, true), /Nothing to undo/);
+// One coach "Apply all budgets" request writes every limit under one revision
+// and exposes one Undo for the whole group, not a series of stale proposals.
+const beforeBatch = await revision();
+const batchSummary = structuredClone(initialSummary);
+batchSummary.budget_targets['Food & Dining'] = 800;
+batchSummary.budget_targets.Transport = 250;
+batchSummary.budgets.budgets.push(
+  {category:'Food & Dining', suggested_limit:800},
+  {category:'Transport', suggested_limit:250});
+const batchSaved = (await edit(beforeBatch, batchSummary)).rows[0].state;
+assert.equal(batchSaved.can_undo, true);
+assert.deepEqual((await pg.query('select category, monthly_limit from budgets order by category')).rows,
+  [{category:'Food & Dining',monthly_limit:'800'},
+   {category:'Groceries',monthly_limit:'400'},
+   {category:'Transport',monthly_limit:'250'}]);
+await assert.rejects(edit(beforeBatch, batchSummary), /Data changed/);
+await edit(batchSaved.revision, null, {}, true);
+assert.deepEqual((await pg.query('select category, monthly_limit from budgets order by category')).rows,
+  [{category:'Groceries',monthly_limit:'400'}]);
 await assert.rejects(pg.query('select finio_commit_analysis($1,$2,$3,$4,$5,$6,$7,$8)',
   [JSON.stringify(rows), '2026-06-01', '{}', '{}', '{}', '{}', '[]', initialRevision]), /Data changed/);
 await edit(await revision(), updatedSummary);

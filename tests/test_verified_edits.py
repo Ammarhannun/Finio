@@ -76,6 +76,60 @@ def test_late_database_conflict_is_409(client):
     assert 'private details' not in response.text
 
 
+def test_multiple_coach_budget_targets_commit_together_once(client):
+    http, commit = client
+    targets = {'Food & Dining': 800, 'Transport': 250, 'Groceries': 600}
+    response = http.post('/budgets', json={'revision': REV, 'targets': targets})
+    assert response.status_code == 200, response.text
+    assert response.json()['targets'] == targets
+    commit.assert_called_once()
+    assert commit.call_args.kwargs['changes']['budget_targets'] == targets
+    saved_rows = commit.call_args.kwargs['resliced']['budgets']['budgets']
+    assert {row['category']: row['suggested_limit'] for row in saved_rows
+            if row['category'] in targets} == targets
+    stale = http.post('/budgets', json={'revision': REV, 'targets': {'Shopping': 300}})
+    assert stale.status_code == 409
+    commit.assert_called_once()
+
+
+def test_monthly_income_and_savings_target_use_the_atomic_profile_edit(client, monkeypatch):
+    http, commit = client
+    profile = {'age': 34, 'income_bracket': 'full_time', 'email': 'synthetic@example.invalid',
+               'monthly_income': None, 'monthly_savings_target': None}
+    monkeypatch.setattr(db, 'get_user_profile', lambda *args: dict(profile))
+    def save(*args, **kwargs):
+        profile.update(kwargs['profile'])
+        return {'revision': NEW, 'can_undo': True}
+    commit.side_effect = save
+    response = http.post('/profile', json={'revision': REV, 'monthly_income': 4000,
+                                           'monthly_savings_target': 500})
+    assert response.status_code == 200, response.text
+    assert response.json()['monthly_income'] == 4000
+    assert response.json()['monthly_savings_target'] == 500
+    assert commit.call_args.kwargs['profile']['monthly_income'] == 4000
+
+
+def test_dashboard_exposes_income_budget_without_counting_partial_latest_month(client, monkeypatch):
+    http, _ = client
+    monkeypatch.setattr(db, 'get_user_profile', lambda *args: {
+        'monthly_income': 4000, 'monthly_savings_target': 500})
+    response = http.get('/dashboard?period=monthly&month=2026-02')
+    assert response.status_code == 200, response.text
+    plan = response.json()['income_budget']
+    assert plan['monthly_income'] == 4000
+    assert plan['monthly_savings_target'] == 500
+    assert plan['complete_months'] == 1
+    assert plan['usual_monthly_spending'] == 100
+
+
+def test_savings_target_cannot_exceed_entered_monthly_income(client):
+    http, commit = client
+    response = http.post('/profile', json={'revision': REV, 'monthly_income': 1000,
+                                           'monthly_savings_target': 1200})
+    assert response.status_code == 422
+    commit.assert_not_called()
+
+
 def test_failed_commit_is_not_reported_as_success(client):
     http, commit = client
     commit.side_effect = RuntimeError('private database details')
@@ -182,9 +236,12 @@ def test_coach_calculations_survive_incorrect_model_prose(monkeypatch):
     assert client.chat.completions.create.call_count == 1
 
 
-def test_fallback_has_calculated_facts(monkeypatch):
+def test_fallback_only_attaches_calculated_facts_to_financial_questions(monkeypatch):
     monkeypatch.setattr(ai_coach, 'get_client', lambda: None)
-    result = ai_coach.coach_chat('Hello', {'income': 2000, 'spent': 100, 'saved': 1900})
+    context = {'income': 2000, 'spent': 100, 'saved': 1900}
+    assert ai_coach.coach_chat('hi', context)['verified_facts'] == []
+    assert ai_coach.coach_chat('What is an ETF?', context)['verified_facts'] == []
+    result = ai_coach.coach_chat('How much did I spend?', context)
     assert result['verified_facts'][0]['spent'] == 100
 
 
@@ -209,7 +266,7 @@ def test_readiness_demands_the_new_capability(monkeypatch):
     monkeypatch.setattr(db, 'get_client', lambda: client)
     monkeypatch.setenv('FINIO_ENV', 'test')
     assert main.readiness() == {'status': 'ready'}
-    assert [call.args for call in client.rpc.call_args_list] == [('finio_ready_v7', {}), ('finio_security_ready', {})]
+    assert [call.args for call in client.rpc.call_args_list] == [('finio_ready_v8', {}), ('finio_security_ready', {})]
 
 
 def test_category_only_transfer_edit_does_not_hide_the_flow_question(tmp_path):

@@ -200,7 +200,7 @@ def readiness():
         raise HTTPException(503, "Service is not ready")
     try:
         client = db.get_client()
-        for capability in ('finio_ready_v7', 'finio_security_ready'):
+        for capability in ('finio_ready_v8', 'finio_security_ready'):
             if client.rpc(capability, {}).execute().data is not True:
                 raise ValueError('schema not ready')
     except Exception:
@@ -787,10 +787,13 @@ def dashboard(
         "source": "uploaded_statements",
     }
     if all_tx:
-        from modules.merchant_totals import net_merchant_totals
+        from modules.analytics import compute_averages
         import pandas as pd
-        data = {**data, "averages": {**(data.get("averages") or {}),
-                "top_merchants": net_merchant_totals(pd.DataFrame(all_tx).rename(columns={"merchant": "description"}))}}
+        data = {**data, "averages": compute_averages(
+            pd.DataFrame(all_tx).rename(columns={"merchant": "description"}))}
+
+    from modules.income_budget import budget_plan
+    profile = db.get_user_profile(client, user.user_id)
 
     resliced = _period_view(
         client, user, data, period=period, month=month, start=start, end=end
@@ -801,6 +804,8 @@ def dashboard(
         data["disclaimer"] = DISCLAIMER
         data['balance_view'] = balance_view(data)
         data['data_freshness'] = freshness
+        data['income_budget'] = budget_plan(data.get('averages'), profile.get('monthly_income'),
+                                           profile.get('monthly_savings_target'), data.get('budgets'))
         return data
 
     return {
@@ -818,6 +823,8 @@ def dashboard(
         "anomalies": resliced.get("anomalies", []),
         "averages": resliced.get("averages"),
         "budget_targets": db.get_budget_targets(client, user.user_id),
+        "income_budget": budget_plan(resliced.get('averages'), profile.get('monthly_income'),
+                                      profile.get('monthly_savings_target'), resliced.get('budgets')),
         "forecast": resliced["forecast"],
         "spend_forecast": resliced.get("spend_forecast"),
         "budgets": resliced["budgets"],
@@ -847,12 +854,16 @@ def invest(
         client, user, data, period=period, month=month, start=start, end=end
     )
     view = resliced or data
+    from modules.income_budget import budget_plan
+    profile = db.get_user_profile(client, user.user_id)
     return {
         "invest": view.get("invest"),
         "forecast": view.get("forecast"),
         "goal": {**(data.get("goal") or {}),
                  **{k: (view.get("forecast") or {}).get(k) for k in ("current_saved", "target_amount", "target_date")}},
         "metrics": view.get("metrics"),
+        "income_budget": budget_plan(view.get("averages"), profile.get("monthly_income"),
+                                      profile.get("monthly_savings_target"), view.get("budgets")),
         "review": view.get("review"),
         "history_review": view.get("history_review"),
         "period": resliced["period"] if resliced else None,
@@ -1261,6 +1272,8 @@ def _profile_payload(client, user: AuthUser):
         "email": email,
         "age": profile.get("age"),
         "income_bracket": profile.get("income_bracket"),
+        "monthly_income": profile.get("monthly_income"),
+        "monthly_savings_target": profile.get("monthly_savings_target"),
         "custom_categories": db.get_custom_categories(client, user.user_id),
         "streak": db.get_streak(client, user.user_id),
     }
@@ -1287,12 +1300,18 @@ def update_profile(
         warn("profile email lookup", exc)
     state = db.edit_state(client, user.user_id)
     _check_revision(body, state)
-    patch = {k: getattr(body, k) for k in ("age", "income_bracket") if k in body.model_fields_set}
+    patch = {k: getattr(body, k) for k in ("age", "income_bracket", "monthly_income", "monthly_savings_target") if k in body.model_fields_set}
     patch["email"] = email
+    existing_profile = db.get_user_profile(client, user.user_id)
+    planning_profile = {**existing_profile, **patch}
+    income = planning_profile.get("monthly_income")
+    savings_target = planning_profile.get("monthly_savings_target")
+    if savings_target is not None and (income is None or savings_target > income):
+        raise HTTPException(422, "Enter monthly income at least as large as your monthly savings target.")
     row = db.get_latest_snapshot(client, user.user_id)
     resliced = None
     if row:
-        profile = {**db.get_user_profile(client, user.user_id), **patch}
+        profile = planning_profile
         goal = db.get_goal(client, user.user_id) or {}
         resliced = analyze_stored(db.get_all_transactions(client, user.user_id),
             goal_amount=goal.get("target_amount"), goal_date=goal.get("target_date"),
@@ -1457,14 +1476,29 @@ def coach(body: CoachRequest, user: AuthUser = Depends(get_current_user)):
         return {"text": scope["error"], "source": "calculated", "verified_facts": [],
                 "proposed_actions": [], "chat_id": body.chat_id or "default"}
     resliced = _period_view(client, user, data, period=scope["period"], month=scope["month"])
+    if resliced is None and all_transactions and not (data.get('averages') or {}).get('category_monthly'):
+        from modules.analytics import compute_averages
+        import pandas as pd
+        data = {**data, 'averages': compute_averages(
+            pd.DataFrame(all_transactions).rename(columns={'merchant': 'description'}))}
     context = (resliced or data).get("context")
     if not context:
         raise HTTPException(status_code=404, detail="No coach context. Upload a CSV first")
     source_metrics = spending_metrics((resliced or data).get('metrics') or {}, data)
+    from modules.income_budget import budget_plan
+    profile = db.get_user_profile(client, user.user_id)
+    income_budget = budget_plan((resliced or data).get('averages'), profile.get('monthly_income'),
+                                profile.get('monthly_savings_target'), (resliced or data).get('budgets'))
     context = {**context, 'read_scope': scope['label'],
     'available_balance': balance_view(data),
     "latest_balance": source_metrics.get("latest_balance"),
     "balance_date": source_metrics.get("balance_date"),
+    # The selected period supplies the observed figures; goal pace must use
+    # the confirmed goal and a forecast computed over all uploaded history.
+    "confirmed_goal": data.get("goal"),
+    "goal_forecast": (resliced or data).get("forecast"),
+    "forecast_months_used": ((resliced or data).get("averages") or {}).get("months_used", 0),
+    "income_budget": income_budget,
     **{k: source_metrics.get(k) for k in ('daily_burn_rate', 'balance_source', 'user_entered_balance', 'has_spending_baseline', 'transfer_review_count')}}
     if body.page:
         # Tell the coach what's on the user's screen so help fits the page

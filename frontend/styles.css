@@ -1794,6 +1794,12 @@ body.coach-splitting canvas {
 }
 .cw-msg-body { min-width: 0; }
 .cw-msg-body strong { font-weight: 700; }
+.cw-mode-notice {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
 /* User bubble shrink-wraps to the text (actions sit underneath, outside) */
 /* Tinted rather than filled: a translucent wash of the accent with a border in
    the same colour, so the bubble reads as "yours" without a heavy solid slab. */
@@ -1911,13 +1917,16 @@ body.coach-splitting canvas {
   box-sizing: border-box; overflow-wrap: anywhere; word-break: break-word;
 }
 .cw-prop-text { min-width: 0; flex: 1; }
-.cw-prop-count { color: var(--muted); }
-.cw-apply {
+.cw-prop-count { display: block; margin-top: 0.2rem; color: var(--muted); }
+.cw-proposal-batch { width: min(92%, 100%); flex-wrap: wrap; border-style: dashed; }
+.cw-proposal-preview { margin-left: 0.65rem; background: transparent; }
+.cw-proposal-applied { opacity: 0.72; }
+.cw-apply, .cw-apply-all {
   background: var(--accent); color: #fff; border: none; border-radius: 99px;
   padding: 0.4rem 1rem; font-weight: 600; font-size: 0.8125rem; cursor: pointer;
   white-space: nowrap;
 }
-.cw-apply:disabled { opacity: 0.6; cursor: default; }
+.cw-apply:disabled, .cw-apply-all:disabled { opacity: 0.6; cursor: default; }
 
 .cw-form {
   display: flex; gap: 0.5rem;

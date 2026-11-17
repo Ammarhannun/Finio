@@ -52,7 +52,7 @@
 
     <section class="card invest-section" aria-labelledby="budget-plan-title">
       <h2 id="budget-plan-title" class="section-title">50/30/20 budget guide</h2>
-      <p class="tx-help">Finio uses 50% for needs, 30% for wants and 20% for savings as its default guide.</p>
+      <p class="tx-help">An example split of your entered monthly income, not a rule or a personalised category limit. Your own savings target takes precedence.</p>
       <div id="plan-output"></div>
     </section>
 
@@ -88,17 +88,18 @@
   function renderPlan() {
     const output = document.getElementById('plan-output');
     if (!currentData) return;
-    const targets = planAmounts(Number(currentData.metrics?.total_income));
+    const budget = currentData.income_budget || {};
+    const targets = planAmounts(budget.monthly_income == null ? NaN : Number(budget.monthly_income));
     if (!targets) {
-      output.innerHTML = '<p class="plan-note">No positive recorded income in this window. Choose another period to calculate percentage amounts.</p>'; return;
+      output.innerHTML = '<p class="plan-note">Enter your typical monthly take-home income in <a href="profile.html">Profile</a> to see a monthly example. A short statement window is not a reliable monthly pay figure.</p>'; return;
     }
-    const actual = currentData.invest?.actual_vs_target || {};
-    const recorded = {needs:actual.needs_spent, wants:actual.wants_spent, savings:currentData.metrics?.net_saved};
     const labels = {needs:'Needs', wants:'Wants', savings:'Savings / goals'};
-    output.innerHTML = `<p class="plan-note">The default guide applied to recorded income in ${escapeHtml(dateRangeLabel(currentData.period || currentData.metrics?.date_range))}. Transfers are excluded.</p>
+    const chosenSavings = budget.monthly_savings_target == null ? ''
+      : `<p class="tx-help">Your chosen monthly savings target is ${formatAUD(budget.monthly_savings_target)}. The 20% example below is ${formatAUD(targets.savings)}; use your own target when planning.</p>`;
+    output.innerHTML = `<p class="plan-note">Example applied to your entered ${formatAUD(budget.monthly_income)} monthly take-home income.</p>
       <div class="split-row">${fields.map(f => `<div class="split-item"><div class="split-pct">${plan[f]}%</div><div class="split-name">${labels[f]}</div><div class="split-amount">${formatAUD(targets[f])}</div></div>`).join('')}</div>
-      <div class="plan-comparison"><div class="plan-comparison-head"><span>Category grouping</span><span>Recorded</span><span>Guide</span></div>${fields.map(f => `<div><span>${labels[f]}</span><span>${formatAUD(recorded[f])}</span><span>${formatAUD(targets[f])}</span></div>`).join('')}</div>
-      <p class="tx-help">Needs/wants are estimates from transaction categories. Adjust classifications in Transactions if they do not fit. ${currentData.review?.count ? 'Recorded figures are provisional until transfer review is complete.' : ''} <a href="https://moneysmart.gov.au/budgeting/how-to-do-a-budget" target="_blank" rel="noopener noreferrer">More ways to budget</a></p>`;
+      ${chosenSavings}
+      <p class="tx-help">Compare this example with complete-month spending on Dashboard. Food, rent and other needs differ by household; Finio does not set your limits from a fixed percentage. <a href="https://moneysmart.gov.au/budgeting/how-to-do-a-budget" target="_blank" rel="noopener noreferrer">More ways to budget</a></p>`;
   }
 
   function renderInvest(data) {

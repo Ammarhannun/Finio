@@ -112,7 +112,14 @@ class ProfileRequest(RevisionRequest):
 
     age: Optional[int] = Field(None, ge=16, le=100)
     income_bracket: Optional[str] = Field(None, max_length=40)
+    monthly_income: Optional[float] = Field(None, gt=0, le=MAX_MONEY)
+    monthly_savings_target: Optional[float] = Field(None, ge=0, le=MAX_MONEY)
     custom_categories: Optional[List[str]] = None
+
+    @field_validator("monthly_income", "monthly_savings_target")
+    @classmethod
+    def _real_budget_inputs(cls, value):
+        return _finite(value, field="monthly budget input") if value is not None else None
 
     @field_validator("custom_categories")
     @classmethod

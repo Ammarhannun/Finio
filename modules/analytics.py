@@ -15,7 +15,7 @@ def compute_averages(df):
     from modules.savings_forecaster import _complete_months
 
     out = {"daily": None, "weekly": None, "monthly": None, "all": None,
-           "months_used": 0, "spend_series": [], "top_merchants": [],
+           "months_used": 0, "category_monthly": {}, "spend_series": [], "top_merchants": [],
            "top_categories": []}
     if df is None or df.empty:
         return out
@@ -58,6 +58,14 @@ def compute_averages(df):
             float(m_income_c.mean()),
         )
         out["months_used"] = int(len(m_spent_c))
+        if not exp.empty:
+            category_months = (exp.groupby([pd.Grouper(key="date", freq="MS"), "category"])["amount"]
+                               .sum().unstack(fill_value=0.0).reindex(m_spent_c.index, fill_value=0.0))
+            out["category_monthly"] = {
+                str(category): round(float(-category_months[category].mean()), 2)
+                for category in category_months.columns
+                if -category_months[category].mean() > 0
+            }
     elif days > 0:
         out["monthly"] = block(total_spent / days * 30.44, total_income / days * 30.44)
 

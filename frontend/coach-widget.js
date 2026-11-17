@@ -1,6 +1,7 @@
 import { updateMobileCoachState } from './mobile-navigation.js';
 import { splitLayout, PAGE_MIN_PX, COACH_MIN_PX } from './coach-layout.js';
 import { appendFacts } from './financial-facts.js';
+import { buildBudgetBatch, saveBudgetBatch, undoBudgetBatch } from './coach-batch.js';
 // Floating AI-coach widget, mounted on every page.
 // - Bottom-right bubble → slide-up chat panel → split-screen with the current page.
 // - Drag the divider while keeping both panes usable. Narrow screens use full chat.
@@ -548,14 +549,19 @@ export function mountCoachWidget(page) {
     },
   };
 
-  function addProposal(p, parent = messagesEl) {
+  function addProposal(p, parent = messagesEl, previewOnly = false) {
     const kind = PROPOSALS[p.kind];
     if (!kind) return;
     const card = document.createElement('div');
     card.className = 'cw-proposal';
     card.innerHTML = `
       <div class="cw-prop-text">${kind.describe(p)}</div>
-      <button class="cw-apply">Apply</button>`;
+      ${previewOnly ? '' : '<button class="cw-apply">Apply</button>'}`;
+    if (previewOnly) {
+      card.classList.add('cw-proposal-preview');
+      parent.appendChild(card);
+      return card;
+    }
     const apply = card.querySelector('.cw-apply');
     if (p.expired || !p.revision) {
       apply.disabled = true;
@@ -590,10 +596,65 @@ export function mountCoachWidget(page) {
     });
     parent.appendChild(card);
     scroll();
+    return card;
+  }
+
+  function addProposals(proposals, parent) {
+    const batch = buildBudgetBatch(proposals);
+    let batchButton = null;
+    let appliedState = null;
+    if (batch) {
+      const group = document.createElement('div');
+      group.className = 'cw-proposal cw-proposal-batch';
+      group.innerHTML = `<div class="cw-prop-text"><b>${batch.count} proposed monthly budgets</b>`
+        + `<span class="cw-prop-count">Review every amount below, then save them together in one change.</span></div>`
+        + `<button type="button" class="cw-apply-all">Apply all ${batch.count} budgets</button>`;
+      parent.appendChild(group);
+      batchButton = group.querySelector('.cw-apply-all');
+    }
+    const cards = (proposals || []).map(p => addProposal(p, parent, !!batch)).filter(Boolean);
+    if (!batchButton) return;
+    batchButton.addEventListener('click', async () => {
+      batchButton.disabled = true;
+      if (appliedState) {
+        try {
+          await undoBudgetBatch(appliedState.revision, apiFetch);
+          batchButton.textContent = 'Undone ✓';
+          cards.forEach(card => { card.classList.remove('cw-proposal-applied'); });
+          window.dispatchEvent(new CustomEvent('finio:budgets-applied'));
+          window.dispatchEvent(new CustomEvent('finio:data-changed'));
+        } catch (err) {
+          batchButton.disabled = false;
+          showToast(err.message || 'Could not undo those budgets');
+        }
+        return;
+      }
+      batchButton.textContent = 'Applying…';
+      try {
+        const state = await saveBudgetBatch(batch, apiFetch);
+        appliedState = state;
+        batchButton.classList.add('cw-applied');
+        batchButton.textContent = 'Undo all';
+        batchButton.disabled = false;
+        cards.forEach(card => { card.classList.add('cw-proposal-applied'); });
+        showToast(`${batch.count} budgets saved together. Your numbers are updated.`);
+        window.dispatchEvent(new CustomEvent('finio:budgets-applied'));
+        window.dispatchEvent(new CustomEvent('finio:data-changed'));
+      } catch (err) {
+        if (err.status === 409 || err.status === 428) {
+          batchButton.textContent = 'Older proposal. Ask the coach again.';
+        } else {
+          batchButton.disabled = false;
+          batchButton.textContent = `Apply all ${batch.count} budgets`;
+        }
+        showToast(err.message || 'Could not save those budgets');
+      }
+    });
+    scroll();
   }
 
   window.addEventListener('finio:data-changed', () => {
-    messagesEl.querySelectorAll('.cw-apply:not(:disabled):not(.cw-applied)').forEach(button => {
+    messagesEl.querySelectorAll('.cw-apply:not(:disabled):not(.cw-applied), .cw-apply-all:not(:disabled):not(.cw-applied)').forEach(button => {
       button.disabled = true;
       button.textContent = 'Older proposal. Ask the coach again.';
     });
@@ -605,11 +666,13 @@ export function mountCoachWidget(page) {
       const rows = res.history || [];
       if (rows.length) {
         messagesEl.innerHTML = '';
+        let lastUserMessage = null;
         rows.slice(-14).forEach(r => {
           const role = r.role === 'user' ? 'user' : 'assistant';
+          if (role === 'user') lastUserMessage = r.message;
           const turn = addMsg(role, fmtMsg(r.message), r.message);
-          appendFacts(turn, r.verified_facts, formatAUD);
-          (r.proposed_actions || []).forEach(p => addProposal(p, turn));
+          appendFacts(turn, r.verified_facts, formatAUD, lastUserMessage);
+          addProposals(r.proposed_actions || [], turn);
         });
         scroll();
       } else {
@@ -1021,9 +1084,15 @@ export function mountCoachWidget(page) {
       const turn = res.proposed_actions?.length
         ? addMsg('assistant', fmtMsg(res.text), res.text)
         : await typeAssistant(res.text || 'No reply received. Please try again.');
-      appendFacts(turn, res.verified_facts, formatAUD);
+      if (res.mode_notice) {
+        const notice = document.createElement('p');
+        notice.className = 'cw-mode-notice';
+        notice.textContent = res.mode_notice;
+        turn.querySelector('.cw-msg')?.appendChild(notice);
+      }
+      appendFacts(turn, res.verified_facts, formatAUD, msg);
       scroll();
-      (res.proposed_actions || []).forEach(p => addProposal(p, turn));
+      addProposals(res.proposed_actions || [], turn);
       if (drawer.classList.contains('open') || res.chat_title) loadChats();
     } catch (err) {
       typing.remove();

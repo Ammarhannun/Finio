@@ -387,7 +387,7 @@ def get_user_profile(client, user_id):
     """Read existing profiles throughout the migration-005 rollout."""
     def query(with_revision):
         return (client.table("users")
-                .select("email, age, income_bracket" + (", revision" if with_revision else ""))
+                .select("email, age, income_bracket, monthly_income, monthly_savings_target" + (", revision" if with_revision else ""))
                 .eq("id", user_id).limit(1).execute())
     try:
         result = query(_revision_columns(client))

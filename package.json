@@ -11,6 +11,7 @@
     "test:preferences": "node --test tests/preferences-plan.mjs",
     "test:database": "node tests/database.mjs && node tests/security-database.mjs",
     "test:layout": "node --test tests/coach-layout.mjs",
+    "test:coach-batch": "node --test tests/coach-batch.mjs",
     "test:refresh": "node --experimental-vm-modules --test tests/page-refresh.mjs tests/api-refresh.mjs",
     "test:auth": "node --experimental-vm-modules --test tests/login-ui.mjs tests/session-privacy.mjs tests/account-security.mjs tests/account-security-ui.mjs tests/ai-settings.mjs tests/spend-check-empty.mjs"
   },

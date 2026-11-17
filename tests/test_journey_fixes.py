@@ -88,6 +88,46 @@ def test_coach_route_supplies_correct_rows_and_facts_for_all_history(coach_api,m
     assert all_history['verified_facts'][0]['date_range']['start']=='2026-08-01'
 
 
+def test_coach_route_supplies_confirmed_goal_and_whole_history_pace(coach_api,monkeypatch):
+    http,_,data=coach_api
+    data['goal']={'target_amount':6000,'target_date':'2027-12-01'}
+    captured={}
+    def answer(message,context,**kwargs):
+        captured.update(context)
+        return {'text':'checked','verified_facts':[],'proposed_actions':[]}
+    monkeypatch.setattr(main,'coach_chat',answer)
+    assert http.post('/coach',json={'message':'Am I on track to save?','period':'monthly','month':'2026-10'}).json()['text']=='checked'
+    assert captured['confirmed_goal']==data['goal']
+    assert captured['forecast_months_used']>=1
+    assert captured['goal_forecast']['target_amount']==6000
+
+
+def test_coach_greeting_does_not_recap_finances_without_ai(monkeypatch):
+    monkeypatch.setattr(ai_coach,'get_client',lambda:None)
+    result=ai_coach.coach_chat('hi',{'patterns':['Food is your biggest spend.']})
+    assert result['text'].startswith('Hi!')
+    assert 'Food is your biggest spend' not in result['text']
+    assert result['source']=='fallback'
+    assert result['mode_notice']
+
+
+def test_savings_pace_requires_confirmed_goal_and_full_month(monkeypatch):
+    provider=Mock()
+    monkeypatch.setattr(ai_coach,'get_client',lambda:provider)
+    base={'currency':'AUD','saved':1292.86,'date_range':{'start':'2026-06-01','end':'2026-06-11'},
+          'goal_forecast':{'on_track':True,'projected_total':6900,'monthly_rate':450}}
+    no_goal=ai_coach.coach_chat('Am I on track to save?',base)
+    assert "can't tell" in no_goal['text']
+    assert '2026-06-01 to 2026-06-11' in no_goal['text']
+    goal={**base,'confirmed_goal':{'target_amount':6000,'target_date':'2027-12-01'}}
+    no_full_month=ai_coach.coach_chat('Am I on track to save?',goal)
+    assert 'no complete calendar month' in no_full_month['text']
+    on_pace=ai_coach.coach_chat('Am I on track to save?',{**goal,'forecast_months_used':3})
+    assert 'on pace' in on_pace['text'] and '6,000.00' in on_pace['text']
+    assert on_pace['source']=='calculated'
+    provider.chat.completions.create.assert_not_called()
+
+
 def test_proposals_survive_history_and_expire_without_upgrading_revision(coach_api,monkeypatch):
     http,append,data=coach_api
     action={'kind':'budget','category':'Shopping','amount':350}

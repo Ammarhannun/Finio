@@ -7,7 +7,7 @@ load_dotenv()
 
 from openai import OpenAI
 
-from config import COACH_SYSTEM_PROMPT, CURRENCY, DISCLAIMER, OPENAI_MODEL
+from config import CATEGORIES, COACH_SYSTEM_PROMPT, CURRENCY, DISCLAIMER, OPENAI_MODEL
 from modules.bill_detector import estimated_monthly_bill_total
 from modules.ai_privacy import AIPrivacy, transaction_sample, redact_credentials
 from modules.ai_limits import ai_request_slot
@@ -249,6 +249,23 @@ COACH_TOOLS = [
         },
     }},
     {"type": "function", "function": {
+        "name": "propose_budgets",
+        "description": (
+            "Propose two or more monthly category budgets together when the user asks for multiple "
+            "budgets. Include every category they named. Use the entered monthly income, savings "
+            "target and complete-month spending in income_budget; never use a partial statement "
+            "period as a monthly average. Nothing is saved until the user confirms the batch."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"budgets": {"type": "array", "minItems": 2, "maxItems": 12,
+                "items": {"type": "object", "properties": {
+                    "category": {"type": "string"}, "amount": {"type": "number"},
+                    "why": {"type": "string"}}, "required": ["category", "amount"]}}},
+            "required": ["budgets"],
+        },
+    }},
+    {"type": "function", "function": {
         "name": "propose_goal",
         "description": (
             "Propose a savings goal (amount and/or target date) when the user "
@@ -385,6 +402,44 @@ def run_tool(name, args, transactions, context):
                              "why": args.get("why"), "recent_spend": round(spent, 2)},
                 "note": "Shown to the user for one-click confirmation. Not applied yet."}
 
+    if name == "propose_budgets":
+        rows = args.get("budgets")
+        if not isinstance(rows, list) or not 2 <= len(rows) <= 12:
+            return {"ok": False, "error": "Provide between 2 and 12 category budgets together."}
+        known = {name.casefold(): name for name in
+                 set(CATEGORIES) | set((context.get("income_budget") or {}).get("limits") or {})}
+        proposals = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return {"ok": False, "error": "Each budget needs a category and amount."}
+            category = known.get(str(row.get("category") or "").strip().casefold())
+            try:
+                amount = round(float(row.get("amount")), 2)
+            except (TypeError, ValueError, OverflowError):
+                return {"ok": False, "error": "Every budget amount must be a number."}
+            if (category is None or category.casefold() in seen or
+                    not math.isfinite(amount) or not 0 <= amount <= 100_000_000):
+                return {"ok": False, "error": "Use distinct known categories and finite non-negative amounts."}
+            seen.add(category.casefold())
+            proposals.append({"kind": "budget", "category": category, "amount": amount,
+                              "why": _plain(str(row.get("why") or ""))[:160]})
+        plan = context.get("income_budget") or {}
+        income = plan.get("monthly_income")
+        usual_total = plan.get("usual_monthly_spending")
+        if income is not None and usual_total is not None:
+            category_averages = plan.get("category_monthly") or {}
+            other_spending = max(0, float(usual_total) - sum(
+                float(category_averages.get(p["category"], 0)) for p in proposals))
+            savings_target = float(plan.get("monthly_savings_target") or 0)
+            available = float(income) - savings_target - other_spending
+            if sum(p["amount"] for p in proposals) > available + 0.01:
+                return {"ok": False, "error": (
+                    "Those limits exceed entered monthly income after the savings target and "
+                    "other usual spending. Revise the amounts or explain the trade-off.")}
+        return {"ok": True, "kind": "budgets", "proposals": proposals,
+                "note": "Shown together for one confirmation. Nothing saved yet."}
+
     if name == "propose_goal":
         amount = args.get("amount")
         target_date = args.get("target_date")
@@ -438,9 +493,53 @@ def run_tool(name, args, transactions, context):
     return {"error": f"unknown tool {name}"}
 
 
+def _is_savings_pace_question(message):
+    return bool(_re.search(
+        r"\b(?:on track|on pace)\b.*\b(?:sav\w*|goal)\b|\bwill i (?:reach|meet) my (?:savings )?goal\b",
+        message.lower(),
+    ))
+
+
 def fallback_coach_response(user_message, context, transactions=None):
     """No-API answer that still addresses the question, using the tools' logic."""
-    msg = user_message.lower()
+    msg = user_message.lower().strip()
+
+    if _re.fullmatch(r"(?:hi|hello|hey|hey there|good morning|good afternoon|good evening)[!. ]*", msg):
+        return "Hi! Ask me about a transaction, your spending, or a savings goal."
+
+    if _is_savings_pace_question(msg):
+        currency = context.get('currency', CURRENCY)
+        goal = context.get('confirmed_goal') or {}
+        forecast = context.get('goal_forecast') or {}
+        amount = goal.get('target_amount')
+        target_date = goal.get('target_date')
+        if not amount or not target_date:
+            dates = context.get('date_range') or {}
+            scope = (f" from {dates['start']} to {dates['end']}"
+                     if dates.get('start') and dates.get('end') else ' in the selected period')
+            saved = context.get('saved')
+            observed = (f" Your uploaded transactions show net savings of {currency} {saved:,.2f}{scope},"
+                        " but that is income minus spending, not your bank balance."
+                        if isinstance(saved, (int, float)) else '')
+            return ("I can't tell if you're on track without a savings goal amount and target date."
+                    f"{observed} Set or confirm a goal on Dashboard to check your projected pace.")
+        months = context.get('forecast_months_used') or 0
+        if months < 1:
+            return (f"Your goal is {currency} {amount:,.2f} by {target_date}, but I can't judge "
+                    "your pace yet: the uploaded history has no complete calendar month. "
+                    "Upload more history for a meaningful trend. Statement net savings are not your bank balance.")
+        projected = forecast.get('projected_total')
+        monthly = forecast.get('monthly_rate')
+        on_track = forecast.get('on_track')
+        if not isinstance(projected, (int, float)) or not isinstance(monthly, (int, float)) or not isinstance(on_track, bool):
+            return (f"Your goal is {currency} {amount:,.2f} by {target_date}, "
+                    "but I can't calculate a reliable projection right now.")
+        pace = "on pace" if on_track else "below the projected pace"
+        tentative = " This is tentative because only one complete month is available." if months == 1 else ""
+        return (f"Based on your uploaded history, you're {pace} for your {currency} {amount:,.2f} "
+                f"goal by {target_date}. The estimate projects {currency} {projected:,.2f} "
+                f"using about {currency} {monthly:,.2f} net saved per month.{tentative} "
+                "This is a forecast from statements, not your current bank balance or a guarantee.")
 
     if any(term in msg for term in ('balance', 'in my bank', 'cash available', 'money do i have', 'money have i got')):
         balance = context.get('available_balance') or {}
@@ -450,6 +549,18 @@ def fallback_coach_response(user_message, context, transactions=None):
         label = 'Your confirmed available balance' if balance.get('is_current') else 'Your last known balance'
         freshness = '' if balance.get('is_current') else ' Confirm today’s balance on Dashboard before a purchase check.'
         return f"{label} is {context.get('currency', CURRENCY)} {amount:,.2f}, as of {balance.get('as_of')}.{freshness} {balance.get('message', '')}".strip()
+
+    if _re.search(r"\b(?:income|earnings|salary|wages)\b", msg) and not _re.search(
+            r"\b(?:spend|spending|spent|refunds?)\b", msg):
+        dates = context.get("date_range") or {}
+        scope = (f" from {dates['start']} to {dates['end']}"
+                 if dates.get("start") and dates.get("end") else " in the selected period")
+        income = context.get("income")
+        if not isinstance(income, (int, float)):
+            return "I can't find a verified income total for the selected period. Try reloading your statement."
+        return (f"Your uploaded transactions record {context.get('currency', CURRENCY)} "
+                f"{income:,.2f} of income{scope}. "
+                "This is the selected period's total, not a monthly average.")
 
     # Try to answer a 'how much on X' question from the actual transactions.
     if transactions and ("how much" in msg or "spend" in msg or "spent" in msg):
@@ -555,12 +666,22 @@ def generate_insight(context):
 
 
 def calculated_facts(context, user_message=""):
-    """Numbers from the analysis, independent of generated prose."""
+    """Statement evidence only when the user asks about their figures."""
     if _re.search(r"\b(?:balance|cash available|in my bank)\b", user_message, _re.I):
         balance = context.get("available_balance") or {}
         return [{"kind": "balance", **{key: balance.get(key) for key in
             ("amount", "as_of", "source", "is_current", "provisional")},
             "currency": context.get("currency", CURRENCY)}]
+    # The summary is not a universal footer. Greetings and general concept
+    # questions have no reason to display the user's statement figures.
+    if not _re.search(
+        r"\b(?:spend\w*|sav\w*|income|earn\w*|budget\w*|goal\w*|money|cash|"
+        r"transaction\w*|categor\w*|merchant\w*|bill\w*|afford|refund\w*|"
+        r"transfer\w*|purchas\w*|buy|bought|cost\w*|price\w*|financial|"
+        r"how much)\b",
+        user_message, _re.I,
+    ):
+        return []
     return [{"kind": "summary", "read_scope": context.get("read_scope"), "income": context.get("income"),
              "spent": context.get("spent"), "saved": context.get("saved"),
              "date_range": context.get("date_range"), "currency": context.get("currency", CURRENCY),
@@ -569,10 +690,14 @@ def calculated_facts(context, user_message=""):
 
 def requested_action_tool(message, history=None):
     text = message.lower()
-    if not _re.search(r"\b(?:set|change|update|increase|lower|make|raise|reduce|move|adjust|create)\b", text):
+    if _re.search(r"\bapply\s+(?:to\s+)?all\b", text):
+        for row in reversed(history or []):
+            if row.get("role") == "user" and _re.search(r"\bbudgets?\b", row.get("content", ""), _re.I):
+                return "propose_budgets"
+    if not _re.search(r"\b(?:set|change|update|increase|lower|make|raise|reduce|move|adjust|create|propose|draft|apply|suggest)\b", text):
         return None
-    if _re.search(r"\bbudget\b", text):
-        return "propose_budget"
+    if _re.search(r"\bbudgets?\b", text):
+        return "propose_budgets" if _re.search(r"\bbudgets\b|\ball\b|\bmultiple\b|\bseveral\b", text) else "propose_budget"
     if _re.search(r"\bgoal\b", text):
         return "propose_goal"
     if _re.search(r"\b(?:profile|my age|income bracket)\b", text):
@@ -582,6 +707,14 @@ def requested_action_tool(message, history=None):
             if row.get("role") == "user":
                 return requested_action_tool(row.get("content", ""))
     return None
+
+
+def requested_budget_categories(message, context):
+    """Exact category names requested in a multi-budget edit, not keyword guesses."""
+    plan = context.get("income_budget") or {}
+    known = set(CATEGORIES) | set(plan.get("limits") or {}) | set(plan.get("category_monthly") or {})
+    return [category for category in sorted(known, key=len, reverse=True)
+            if _re.search(rf"(?<!\w){_re.escape(category)}(?!\w)", message, _re.I)]
 
 
 def proposal_reply(text, proposals, requested_tool=None):
@@ -596,6 +729,9 @@ def proposal_reply(text, proposals, requested_tool=None):
 def requested_total_tool(message):
     """Require calculation for spending-total questions, rather than generated arithmetic."""
     text = message.lower()
+    if _re.search(r"\b(?:income|earnings|salary|wages)\b", text) and not _re.search(
+        r"\b(?:spend|spending|spent|refunds?)\b", text):
+        return None  # Income is not a spending category or an expense-tool query.
     if _re.search(r"\b(?:should|could|would|afford|budget|limit|reduce|forecast|means?|meaning|definition|concept)\b|\bcan i spend\b", text):
         return None
     asks_total = _re.search(
@@ -634,15 +770,66 @@ def coach_chat(user_message, context, history=None, transactions=None, proposal_
     global last_llm_error
     last_llm_error = None
     history = history or []
-    client = get_client()
     facts = calculated_facts(context, user_message)
+    # A goal verdict is financial arithmetic, not conversational speculation.
+    # Answer it from the confirmed goal and whole-history forecast even when
+    # AI is enabled, so a model cannot mistake one partial month for a trend.
+    if _is_savings_pace_question(user_message):
+        return {"text": _plain(fallback_coach_response(user_message, context, transactions)),
+                "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": facts}
+    from modules.income_budget import (
+        budget_plan_fact, budget_question_answer, budget_suggestion_answer,
+        monthly_income_question_answer, monthly_spending_question_answer,
+        selected_period_total_answer,
+    )
+    plan = context.get("income_budget") or {}
     requested_tool = requested_action_tool(user_message, history)
+    monthly_income_reply = monthly_income_question_answer(
+        user_message, plan, context)
+    if monthly_income_reply:
+        text, fact = monthly_income_reply
+        return {"text": _plain(text), "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": [fact]}
+    monthly_spending_reply = monthly_spending_question_answer(user_message, plan, context)
+    if monthly_spending_reply:
+        text, fact = monthly_spending_reply
+        return {"text": _plain(text), "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": [fact]}
+    selected_total_reply = selected_period_total_answer(user_message, plan, context)
+    if selected_total_reply:
+        return {"text": _plain(selected_total_reply), "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": facts}
+    suggestion_reply = budget_suggestion_answer(user_message, plan) if not requested_tool else None
+    if suggestion_reply:
+        return {"text": _plain(suggestion_reply), "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get("currency", CURRENCY))]}
+    budget_reply = budget_question_answer(user_message, plan) if not requested_tool else None
+    if budget_reply:
+        return {"text": _plain(budget_reply), "source": "calculated", "disclaimer": DISCLAIMER,
+                "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get("currency", CURRENCY))]}
+    if requested_tool == "propose_budgets":
+        if plan.get("monthly_income") is None:
+            return {"text": "To propose several monthly budgets based on income, first enter your typical monthly take-home income in Profile. Nothing changed.",
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get("currency", CURRENCY))]}
+        if not plan.get("complete_months"):
+            return {"text": "I need at least one complete calendar month of uploaded transactions to propose several evidence-based monthly budgets. Nothing changed.",
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get("currency", CURRENCY))]}
+    client = get_client()
     total_tool = requested_total_tool(user_message) if not requested_tool else None
 
     if client is None:
         text = fallback_coach_response(user_message, context, transactions)
+        from modules.ai_policy import provider_allowed
+        notice = ("AI sharing is off. Enable it in Profile for conversational coaching; "
+                  "this reply uses Finio's limited built-in logic."
+                  if not provider_allowed() else
+                  "AI coaching is unavailable right now; this reply uses Finio's limited built-in logic.")
         return {"text": _plain(proposal_reply(text, [], requested_tool)), "source": "fallback", "disclaimer": DISCLAIMER,
-                "quick_questions_used": False, "proposed_actions": [], "verified_facts": facts}
+                "quick_questions_used": False, "proposed_actions": [], "verified_facts": facts,
+                "mode_notice": notice}
 
     privacy = AIPrivacy()
     sample = transaction_sample(transactions)
@@ -719,11 +906,18 @@ def coach_chat(user_message, context, history=None, transactions=None, proposal_
                 if tc.function.name == "category_total" and "total" in result:
                     fact = {"kind": "category_total", **result, "date_range": context.get("date_range")}
                     facts.append(fact)
+                if result.get("ok") and result.get("proposals") and tc.function.name == "propose_budgets":
+                    expected = requested_budget_categories(user_message, context)
+                    actual = [p["category"] for p in result["proposals"]]
+                    if len(expected) >= 2 and set(actual) != set(expected):
+                        result = {"ok": False, "error": "Include exactly all categories the user named: " + ", ".join(expected)}
                 if result.get("ok") and result.get("proposal"):
                     proposal = result["proposal"]
                     if proposal.get("why"):
                         proposal["why"] = _plain(proposal["why"])
                     proposals.append(proposal)
+                elif result.get("ok") and result.get("proposals"):
+                    proposals.extend(result["proposals"])
                 messages.append({
                     "role": "tool", "tool_call_id": tc.id,
                     "content": json.dumps(result, default=str),
@@ -739,7 +933,8 @@ def coach_chat(user_message, context, history=None, transactions=None, proposal_
     # Tool budget exhausted or call failed → still answer the question.
     text = fallback_coach_response(user_message, context, transactions)
     return {"text": _plain(proposal_reply(text, proposals, requested_tool)), "source": "fallback", "disclaimer": DISCLAIMER,
-            "proposed_actions": proposals, "verified_facts": facts}
+            "proposed_actions": proposals, "verified_facts": facts,
+            "mode_notice": "AI coaching is temporarily unavailable; this reply uses Finio's limited built-in logic."}
 
 
 def explain_budgets(budgets_result, context):

@@ -201,6 +201,7 @@
       </div>
 <div class="card" id="budgets-card" data-widget="budgets">
         <div class="section-title" id="budget-scope">Monthly budgets</div>
+        <p id="income-budget-summary" class="tx-help" role="status"></p>
         <div id="budget-bars"></div>
       </div>
 <div class="card" id="anomaly-card" data-widget="anomalies" style="display:none;">
@@ -509,6 +510,19 @@
   function renderBudgets(data) {
     budgetTargets = data.budget_targets || budgetTargets || {};
     document.getElementById('budget-scope').textContent = `Budgets · ${data.period?.label || 'latest statement month'}`;
+    const plan = data.income_budget || {};
+    const summary = document.getElementById('income-budget-summary');
+    if (plan.monthly_income == null) {
+      summary.innerHTML = 'Add your typical monthly take-home income in <a href="profile.html">Profile</a> to check whether your limits fit your income.';
+    } else if (!plan.complete_months) {
+      summary.textContent = `Entered income: ${formatAUD(plan.monthly_income)}/month. Upload at least one complete calendar month to compare it with usual spending.`;
+    } else {
+      const remainder = plan.monthly_savings_target == null
+        ? plan.remaining_before_savings : plan.remaining_after_savings_target;
+      const label = plan.monthly_savings_target == null ? 'before setting a savings target' : 'after your savings target';
+      const position = remainder >= 0 ? `${formatAUD(remainder)} left` : `${formatAUD(-remainder)} short`;
+      summary.textContent = `Your entered income: ${formatAUD(plan.monthly_income)}/month · usual spending: ${formatAUD(plan.usual_monthly_spending)}/month (${plan.complete_months} complete months) · ${position} ${label}. These are statement estimates, not a bank balance.`;
+    }
     const budgetList = (data.budgets?.budgets || []).filter(b =>
       (b.actual_spend || 0) > 0 || b.suggested_limit != null);
     const barsEl = document.getElementById('budget-bars');
@@ -532,7 +546,8 @@
         footer = (b.suggested_limit === 0
           ? (b.actual_spend > 0 ? 'Over your zero-spend target' : 'Zero-spend target met')
           : `${(headroom ?? 0).toFixed(0)}% headroom left`)
-          + (isMine ? ' · your limit' : ' · suggested');
+          + (isMine ? ' · your limit' : ' · prior-period baseline');
+        if (plan.monthly_income > 0) footer += ` · ${(b.suggested_limit / plan.monthly_income * 100).toFixed(1)}% of entered income`;
         amounts = `${formatAUD(b.actual_spend)} <span style="opacity:0.5;">/</span> `
           + `<button type="button" class="budget-limit" data-cat="${cat}" title="Set your own limit">${formatAUD(b.suggested_limit)}</button>`;
       } else {

@@ -66,6 +66,9 @@
       files are removed after processing. Parsed transactions, balances, analysis,
       preferences and coach conversations are stored in the operator's Supabase database,
       separated by account access rules.</p>
+    <p>If you enter typical monthly take-home income or a monthly savings target in Profile,
+      Finio stores those planning amounts with your account. They are used for budget
+      comparisons, not treated as a live bank balance or as transactions from your statement.</p>
   </section>
 
   <section class="card priv-card">
@@ -88,7 +91,8 @@
     <p>When AI is enabled, Finio sends cleaned merchant names, amounts and frequency
       information to OpenAI for categorisation. Raw bank-description examples are excluded.
       Coach messages, selected financial context and relevant transaction details may also
-      be sent to answer your questions. Merchant names may be embedded for search. Uploaded
+      be sent to answer your questions, including your entered monthly planning amounts when
+      relevant. Merchant names may be embedded for search. Uploaded
       files themselves are parsed by Finio, not sent as files to the coach.</p>
     <p>Before AI requests, Finio masks common email addresses, phone numbers, account and
       card references, and recognisable street addresses. Unnecessary transaction metadata
