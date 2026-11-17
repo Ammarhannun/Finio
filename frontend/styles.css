@@ -1921,12 +1921,12 @@ body.coach-splitting canvas {
 .cw-proposal-batch { width: min(92%, 100%); flex-wrap: wrap; border-style: dashed; }
 .cw-proposal-preview { margin-left: 0.65rem; background: transparent; }
 .cw-proposal-applied { opacity: 0.72; }
-.cw-apply, .cw-apply-all {
+.cw-apply, .cw-apply-all, .cw-refresh-budgets {
   background: var(--accent); color: #fff; border: none; border-radius: 99px;
   padding: 0.4rem 1rem; font-weight: 600; font-size: 0.8125rem; cursor: pointer;
   white-space: nowrap;
 }
-.cw-apply:disabled, .cw-apply-all:disabled { opacity: 0.6; cursor: default; }
+.cw-apply:disabled, .cw-apply-all:disabled, .cw-refresh-budgets:disabled { opacity: 0.6; cursor: default; }
 
 .cw-form {
   display: flex; gap: 0.5rem;

@@ -131,6 +131,31 @@ def test_plural_budget_request_without_entered_income_does_not_invent_limits(syn
     provider.chat.completions.create.assert_not_called()
 
 
+def test_explicit_multiple_limits_need_no_income_or_model(synthetic_coach, monkeypatch):
+    _, data, context = synthetic_coach
+    context["income_budget"]["monthly_income"] = None
+    provider = Mock()
+    monkeypatch.setattr(ai_coach, "get_client", lambda: provider)
+    result = ai_coach.coach_chat(
+        "Set these exact monthly budgets for review: Food & Dining $800, "
+        "Transport $250, Groceries $600, Entertainment $100, Subscriptions $80.",
+        context, transactions=data["transactions"])
+    assert result["source"] == "calculated"
+    assert [p["amount"] for p in result["proposed_actions"]] == [800, 250, 600, 100, 80]
+    assert all(p["why"] == "Amount you specified" for p in result["proposed_actions"])
+    provider.chat.completions.create.assert_not_called()
+
+
+def test_incomplete_explicit_limits_do_not_guess_missing_category(synthetic_coach, monkeypatch):
+    _, data, context = synthetic_coach
+    context["income_budget"]["monthly_income"] = None
+    monkeypatch.setattr(ai_coach, "get_client", lambda: Mock())
+    result = ai_coach.coach_chat("Set budgets for Food & Dining $800 and Transport", context,
+                                transactions=data["transactions"])
+    assert result["proposed_actions"] == []
+    assert "enter your typical monthly" in result["text"]
+
+
 def test_multi_budget_tool_rejects_limits_that_exceed_income(synthetic_coach):
     _, data, context = synthetic_coach
     result = ai_coach.run_tool("propose_budgets", {"budgets": [

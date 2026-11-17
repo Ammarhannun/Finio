@@ -19,6 +19,24 @@ export function buildBudgetBatch(proposals) {
   return { revision, targets: Object.fromEntries(entries), count: entries.length };
 }
 
+// An old reply must never be rebased silently. Offer only a draft containing
+// the exact amounts, so the user can request new cards against current data.
+export function buildStaleBudgetDraft(proposals) {
+  if (!Array.isArray(proposals) || proposals.length < 2 ||
+      proposals.some(p => p?.kind !== 'budget' || !p.expired)) return null;
+  const seen = new Set();
+  const items = [];
+  for (const proposal of proposals) {
+    const category = proposal.category;
+    if (typeof category !== 'string' || !category.trim() || category.length > 60 ||
+        seen.has(category.toLowerCase()) || !Number.isFinite(proposal.amount) ||
+        proposal.amount < 0 || proposal.amount > 100_000_000) return null;
+    seen.add(category.toLowerCase());
+    items.push({ category, amount: proposal.amount });
+  }
+  return { items, count: items.length };
+}
+
 export function saveBudgetBatch(batch, request) {
   if (!batch) throw new Error('No valid budget batch to save');
   return request('/budgets', { method: 'POST',

@@ -1,7 +1,7 @@
 import { updateMobileCoachState } from './mobile-navigation.js';
 import { splitLayout, PAGE_MIN_PX, COACH_MIN_PX } from './coach-layout.js';
 import { appendFacts } from './financial-facts.js';
-import { buildBudgetBatch, saveBudgetBatch, undoBudgetBatch } from './coach-batch.js';
+import { buildBudgetBatch, buildStaleBudgetDraft, saveBudgetBatch, undoBudgetBatch } from './coach-batch.js';
 // Floating AI-coach widget, mounted on every page.
 // - Bottom-right bubble → slide-up chat panel → split-screen with the current page.
 // - Drag the divider while keeping both panes usable. Narrow screens use full chat.
@@ -601,6 +601,7 @@ export function mountCoachWidget(page) {
 
   function addProposals(proposals, parent) {
     const batch = buildBudgetBatch(proposals);
+    const staleDraft = batch ? null : buildStaleBudgetDraft(proposals);
     let batchButton = null;
     let appliedState = null;
     if (batch) {
@@ -611,8 +612,22 @@ export function mountCoachWidget(page) {
         + `<button type="button" class="cw-apply-all">Apply all ${batch.count} budgets</button>`;
       parent.appendChild(group);
       batchButton = group.querySelector('.cw-apply-all');
+    } else if (staleDraft) {
+      const group = document.createElement('div');
+      group.className = 'cw-proposal cw-proposal-batch';
+      group.innerHTML = `<div class="cw-prop-text"><b>These ${staleDraft.count} amounts are from an older proposal</b>`
+        + `<span class="cw-prop-count">Your data changed. Review the amounts below; nothing will be saved from this old reply.</span></div>`
+        + `<button type="button" class="cw-refresh-budgets">Draft a fresh request</button>`;
+      parent.appendChild(group);
+      group.querySelector('.cw-refresh-budgets').addEventListener('click', () => {
+        const amounts = staleDraft.items.map(item => `${item.category} ${formatAUD(item.amount)}`).join(', ');
+        input.value = `Set these exact monthly budgets for review: ${amounts}. Do not apply them yet.`;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+        showToast('Review the drafted amounts, then press Send for fresh proposal cards.');
+      });
     }
-    const cards = (proposals || []).map(p => addProposal(p, parent, !!batch)).filter(Boolean);
+    const cards = (proposals || []).map(p => addProposal(p, parent, !!batch || !!staleDraft)).filter(Boolean);
     if (!batchButton) return;
     batchButton.addEventListener('click', async () => {
       batchButton.disabled = true;

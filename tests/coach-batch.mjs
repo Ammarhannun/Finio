@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBudgetBatch, saveBudgetBatch, undoBudgetBatch } from '../frontend/coach-batch.js';
+import { buildBudgetBatch, buildStaleBudgetDraft, saveBudgetBatch, undoBudgetBatch } from '../frontend/coach-batch.js';
 
 const revision = '11111111-1111-1111-1111-111111111111';
 const budget = (category, amount, extra = {}) =>
@@ -24,6 +24,16 @@ test('stale, missing, or mismatched revisions cannot be batched', () => {
   assert.equal(buildBudgetBatch([budget('Groceries', 600), budget('Transport', 250, { expired: true })]), null);
   assert.equal(buildBudgetBatch([budget('Groceries', 600), budget('Transport', 250, { revision: 'other' })]), null);
   assert.equal(buildBudgetBatch([budget('Groceries', 600), budget('Transport', 250, { revision: null })]), null);
+});
+
+test('old budget cards can draft exact amounts but cannot be saved as a stale batch', () => {
+  const old = [budget('Food & Dining', 800, { expired: true }),
+    budget('Transport', 250, { expired: true })];
+  assert.equal(buildBudgetBatch(old), null);
+  assert.deepEqual(buildStaleBudgetDraft(old), { count: 2,
+    items: [{ category: 'Food & Dining', amount: 800 }, { category: 'Transport', amount: 250 }] });
+  assert.equal(buildStaleBudgetDraft([old[0], budget('Groceries', 600)]), null);
+  assert.equal(buildStaleBudgetDraft([old[0], budget('food & dining', 700, { expired: true })]), null);
 });
 
 test('ambiguous or invalid budget proposals cannot be bundled', () => {

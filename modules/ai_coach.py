@@ -713,8 +713,33 @@ def requested_budget_categories(message, context):
     """Exact category names requested in a multi-budget edit, not keyword guesses."""
     plan = context.get("income_budget") or {}
     known = set(CATEGORIES) | set(plan.get("limits") or {}) | set(plan.get("category_monthly") or {})
-    return [category for category in sorted(known, key=len, reverse=True)
-            if _re.search(rf"(?<!\w){_re.escape(category)}(?!\w)", message, _re.I)]
+    found = [(match.start(), category) for category in known
+             if (match := _re.search(rf"(?<!\w){_re.escape(category)}(?!\w)", message, _re.I))]
+    return [category for _, category in sorted(found)]
+
+
+def explicit_budget_amounts(message, context):
+    """Only accept a complete set of named category/amount pairs supplied by the user."""
+    categories = requested_budget_categories(message, context)
+    if len(categories) < 2:
+        return None
+    amounts = {}
+    for category in categories:
+        match = _re.search(
+            rf"(?<!\w){_re.escape(category)}(?!\w)\s*"
+            rf"(?:(?:monthly\s+)?(?:budget|limit)\s*)?"
+            rf"(?:to|at|of|=|:)?\s*\$?(\d[\d,]*(?:\.\d{{1,2}})?)\b",
+            message, _re.I)
+        if not match:
+            return None
+        try:
+            amount = round(float(match.group(1).replace(",", "")), 2)
+        except ValueError:
+            return None
+        if not math.isfinite(amount) or amount > 100_000_000:
+            return None
+        amounts[category] = amount
+    return amounts
 
 
 def proposal_reply(text, proposals, requested_tool=None):
@@ -809,6 +834,14 @@ def coach_chat(user_message, context, history=None, transactions=None, proposal_
         return {"text": _plain(budget_reply), "source": "calculated", "disclaimer": DISCLAIMER,
                 "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get("currency", CURRENCY))]}
     if requested_tool == "propose_budgets":
+        explicit = explicit_budget_amounts(user_message, context)
+        if explicit:
+            return {"text": "You specified these monthly limits. Review every amount below, then apply them together if they are still what you want. Nothing has changed yet.",
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [{"kind": "budget", "category": category, "amount": amount,
+                                          "why": "Amount you specified"}
+                                         for category, amount in explicit.items()],
+                    "verified_facts": []}
         if plan.get("monthly_income") is None:
             return {"text": "To propose several monthly budgets based on income, first enter your typical monthly take-home income in Profile. Nothing changed.",
                     "source": "calculated", "disclaimer": DISCLAIMER,
