@@ -690,6 +690,24 @@ def calculated_facts(context, user_message=""):
 
 def requested_action_tool(message, history=None):
     text = message.lower()
+    # A short confirmation can refer to the immediately preceding coach offer.
+    # Keep the window narrow: an old budget discussion must not turn an
+    # unrelated "yes" into a new financial proposal.
+    recent = (history or [])[-4:]
+    if _re.fullmatch(
+        r"\s*(?:yes|yeah|yep|sure|ok(?:ay)?|please|go ahead|do (?:it|that)|"
+        r"yes[, ]+(?:please|adjust|do (?:it|that))|adjust (?:it|them|those))\s*[.!]*\s*",
+        text,
+    ) and recent and recent[-1].get("role") == "assistant":
+        offer = recent[-1].get("content", "")
+        if _re.search(r"\b(?:would you like|want me to|shall i|should i|can i)\b", offer, _re.I):
+            for row in reversed(recent[:-1]):
+                if row.get("role") != "user":
+                    continue
+                prior_tool = requested_action_tool(row.get("content", ""))
+                if prior_tool and _re.search(r"\b(?:budgets?|limits?|goal|profile)\b", offer, _re.I):
+                    return prior_tool
+                break
     if _re.search(r"\bapply\s+(?:to\s+)?all\b", text):
         for row in reversed(history or []):
             if row.get("role") == "user" and _re.search(r"\bbudgets?\b", row.get("content", ""), _re.I):

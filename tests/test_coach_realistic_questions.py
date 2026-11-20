@@ -172,6 +172,34 @@ def test_multi_budget_intent_recognises_followup_and_plurals():
         {"role": "user", "content": "Please propose budgets for Groceries and Transport"}]) == "propose_budgets"
 
 
+def test_short_confirmation_continues_only_the_immediate_budget_offer():
+    history = [
+        {"role": "user", "content": "I want to save $500 per month, update my budgets"},
+        {"role": "assistant", "content": "Would you like me to adjust your budget limits?"},
+    ]
+    assert ai_coach.requested_action_tool("yes adjust", history) == "propose_budgets"
+    assert ai_coach.requested_action_tool("yes", history) == "propose_budgets"
+    assert ai_coach.requested_action_tool("no", history) is None
+    assert ai_coach.requested_action_tool("yes", history + [
+        {"role": "user", "content": "What were my subscriptions last month?"},
+        {"role": "assistant", "content": "Would you like me to show the transactions?"},
+    ]) is None
+
+
+def test_budget_followup_without_entered_income_requests_profile(synthetic_coach, monkeypatch):
+    _, data, context = synthetic_coach
+    context["income_budget"]["monthly_income"] = None
+    provider = Mock()
+    monkeypatch.setattr(ai_coach, "get_client", lambda: provider)
+    result = ai_coach.coach_chat("yes adjust", context, history=[
+        {"role": "user", "content": "I want to save $500 per month, update my budgets"},
+        {"role": "assistant", "content": "Would you like me to adjust your budget limits?"},
+    ], transactions=data["transactions"])
+    assert "monthly take-home income in Profile" in result["text"]
+    assert result["proposed_actions"] == []
+    provider.chat.completions.create.assert_not_called()
+
+
 def test_question_savings_scenario_does_not_become_the_category_amount(synthetic_coach):
     _, data, context = synthetic_coach
     result = ai_coach.coach_chat(
