@@ -42,6 +42,8 @@ def test_net_credits_stay_visible_and_reconcile():
     ('Across all uploaded months, what did I spend?', 'all', None),
     ('What did I spend all time?', 'all', None),
     ('How much did I ever spend at Zara?', 'all', None),
+    ('Show all my transfers', 'all', None),
+    ('How much did I spend last month?', 'monthly', '2026-09'),
     ('How much in September 2026?', 'monthly', '2026-09'),
     ('What about 2026-08?', 'monthly', '2026-08'),
     ('How much at Zara?', 'monthly', '2026-10'),

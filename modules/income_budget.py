@@ -147,6 +147,8 @@ def monthly_spending_question_answer(message, plan, context):
 def selected_period_total_answer(message, plan, context):
     """Total income/spending questions use the selected period's known metrics."""
     text = message.lower()
+    if re.search(r"\b(?:biggest|largest|top|highest)\b", text):
+        return None  # A category ranking is not the overall spending total.
     if _asks_usual_month(text) or _mentioned_category(text, plan):
         return None
     if not re.search(r"\bhow much\b|\btotal\b|\bwhat(?:'s| is| was) my\b", text):
@@ -169,6 +171,52 @@ def selected_period_total_answer(message, plan, context):
             if income else "Expenses are net of refunds; transfers are excluded.")
     return (f"Your recorded {label} was {context.get('currency') or 'AUD'} {amount:,.2f}{scope}. "
             f"{note} This is the selected period's total, not a monthly average.")
+
+
+def selected_period_savings_answer(message, context):
+    """State observed net savings without implying a partial month is a trend."""
+    text = message.lower()
+    if not re.search(r"\b(?:how much (?:did|have) i sav\w*|what(?:'s| is| was) my savings rate)\b", text):
+        return None
+    income, saved = context.get("income"), context.get("saved")
+    if not isinstance(income, (int, float)) or not isinstance(saved, (int, float)):
+        return "I can't verify net savings for this statement period right now."
+    dates = context.get("date_range") or {}
+    scope = (f" from {dates['start']} to {dates['end']}"
+             if dates.get("start") and dates.get("end") else " in the selected statement period")
+    currency = context.get("currency") or "AUD"
+    rate = (f" ({saved / income * 100:.1f}% of recorded income)" if income > 0 else "")
+    return (f"Your recorded net savings were {currency} {saved:,.2f}{scope}{rate}. "
+            "This is income minus spending in the selected period, not your bank balance "
+            "or a reliable monthly pace unless the period covers a complete month.")
+
+
+def budget_overview_answer(message, plan):
+    """Answer a broad planning question from complete-month evidence, not guesses."""
+    text = message.lower()
+    if not re.search(r"\b(?:what should|what would|how should|recommend|suggest)\b.*\b(?:monthly budgets|budgets per month|budgets be)\b", text):
+        return None
+    income = plan.get("monthly_income")
+    if income is None:
+        return "Enter your typical monthly take-home income in Profile before I can assess a monthly budget plan. Nothing has changed."
+    months = int(plan.get("complete_months") or 0)
+    spent = plan.get("usual_monthly_spending")
+    if not months or spent is None:
+        return "I need at least one complete calendar month of transactions before suggesting evidence-based monthly limits. Nothing has changed."
+    savings = plan.get("monthly_savings_target")
+    remainder = income - spent - (savings or 0)
+    target = (f" and your entered ${savings:,.2f} savings target" if savings is not None
+              else " before any savings target")
+    direction = (f"leaves ${remainder:,.2f} unallocated" if remainder >= 0 else
+                 f"is short by ${-remainder:,.2f}")
+    categories = sorted((plan.get("category_monthly") or {}).items(),
+                        key=lambda item: (-item[1], item[0]))
+    baseline = ", ".join(f"{name} ${amount:,.2f}" for name, amount in categories[:6])
+    return (f"Across {months} complete statement month{'s' if months != 1 else ''}, "
+            f"you spent about ${spent:,.2f}/month. Against your entered ${income:,.2f} monthly income{target}, "
+            f"that {direction}. Historical category averages: {baseline or 'none available'}. "
+            "These are baselines, not recommended limits. Tell me which categories to draft, "
+            "and review every proposed amount before applying it. Nothing has changed.")
 
 
 def budget_suggestion_answer(message, plan):
