@@ -178,6 +178,7 @@ def test_short_confirmation_continues_only_the_immediate_budget_offer():
         {"role": "assistant", "content": "Would you like me to adjust your budget limits?"},
     ]
     assert ai_coach.requested_action_tool("yes adjust", history) == "propose_budgets"
+    assert ai_coach.requested_action_tool("yes adjeust", history) == "propose_budgets"
     assert ai_coach.requested_action_tool("yes", history) == "propose_budgets"
     assert ai_coach.requested_action_tool("no", history) is None
     assert ai_coach.requested_action_tool("yes", history + [

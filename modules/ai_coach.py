@@ -696,7 +696,7 @@ def requested_action_tool(message, history=None):
     recent = (history or [])[-4:]
     if _re.fullmatch(
         r"\s*(?:yes|yeah|yep|sure|ok(?:ay)?|please|go ahead|do (?:it|that)|"
-        r"yes[, ]+(?:please|adjust|do (?:it|that))|adjust (?:it|them|those))\s*[.!]*\s*",
+        r"yes[, ]+(?:please|adj(?:e)?ust|do (?:it|that))|adj(?:e)?ust (?:it|them|those))\s*[.!]*\s*",
         text,
     ) and recent and recent[-1].get("role") == "assistant":
         offer = recent[-1].get("content", "")
