@@ -395,6 +395,25 @@ def run_tool(name, args, transactions, context):
             return {"ok": False, "error": "amount must be a number"}
         if not category or len(category) > 60 or not math.isfinite(amount) or not 0 <= amount <= 100_000_000:
             return {"ok": False, "error": "need a category and a non-negative amount"}
+        requested_category = context.get('requested_budget_category')
+        if requested_category and category.casefold() != requested_category.casefold():
+            return {"ok": False, "error": f"The user asked about {requested_category}, not {category}."}
+        explicit_amount = context.get('explicit_budget_amount')
+        if explicit_amount is not None and abs(amount - explicit_amount) > 0.01:
+            return {"ok": False, "error": "Use the exact amount the user specified."}
+        if requested_category and explicit_amount is None:
+            plan = context.get('income_budget') or {}
+            categories = plan.get('category_monthly') or {}
+            income, total = plan.get('monthly_income'), plan.get('usual_monthly_spending')
+            if income is None or total is None or category not in categories:
+                return {"ok": False, "error": "An evidence-based limit needs entered income and complete-month category spending."}
+            other = max(0, float(total) - float(categories[category]))
+            savings = context.get('question_monthly_savings_target')
+            if savings is None:
+                savings = plan.get('monthly_savings_target') or 0
+            room = float(income) - float(savings) - other
+            if amount > room + 0.01:
+                return {"ok": False, "error": "This proposed limit exceeds income after other usual spending and the savings target."}
         spent = sum(-float(r["amount"]) for r in _expense_rows(transactions)
                     if str(r.get("category", "")).lower() == category.lower())
         return {"ok": True, "kind": "budget",
@@ -905,17 +924,52 @@ def coach_chat(user_message, context, history=None, transactions=None, proposal_
                 "source": "calculated", "disclaimer": DISCLAIMER,
                 "proposed_actions": [], "verified_facts": facts}
     from modules.income_budget import (
-        _savings_target_for_question,
+        _mentioned_category, _savings_target_for_question,
         budget_overview_answer, budget_plan_fact, budget_question_answer, budget_suggestion_answer,
         monthly_income_question_answer, monthly_spending_question_answer,
         selected_period_savings_answer, selected_period_total_answer,
     )
     plan = context.get("income_budget") or {}
     requested_tool = requested_action_tool(user_message, history)
-    if requested_tool == 'propose_budgets':
+    if requested_tool in ('propose_budget', 'propose_budgets'):
         question_target, target_source = _savings_target_for_question(user_message.lower(), plan)
         if target_source == 'question':
             context = {**context, 'question_monthly_savings_target': question_target}
+    if requested_tool == 'propose_budget':
+        category = _mentioned_category(user_message.lower(), plan)
+        if not category:
+            return {"text": "Which spending category should I draft a monthly limit for? Nothing changed.",
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [], "verified_facts": []}
+        context = {**context, 'requested_budget_category': category}
+        explicit = _re.search(
+            r"\b(?:budget|limit)\b.{0,40}?\b(?:to|at|of)\s*\$?(\d[\d,]*(?:\.\d{1,2})?)\b",
+            user_message, _re.I)
+        if explicit:
+            context = {**context, 'explicit_budget_amount': float(explicit.group(1).replace(',', ''))}
+        elif plan.get('monthly_income') is None:
+            return {"text": "Enter your typical monthly take-home income in Profile before I draft an evidence-based budget. Or specify the exact limit you want. Nothing changed.",
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get('currency', CURRENCY))]}
+        elif category not in (plan.get('category_monthly') or {}):
+            return {"text": (f"I have no complete-month spending history for {category}. "
+                             "Specify the exact monthly limit you want instead; I won't invent one. Nothing changed."),
+                    "source": "calculated", "disclaimer": DISCLAIMER,
+                    "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get('currency', CURRENCY))]}
+        if not explicit:
+            other = max(0.0, float(plan['usual_monthly_spending']) -
+                        float(plan['category_monthly'][category]))
+            savings = context.get('question_monthly_savings_target')
+            if savings is None:
+                savings = plan.get('monthly_savings_target') or 0
+            room = float(plan['monthly_income']) - float(savings) - other
+            if room <= 0:
+                return {"text": (f"Your entered monthly income leaves no room for {category} after "
+                                 f"about ${other:,.2f} of other usual spending and a ${savings:,.2f} "
+                                 f"monthly savings target. The plan is short by ${-room:,.2f} before "
+                                 "this category, so I won't invent a limit. Review the whole plan first. Nothing changed."),
+                        "source": "calculated", "disclaimer": DISCLAIMER,
+                        "proposed_actions": [], "verified_facts": [budget_plan_fact(user_message, plan, context.get('currency', CURRENCY))]}
     for answer in (_category_rank_answer(user_message, context),
                    _selected_transfer_answer(user_message, transactions, context),
                    selected_period_savings_answer(user_message, context),

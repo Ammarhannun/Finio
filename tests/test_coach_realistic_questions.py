@@ -75,6 +75,7 @@ def test_synthetic_history_has_correct_monthly_truth(synthetic_coach):
     ("How much did I save this month?", "net savings were AUD 1,600.00", "great job"),
     ("What is my savings rate?", "80.0% of recorded income", "great job"),
     ("What should my monthly budgets be?", "Historical category averages:", "you've only spent"),
+    ("I need a grocery limit but do not know an amount", "draft starting reference is your $500.00 historical average", "Would you like to confirm"),
     ("Show me all my transfers", "no transactions classified as transfers", "no transfers recorded in your transaction history"),
     ("Can I afford a $700 laptop if my balance is $1,500?", "hypothetical until you confirm it", "you might be okay"),
 ])
@@ -212,6 +213,38 @@ def test_question_savings_target_overrides_profile_only_for_budget_validation(sy
     assert result["proposed_actions"] == []
     assert context["income_budget"]["monthly_savings_target"] == 800
     assert "exceed entered monthly income" in provider.chat.completions.create.call_args_list[1].kwargs["messages"][-1]["content"]
+
+
+def test_single_budget_without_history_never_invents_an_amount(synthetic_coach, monkeypatch):
+    _, data, context = synthetic_coach
+    provider = Mock()
+    monkeypatch.setattr(ai_coach, "get_client", lambda: provider)
+    result = ai_coach.coach_chat("Set a budget for entertainment", context,
+                                transactions=data["transactions"])
+    assert "no complete-month spending history for Entertainment" in result["text"]
+    assert result["proposed_actions"] == []
+    provider.chat.completions.create.assert_not_called()
+    impossible = ai_coach.coach_chat(
+        "Propose a monthly budget for groceries to save $2,000", context,
+        transactions=data["transactions"])
+    assert "short by $100.00 before this category" in impossible["text"]
+    assert impossible["proposed_actions"] == []
+    provider.chat.completions.create.assert_not_called()
+
+
+def test_single_budget_tool_respects_category_explicit_amount_and_savings_room(synthetic_coach):
+    _, data, context = synthetic_coach
+    context.update(requested_budget_category="Groceries", explicit_budget_amount=450)
+    assert ai_coach.run_tool("propose_budget", {"category": "Groceries", "amount": 450},
+                             data["transactions"], context)["ok"]
+    assert not ai_coach.run_tool("propose_budget", {"category": "Transport", "amount": 450},
+                                 data["transactions"], context)["ok"]
+    assert not ai_coach.run_tool("propose_budget", {"category": "Groceries", "amount": 500},
+                                 data["transactions"], context)["ok"]
+    del context["explicit_budget_amount"]
+    context["question_monthly_savings_target"] = 2000
+    assert not ai_coach.run_tool("propose_budget", {"category": "Groceries", "amount": 400},
+                                 data["transactions"], context)["ok"]
 
 
 def test_transfer_list_is_scoped_to_provided_transactions(synthetic_coach):

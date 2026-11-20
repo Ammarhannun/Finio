@@ -225,7 +225,10 @@ def budget_suggestion_answer(message, plan):
         return None  # Old callers without planning context keep normal coaching.
     text = message.lower()
     category = _mentioned_category(text, plan)
-    if not category or not re.search(r"\b(?:should|suggest|recommend|allocate)\b", text):
+    if not category or not re.search(
+            r"\b(?:should|suggest|recommend|allocate)\b|"
+            r"\b(?:need|want)\b.{0,35}\b(?:budget|limit)\b|"
+            r"\blooking for\b.{0,35}\b(?:budget|limit)\b", text):
         return None
     if not re.search(r"\b(?:budget|limit|spend)\b", text):
         return None
